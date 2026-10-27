@@ -124,6 +124,13 @@ impl std::fmt::Display for Failure {
     }
 }
 
+/// The one canonical version banner. LF-terminated on purpose: the delivery
+/// court compares these exact bytes, so a CRLF or a missing newline is a
+/// failure, not a formatting choice. `env!` binds it to `Cargo.toml` at
+/// compile time -- a Cargo.toml version bump without a matching court
+/// expectation fails the release, never drifts silently.
+pub const VERSION_BANNER: &str = concat!("minicon-harness ", env!("CARGO_PKG_VERSION"), "\n");
+
 /// What it takes to run one task end to end.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Request {
@@ -141,9 +148,20 @@ pub struct Request {
     pub key_env: String,
 }
 
+/// What flag parsing produced. `Version` short-circuits the run: printing
+/// the version never requires a task, a root or an API key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Parsed {
+    Version,
+    Run(Request),
+}
+
 /// Parses the CLI form: `--root PATH --task TEXT [--base-url URL]
 /// [--model NAME] [--allow-cmd NAME]... [--key-env NAME]`.
-pub fn parse_args(args: &[String]) -> Result<Request, String> {
+pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
+    if args.len() == 1 && args[0] == "--version" {
+        return Ok(Parsed::Version);
+    }
     let usage = "usage: minicon-harness --root PATH --task TEXT [--base-url URL] \
                  [--model NAME] [--allow-cmd NAME]... [--key-env NAME]"
         .to_owned();
@@ -175,7 +193,7 @@ pub fn parse_args(args: &[String]) -> Result<Request, String> {
             }
         }
     }
-    Ok(Request {
+    Ok(Parsed::Run(Request {
         root: root.ok_or_else(|| {
             format!(
                 "--root PATH is required (there is deliberately no implicit current-directory \
@@ -187,7 +205,7 @@ pub fn parse_args(args: &[String]) -> Result<Request, String> {
         model,
         allow_cmd,
         key_env,
-    })
+    }))
 }
 
 /// Default OpenAI-compatible chat-completions endpoint. Overridable with
@@ -368,20 +386,28 @@ fn dispatch_tool_call(
 /// CLI entry: resolve the key, run the task, print the answer.
 pub fn main_entry() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let request = parse_args(&args)?;
-    let key = std::env::var(&request.key_env)
-        .ok()
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            format!(
-                "harness: {} is unset or empty; the harness reads its key from that environment \
-                 variable",
-                request.key_env
-            )
-        })?;
-    let answer = run(&wire::HttpTransport, &request, &key).map_err(|error| error.to_string())?;
-    println!("{answer}");
-    Ok(())
+    match parse_args(&args)? {
+        Parsed::Version => {
+            print!("{VERSION_BANNER}");
+            Ok(())
+        }
+        Parsed::Run(request) => {
+            let key = std::env::var(&request.key_env)
+                .ok()
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    format!(
+                        "harness: {} is unset or empty; the harness reads its key from that \
+                         environment variable",
+                        request.key_env
+                    )
+                })?;
+            let answer =
+                run(&wire::HttpTransport, &request, &key).map_err(|error| error.to_string())?;
+            println!("{answer}");
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -442,17 +468,37 @@ mod tests {
         assert!(error.contains("--root"));
         let error = parse_args(&["--root".to_owned(), ".".to_owned()]).unwrap_err();
         assert!(error.contains("--task"));
-        let request =
-            parse_args(&["--root".into(), "r".into(), "--task".into(), "t".into()]).unwrap();
-        assert_eq!(request.root, "r");
-        assert_eq!(request.task, "t");
-        assert_eq!(request.key_env, "HARNESS_API_KEY");
+        match parse_args(&["--root".into(), "r".into(), "--task".into(), "t".into()]).unwrap() {
+            Parsed::Run(request) => {
+                assert_eq!(request.root, "r");
+                assert_eq!(request.task, "t");
+                assert_eq!(request.key_env, "HARNESS_API_KEY");
+            }
+            other => panic!("expected a run request, got {other:?}"),
+        }
     }
 
     #[test]
     fn parse_args_rejects_unknown_flags() {
         let error = parse_args(&["--bogus".into()]).unwrap_err();
         assert!(error.contains("--bogus"));
+    }
+
+    #[test]
+    fn version_short_circuits_without_a_task_root_or_key() {
+        assert_eq!(parse_args(&["--version".into()]).unwrap(), Parsed::Version);
+        // Exact bytes, including the LF and the version, for the court.
+        assert_eq!(
+            VERSION_BANNER,
+            format!(
+                "minicon-harness {}
+",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
+        // Any other spelling is not a version query.
+        assert!(parse_args(&["--version".into(), "extra".into()]).is_err());
+        assert!(parse_args(&["-V".into()]).is_err());
     }
 
     #[test]

@@ -1,0 +1,318 @@
+# One macos-15 job builds six cells, packs minicon-harness.com with pinned
+# cosmocc; six native runners only execute the packed APE.
+# Never cargo/cosmocc/checkout on the test matrix.
+# Method of record: minicon repo .github/workflows/minicon-com.yml; this copy
+# is the harness product's own, scoped to what the worker needs (no GUI, no
+# browser helpers, plain cargo cross lanes, 5 MiB ceiling).
+name: minicon-harness.com
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: minicon-harness-com
+  cancel-in-progress: false
+
+env:
+  COSMOCC_VERSION: "4.0.2"
+  COSMOCC_SHA256: "85b8c37a406d862e656ad4ec14be9f6ce474c1b436b9615e91a55208aced3f44"
+  COSMOCC_BIN_SHA256: "eef9db8fabfc0c08f1930cbba87f60f69a1c49f28e4de006a1b0c6863e943e4b"
+  # Linux cells cross-compile through zig; Darwin and Windows cells use the
+  # hosted toolchains of their own lanes.
+  ZIG_VERSION: "0.13.0"
+  ZIG_SHA256: "8b06ed1091b2269b700b3b07f8e3be3b833000841bae5aa6a09b1a8b4773effd"
+
+jobs:
+  build:
+    name: build and pack (macos-15)
+    runs-on: macos-15
+    timeout-minutes: 60
+    outputs:
+      com_sha256: ${{ steps.pack.outputs.com_sha256 }}
+      source_sha: ${{ steps.pack.outputs.source_sha }}
+      source_tree_digest: ${{ steps.pack.outputs.source_tree_digest }}
+      artifact_id: ${{ steps.upload_com.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustup target add aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
+          rustup target add aarch64-pc-windows-msvc x86_64-pc-windows-msvc
+
+      - name: Zig (Linux cell linker shim)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --http1.1 -fL --retry 5 --retry-delay 3 \
+            -o "$RUNNER_TEMP/zig.tar.xz" \
+            "https://ziglang.org/download/${ZIG_VERSION}/zig-macos-x86_64-${ZIG_VERSION}.tar.xz"
+          echo "$ZIG_SHA256  $RUNNER_TEMP/zig.tar.xz" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP/zig"
+          find "$RUNNER_TEMP/zig" -name zig -type f | head -1 >> "$GITHUB_PATH"
+
+      - name: LLVM tools (llvm-rc for the VERSIONINFO resource)
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew list llvm >/dev/null 2>&1 || brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          command -v llvm-rc
+          command -v llvm-cvtres
+
+      - name: cosmocc (pinned, rename-swap install)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --http1.1 -fL --retry 5 --retry-delay 3 \
+            -o "$RUNNER_TEMP/cosmocc.zip" \
+            "https://github.com/jart/cosmopolitan/releases/download/${COSMOCC_VERSION}/cosmocc-${COSMOCC_VERSION}.zip"
+          echo "$COSMOCC_SHA256  $RUNNER_TEMP/cosmocc.zip" | shasum -a 256 -c -
+          mkdir -p "$HOME/cosmocc"
+          unzip -qo "$RUNNER_TEMP/cosmocc.zip" -d "$HOME/cosmocc"
+          test -x "$HOME/cosmocc/bin/cosmocc"
+          got_bin=$(shasum -a 256 "$HOME/cosmocc/bin/cosmocc" | awk '{print $1}')
+          test "$got_bin" = "$COSMOCC_BIN_SHA256"
+
+      - name: Build six cells (release profile)
+        shell: bash
+        run: |
+          set -euo pipefail
+          build() {
+            target="$1"
+            extra="${2:-}"
+            cargo build --locked --release --target "$target" $extra
+          }
+          build aarch64-apple-darwin
+          build x86_64-apple-darwin
+          build aarch64-pc-windows-msvc
+          build x86_64-pc-windows-msvc
+          # Linux GNU cells: zig is the linker shim.
+          ZIG_COMMAND="$(find "$RUNNER_TEMP/zig" -name zig -type f | head -1)" \
+            cargo zigbuild --locked --release --target aarch64-unknown-linux-gnu
+          ZIG_COMMAND="$(find "$RUNNER_TEMP/zig" -name zig -type f | head -1)" \
+            cargo zigbuild --locked --release --target x86_64-unknown-linux-gnu
+
+      - name: Stage payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$PWD/target"
+          fresh="loader/payload-build"
+          mkdir -p "$fresh/osx-aarch64/aarch64-apple-darwin/release" \
+                   "$fresh/osx-x86_64/x86_64-apple-darwin/release" \
+                   "$fresh/lnx-aarch64/aarch64-unknown-linux-gnu/release" \
+                   "$fresh/lnx-x86_64/x86_64-unknown-linux-gnu/release" \
+                   "$fresh/win-aarch64/aarch64-pc-windows-msvc/release" \
+                   "$fresh/win-x86_64/x86_64-pc-windows-msvc/release"
+          cp "$root/aarch64-apple-darwin/release/minicon-harness" \
+             "$fresh/osx-aarch64/aarch64-apple-darwin/release/"
+          cp "$root/x86_64-apple-darwin/release/minicon-harness" \
+             "$fresh/osx-x86_64/x86_64-apple-darwin/release/"
+          cp "$root/aarch64-unknown-linux-gnu/release/minicon-harness" \
+             "$fresh/lnx-aarch64/aarch64-unknown-linux-gnu/release/"
+          cp "$root/x86_64-unknown-linux-gnu/release/minicon-harness" \
+             "$fresh/lnx-x86_64/x86_64-unknown-linux-gnu/release/"
+          cp "$root/aarch64-pc-windows-msvc/release/minicon-harness.exe" \
+             "$fresh/win-aarch64/aarch64-pc-windows-msvc/release/"
+          cp "$root/x86_64-pc-windows-msvc/release/minicon-harness.exe" \
+             "$fresh/win-x86_64/x86_64-pc-windows-msvc/release/"
+
+      - name: Pack minicon-harness.com
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          export COSMOCC_DIR="$HOME/cosmocc"
+          export PATH="$COSMOCC_DIR/bin:$PATH"
+          bash loader/pack.sh
+          python3 loader/write-build-receipt.py
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          rec = json.loads(Path("loader/dist/build-receipt.json").read_text())
+          if rec.get("source_dirty"):
+              raise SystemExit("github-ci pack requires source_dirty=false")
+          if not rec.get("source_tree_digest"):
+              raise SystemExit("missing source_tree_digest")
+          loader = Path("loader/loader.c")
+          if rec.get("loader_source_sha256") != hashlib.sha256(loader.read_bytes()).hexdigest():
+              raise SystemExit("loader_source_sha256 mismatch")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"com_sha256={rec['minicon_harness_com_sha256']}\n")
+              fh.write(f"source_sha={rec['source_sha']}\n")
+              fh.write(f"source_tree_digest={rec['source_tree_digest']}\n")
+          PY
+
+      - name: Stage flat artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          cp loader/dist/minicon-harness.com artifact/
+          cp loader/dist/minicon-harness.com.sha256 artifact/
+          cp loader/dist/build-receipt.json artifact/
+          cp README.md artifact/
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        id: upload_com
+        with:
+          name: minicon-harness-com
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
+
+  test:
+    name: court ${{ matrix.cell }}
+    needs: build
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {cell: lnx-x86_64, runner: ubuntu-24.04, family: linux, expected_os: Linux, expected_arch: X64}
+          - {cell: lnx-aarch64, runner: ubuntu-24.04-arm, family: linux, expected_os: Linux, expected_arch: ARM64}
+          - {cell: win-x86_64, runner: windows-2025, family: windows, expected_os: Windows, expected_arch: X64}
+          - {cell: win-aarch64, runner: windows-11-arm, family: windows, expected_os: Windows, expected_arch: ARM64}
+          - {cell: osx-x86_64, runner: macos-15-intel, family: macos, expected_os: macOS, expected_arch: X64}
+          - {cell: osx-aarch64, runner: macos-15, family: macos, expected_os: macOS, expected_arch: ARM64}
+    runs-on: ${{ matrix.runner }}
+    env:
+      CELL: ${{ matrix.cell }}
+      FAMILY: ${{ matrix.family }}
+      EXPECTED_RUNNER_OS: ${{ matrix.expected_os }}
+      EXPECTED_RUNNER_ARCH: ${{ matrix.expected_arch }}
+      EXPECTED_COM_SHA256: ${{ needs.build.outputs.com_sha256 }}
+      EXPECTED_SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+      EXPECTED_SOURCE_TREE_DIGEST: ${{ needs.build.outputs.source_tree_digest }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: minicon-harness-com
+          path: bundle
+
+      - name: Guard runner identity and packed-byte identity (no compile)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = "$EXPECTED_RUNNER_OS"
+          test "$RUNNER_ARCH" = "$EXPECTED_RUNNER_ARCH"
+          test -f bundle/minicon-harness.com
+          test -f bundle/build-receipt.json
+          actual=$(python3 -c 'import hashlib; print(hashlib.sha256(open("bundle/minicon-harness.com","rb").read()).hexdigest())')
+          expected=$(tr -d ' \n\r' < bundle/minicon-harness.com.sha256)
+          test "$actual" = "$expected"
+          test "$actual" = "$EXPECTED_COM_SHA256"
+          python3 - <<'PY'
+          import json, os
+          rec = json.load(open("bundle/build-receipt.json", encoding="utf-8"))
+          assert rec["minicon_harness_com_sha256"] == os.environ["EXPECTED_COM_SHA256"]
+          assert rec["source_sha"] == os.environ["EXPECTED_SOURCE_SHA"]
+          assert rec.get("source_dirty") is False
+          assert rec["source_tree_digest"] == os.environ["EXPECTED_SOURCE_TREE_DIGEST"]
+          assert rec["signed"] is False
+          assert rec["within_ceiling"] is True
+          PY
+
+      - name: version + refusal journeys (unix)
+        if: matrix.family != 'windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x bundle/minicon-harness.com
+          out=$(bundle/minicon-harness.com --version)
+          test "$out" = "minicon-harness 0.0.1"
+          echo "version ok: $out"
+          if bundle/minicon-harness.com --bogus > /dev/null 2>&1; then
+            echo "unknown flag must exit nonzero" >&2; exit 1
+          fi
+          work=$(mktemp -d)
+          if bundle/minicon-harness.com --root "$work" --task probe > /dev/null 2>&1; then
+            echo "missing key must exit nonzero" >&2; exit 1
+          fi
+          rm -rf "$work"
+          echo "refusal journeys ok"
+
+      - name: version + refusal journeys (windows)
+        if: matrix.family == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Copy-Item -LiteralPath bundle/minicon-harness.com -Destination bundle/minicon-harness-ape.exe
+          $out = & bundle/minicon-harness-ape.exe --version
+          if ($out -ne "minicon-harness 0.0.1") { throw "version mismatch: $out" }
+          Write-Host "version ok: $out"
+          $p = Start-Process -FilePath "bundle/minicon-harness-ape.exe" -ArgumentList "--bogus" -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -eq 0) { throw "unknown flag must exit nonzero" }
+          $work = Join-Path $env:RUNNER_TEMP "harness-court"
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $p2 = Start-Process -FilePath "bundle/minicon-harness-ape.exe" `
+            -ArgumentList "--root", $work, "--task", "probe" -Wait -PassThru -NoNewWindow `
+            -RedirectStandardError "$work/err.txt"
+          if ($p2.ExitCode -eq 0) { throw "missing key must exit nonzero" }
+          Write-Host "refusal journeys ok"
+
+      - name: Receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p court
+          {
+            echo "cell=$CELL"
+            echo "runner_os=$RUNNER_OS"
+            echo "runner_arch=$RUNNER_ARCH"
+            echo "com_sha256=$EXPECTED_COM_SHA256"
+            echo "job_status=success"
+          } > court/receipt.txt
+          cat court/receipt.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: court-${{ matrix.cell }}
+          path: court/
+          if-no-files-found: error
+          retention-days: 14
+
+  aggregate:
+    name: aggregate six courts
+    needs: [build, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: court-*
+          path: courts
+      - name: Exactly six unique green cells
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          cells = {}
+          for receipt in Path("courts").glob("court-*/receipt.txt"):
+              text = receipt.read_text()
+              entry = dict(line.split("=", 1) for line in text.strip().splitlines())
+              cells[entry["cell"]] = entry
+          expected = {"lnx-x86_64", "lnx-aarch64", "win-x86_64", "win-aarch64",
+                      "osx-x86_64", "osx-aarch64"}
+          assert set(cells) == expected, sorted(cells)
+          for cell, entry in cells.items():
+              assert entry["job_status"] == "success", entry
+              assert entry["com_sha256"] == os.environ["EXPECTED_COM_SHA256"], cell
+          print(f"aggregate: {len(cells)} unique green cells, one com sha256")
+          PY
+        env:
+          EXPECTED_COM_SHA256: ${{ needs.build.outputs.com_sha256 }}

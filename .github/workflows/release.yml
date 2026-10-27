@@ -1,0 +1,189 @@
+# Publish the packed minicon-harness.com as the public v0.0.1 Release.
+# Re-verifies the pack receipt and byte identity, creates the tag only if
+# absent, uploads the exact packed bytes, then executes the published asset
+# once more from the release download before making the draft public.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      pack_run_id:
+        description: Successful minicon-harness.com workflow run ID
+        required: true
+        type: string
+      source_sha:
+        description: Exact pack source SHA
+        required: true
+        type: string
+      version:
+        description: Exact pack version (0.0.1)
+        required: true
+        type: string
+      confirmation:
+        description: publish-vX.Y.Z (or dry-run-publish-vX.Y.Z for dry run)
+        required: true
+        type: string
+      dry_run:
+        description: Verify only; create no tag or public Release
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: minicon-harness-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Resolve exact successful pack run
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACK_RUN_ID: ${{ inputs.pack_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          [[ "$CONFIRMATION" == "publish-v$VERSION" || "$CONFIRMATION" == "dry-run-publish-v$VERSION" ]]
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PACK_RUN_ID")"
+          [[ "$(jq -r .path <<<"$run")" == ".github/workflows/minicon-harness-com.yml" ]]
+          [[ "$(jq -r .event <<<"$run")" == "workflow_dispatch" ]]
+          [[ "$(jq -r .status <<<"$run")" == "completed" ]]
+          [[ "$(jq -r .conclusion <<<"$run")" == "success" ]]
+          [[ "$(jq -r .head_sha <<<"$run")" == "$SOURCE_SHA" ]]
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: minicon-harness-com
+          path: bundle
+          run-id: ${{ inputs.pack_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify receipt and packed bytes
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          rec = json.loads(Path("bundle/build-receipt.json").read_text())
+          raw = Path("bundle/minicon-harness.com").read_bytes()
+          assert rec["minicon_harness_com_sha256"] == hashlib.sha256(raw).hexdigest()
+          assert rec["source_sha"] == os.environ["SOURCE_SHA"]
+          assert rec["version"] == os.environ["VERSION"]
+          assert rec["source_dirty"] is False
+          assert rec["within_ceiling"] is True
+          assert rec["signed"] is False
+          sidecar = Path("bundle/minicon-harness.com.sha256").read_text().split()[0]
+          assert sidecar == rec["minicon_harness_com_sha256"]
+          print(f"verified: {len(raw)} bytes, sha256 {sidecar}")
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verified-promotion-${{ github.run_id }}
+          path: bundle/
+          if-no-files-found: error
+          retention-days: 14
+
+  execute-linux:
+    name: published-bytes execute (linux x86_64)
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: verified-promotion-${{ github.run_id }}
+          path: bundle
+      - name: Run the exact promoted bytes
+        run: |
+          set -euo pipefail
+          chmod +x bundle/minicon-harness.com
+          out=$(bundle/minicon-harness.com --version)
+          test "$out" = "minicon-harness ${{ inputs.version }}"
+          echo "executed from promotion: $out"
+
+  publish:
+    needs: [verify, execute-linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: inputs.dry_run == false
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: verified-promotion-${{ github.run_id }}
+          path: bundle
+      - name: Re-verify and publish exact bytes without rebuild
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" == "v$VERSION" ]]
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "tag already exists; refusing overwrite" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release already exists; refusing overwrite" >&2
+            exit 1
+          fi
+          python3 - "$VERSION" <<'PY'
+          import pathlib, sys
+          version = sys.argv[1]
+          text = pathlib.Path(".github/release-notes.md").read_text().replace("VERSION", version)
+          pathlib.Path("bundle/release-notes.md").write_text(text)
+          PY
+          gh release create "$TAG" --draft --target "$SOURCE_SHA" \
+            --title "minicon-harness $VERSION" --notes-file bundle/release-notes.md \
+            bundle/minicon-harness.com bundle/minicon-harness.com.sha256 \
+            bundle/build-receipt.json bundle/README.md
+          gh release edit "$TAG" --draft=false
+
+  post-publish:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: inputs.dry_run == false
+    steps:
+      - name: Download, rehash and execute the published asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir released
+          gh release download "$TAG" --dir released --repo "$GITHUB_REPOSITORY"
+          test -f released/minicon-harness.com
+          actual=$(python3 -c 'import hashlib; print(hashlib.sha256(open("released/minicon-harness.com","rb").read()).hexdigest())')
+          expected=$(tr -d ' \n\r' < released/minicon-harness.com.sha256)
+          test "$actual" = "$expected"
+          chmod +x released/minicon-harness.com
+          out=$(released/minicon-harness.com --version)
+          test "$out" = "minicon-harness $VERSION"
+          echo "post-publish court ok: $out"
