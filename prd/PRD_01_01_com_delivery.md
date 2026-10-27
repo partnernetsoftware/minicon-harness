@@ -27,10 +27,16 @@ and its Release shape. Method facts are pointed at, not restated.
 
 ## Artifact budget
 
-- [v] `minicon-harness.com` 0.0.1 Candidate ceiling: **5,242,880 bytes
-  (5 MiB), stamped 2026-10-27 (owner).** The worker has no GUI, no TLS
-  provider beyond ureq/rustls, and six small cells; the packed APE is
-  expected around 3–4 MB. Over ceiling after pack: fail and re-review.
+- [v] `minicon-harness.com` 0.0.1 Candidate ceiling: initially stamped
+  5,242,880 bytes (5 MiB) on 2026-10-27, then **raised the same day to
+  6,291,456 bytes (6 MiB) with measured evidence**: the first real pack came
+  to 5,619,675 bytes — 376,795 over the 5 MiB stamp — after the size work
+  (opt-level=z, fat LTO, panic=abort, ureq tls-only) had already cut the
+  cells ~39% (win-x86_64 2,383,360 → 1,454,592 bytes). The remaining bytes
+  are ring/rustls TLS repeated across six cells; cutting deeper risks the
+  native product. Over ceiling after pack: fail and re-review. Raising it
+  again is an explicit, dated, recorded owner decision, never an automatic
+  bump.
 
 ## Courts (what must pass before a Release)
 

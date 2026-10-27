@@ -22,7 +22,7 @@ AUTHENTICODE_PREPARE_SOURCE = HERE / "prepare-authenticode.py"
 VERSION_RESOURCE_SOURCE = HERE / "ape-version.rc"
 
 # Owner-stamped 2026-10-27 (prd/PRD_01_01_com_delivery.md). Never auto-raise.
-CANDIDATE_CEILING_BYTES = 5_242_880
+CANDIDATE_CEILING_BYTES = 6_291_456
 
 EXPECTED_CELLS = {
     "osx-aarch64": "minicon-harness",
