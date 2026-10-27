@@ -275,7 +275,7 @@ jobs:
           test -f bundle/minicon-harness.com
           test -f bundle/build-receipt.json
           actual=$(python3 -c 'import hashlib; print(hashlib.sha256(open("bundle/minicon-harness.com","rb").read()).hexdigest())')
-          expected=$(tr -d ' \n\r' < bundle/minicon-harness.com.sha256)
+          expected=$(awk '{print $1}' bundle/minicon-harness.com.sha256)
           test "$actual" = "$expected"
           test "$actual" = "$EXPECTED_COM_SHA256"
           python3 - <<'PY'
