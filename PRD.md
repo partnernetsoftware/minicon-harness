@@ -28,12 +28,12 @@ minicon-harness — one-file bounded agent worker
 │   │   refusals are tool results, never aborts
 │   └── [v] OpenAI-compatible codec over ureq; no redirects, 4 MiB bounded body
 ├── [v] CLI: --root --task --base-url --model --allow-cmd --key-env
-│   └── [-] --version banner (0.0.1 adds the canonical version literal)
+│   └── [v] --version banner (exact LF literal, court-verified)
 ├── Delivery: minicon-harness.com → prd/PRD_01_01_com_delivery.md
-│   ├── [-] six native cells (win/osx/lnx × x86_64/aarch64), release profile
-│   ├── [-] cosmocc APE trampoline + ZipOS /zip/cells overlay
-│   ├── [_] Authenticode signability padding (unsigned 0.0.1)
-│   └── [-] GitHub CI pack + six-cell execute court + public Release
+│   ├── [v] six native cells (win/osx/lnx × x86_64/aarch64), release profile
+│   ├── [v] cosmocc APE trampoline + ZipOS /zip/cells overlay (5.62 MB packed)
+│   ├── [v] Authenticode signability padding (unsigned 0.0.1; slot reserved)
+│   └── [v] GitHub CI pack + six-cell execute court + public Release v0.0.1
 └── [no] plugin host, permission policy, sessions, streaming, MCP, desktop
     authority. The model API cannot execute tools; the tools cannot reach the
     model API. Scope extensions need a new owner decision here.
@@ -52,10 +52,10 @@ minicon-harness — one-file bounded agent worker
 
 ## 0.0.1 frontier
 
-[-] First public release: six cells packed into `minicon-harness.com`,
-each cell executed on its own native GitHub runner against the packed APE
-bytes (`--version`, help, refusal journeys), then published as a GitHub
-Release asset `minicon-harness.com` plus `minicon-harness.com.sha256` and a
-build receipt. Unsigned (no Authenticode certificate in this repo yet); the
-Authenticode slot is reserved so signing can be added later without moving
-APE headers.
+[v] First public release shipped 2026-10-27: six cells packed into
+`minicon-harness.com` (5,619,674 bytes, sha256 8ea3eb68...), each cell executed
+on its own native GitHub runner against the packed APE bytes, the release
+download re-hashed and executed post-publish, published as
+`minicon-harness.com` + `.sha256` + `build-receipt.json` + `README.md` at
+releases/tag/v0.0.1. Unsigned; the Authenticode slot is reserved so a later
+signed Candidate does not move APE headers.

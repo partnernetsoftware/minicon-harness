@@ -1,6 +1,8 @@
 # 0.0.1 — first `minicon-harness.com` release
 
-Status: `[-]` in progress 2026-10-27. Owner: `prd/PRD_01_01_com_delivery.md`.
+Status: `[v]` shipped 2026-10-27. W1-W5 all green; release run 40476431216
+(verify + execute + publish + post-publish court), pack run 40471315325.
+Owner: `prd/PRD_01_01_com_delivery.md`.
 
 ## Outcome tree DAG
 
