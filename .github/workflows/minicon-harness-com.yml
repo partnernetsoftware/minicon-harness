@@ -105,15 +105,31 @@ jobs:
           cargo zigbuild --locked --release --target aarch64-unknown-linux-gnu
           cargo zigbuild --locked --release --target x86_64-unknown-linux-gnu
           # Windows cells: cargo-xwin drives clang-cl against the downloaded
-          # MSVC SDK/CRT set; ring's C compiles under it (upstream minicon lane).
-          # CC is pinned to the brew llvm clang-cl by absolute path: a bare
-          # "clang-cl" resolved to a driver that ignored cl-mode flags.
-          clangcl="$(brew --prefix llvm)/bin/clang-cl"
-          test -x "$clangcl"
-          export CC_aarch64_pc_windows_msvc="$clangcl"
-          export CC_x86_64_pc_windows_msvc="$clangcl"
-          export CLANGCL_PATH="$clangcl"
+          # MSVC SDK/CRT set. ring's build.rs hardcodes bare `clang` for the
+          # aarch64 msvc target and ignores CC_ overrides (cargo-xwin#76), so
+          # a PATH-shim flips clang into --driver-mode=cl for that target.
           cargo install --locked --version 0.23.1 cargo-xwin
+          shim_dir="$HOME/.local/bin/ring-clang-shim"
+          mkdir -p "$shim_dir"
+          real_clang="$(command -v clang)"
+          cat > "$shim_dir/clang" <<'SHIM'
+            #!/bin/bash
+            args=()
+            for a in "$@"; do
+              case "$a" in
+                *windows-msvc*) clmode=1 ;;
+              esac
+              args+=("$a")
+            done
+            if [[ "${clmode:-}" == 1 ]]; then
+              exec "$(dirname "$0")/clang.real" --driver-mode=cl "${args[@]}"
+            fi
+            exec "$(dirname "$0")/clang.real" "${args[@]}"
+          SHIM
+          ln -sf "$real_clang" "$shim_dir/clang.real"
+          chmod +x "$shim_dir/clang"
+          export PATH="$shim_dir:$PATH"
+          clang --version | head -1
           cargo xwin build --locked --release --target aarch64-pc-windows-msvc
           cargo xwin build --locked --release --target x86_64-pc-windows-msvc
 
