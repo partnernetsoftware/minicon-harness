@@ -115,14 +115,29 @@ jobs:
           cat > "$shim_dir/clang" <<'SHIM'
             #!/bin/bash
             args=()
+            clargs=()
+            out=""
+            prev=""
+            clmode=0
             for a in "$@"; do
               case "$a" in
                 *windows-msvc*) clmode=1 ;;
               esac
+              if [[ "$prev" == "-o" ]]; then
+                out="$a"
+                prev=""
+                continue
+              fi
+              prev="$a"
               args+=("$a")
+              [[ "$a" == "-o" ]] && continue
+              clargs+=("$a")
             done
-            if [[ "${clmode:-}" == 1 ]]; then
-              exec "$(dirname "$0")/clang.real" --driver-mode=cl "${args[@]}"
+            if [[ "$clmode" == 1 ]]; then
+              if [[ -n "$out" ]]; then
+                exec "$(dirname "$0")/clang.real" --driver-mode=cl "/Fo$out" "${clargs[@]}"
+              fi
+              exec "$(dirname "$0")/clang.real" --driver-mode=cl "${clargs[@]}"
             fi
             exec "$(dirname "$0")/clang.real" "${args[@]}"
           SHIM
