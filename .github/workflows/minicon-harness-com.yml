@@ -269,7 +269,7 @@ jobs:
       - name: Guard runner identity and packed-byte identity (no compile)
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           test "$RUNNER_OS" = "$EXPECTED_RUNNER_OS"
           test "$RUNNER_ARCH" = "$EXPECTED_RUNNER_ARCH"
           test -f bundle/minicon-harness.com
