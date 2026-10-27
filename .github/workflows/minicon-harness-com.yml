@@ -99,9 +99,11 @@ jobs:
           # Linux cells: zig is the linker/C-compiler shim (ring's C needs a
           # working cross cc; zig provides it).
           cargo install --locked --version 0.23.2 cargo-zigbuild
-          zigbin="$(find "$RUNNER_TEMP/zig" -name zig -type f | head -1)"
-          ZIG_COMMAND="$zigbin" cargo zigbuild --locked --release --target aarch64-unknown-linux-gnu
-          ZIG_COMMAND="$zigbin" cargo zigbuild --locked --release --target x86_64-unknown-linux-gnu
+          zigbin="$(dirname "$(find "$RUNNER_TEMP/zig" -name zig -type f | head -1)")"
+          export PATH="$zigbin:$PATH"
+          zig version
+          cargo zigbuild --locked --release --target aarch64-unknown-linux-gnu
+          cargo zigbuild --locked --release --target x86_64-unknown-linux-gnu
           # Windows cells: cargo-xwin drives clang-cl against the downloaded
           # MSVC SDK/CRT set; ring's C compiles under it (upstream minicon lane).
           cargo install --locked --version 0.23.1 cargo-xwin
