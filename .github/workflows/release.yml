@@ -181,7 +181,7 @@ jobs:
           gh release download "$TAG" --dir released --repo "$GITHUB_REPOSITORY"
           test -f released/minicon-harness.com
           actual=$(python3 -c 'import hashlib; print(hashlib.sha256(open("released/minicon-harness.com","rb").read()).hexdigest())')
-          expected=$(tr -d ' \n\r' < released/minicon-harness.com.sha256)
+          expected=$(awk '{print $1}' released/minicon-harness.com.sha256)
           test "$actual" = "$expected"
           chmod +x released/minicon-harness.com
           out=$(released/minicon-harness.com --version)
