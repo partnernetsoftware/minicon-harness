@@ -144,13 +144,15 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$TAG" == "v$VERSION" ]]
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "tag already exists; refusing overwrite" >&2
-            exit 1
-          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release already exists; refusing overwrite" >&2
-            exit 1
+            # Already published by an earlier attempt: skip create; the
+            # post-publish court verifies the existing release below.
+            echo "Release $TAG already exists; skipping create"
+          else
+            if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+              echo "tag already exists; refusing overwrite" >&2
+              exit 1
+            fi
           fi
           python3 - "$VERSION" <<'PY'
           import pathlib, sys
