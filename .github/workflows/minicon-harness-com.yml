@@ -114,6 +114,26 @@ jobs:
           real_clang="$(command -v clang)"
           cat > "$shim_dir/clang" <<'SHIM'
             #!/bin/bash
+            # Stay in the GNU driver; translate cargo-xwin's clang-cl style
+            # include flags (/imsvc DIR) to GNU style (-isystem DIR). ring
+            # only compiles (-c), never links, so lld-link never runs here.
+            args=()
+            expect_dir=0
+            for a in "$@"; do
+              if [[ "$expect_dir" == 1 ]]; then
+                args+=("-isystem" "$a")
+                expect_dir=0
+                continue
+              fi
+              case "$a" in
+                /imsvc) expect_dir=1 ;;
+                /imsvc*) args+=("-isystem" "${a#/imsvc}") ;;
+                *) args+=("$a") ;;
+              esac
+            done
+            exec "$(dirname "$0")/clang.real" "${args[@]}"
+          SHIM'
+            #!/bin/bash
             args=()
             clargs=()
             out=""
