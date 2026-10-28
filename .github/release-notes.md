@@ -7,9 +7,16 @@ model and prints the final answer on stdout.
 | Platform | Download |
 | --- | --- |
 | All: Windows, macOS, Linux (x86_64 and ARM64) | `minicon-harness.com` |
+| Windows x86_64 | `minicon-harness-VERSION-windows-x86_64.zip` |
+| Windows ARM64 | `minicon-harness-VERSION-windows-arm64.zip` |
+| Linux x86_64 | `minicon-harness-VERSION-linux-x86_64.tar.gz` |
+| Linux ARM64 | `minicon-harness-VERSION-linux-arm64.tar.gz` |
+| macOS (Apple Silicon + Intel, universal) | `minicon-harness-VERSION-macos-universal.tar.gz` |
 
 `minicon-harness.com` is one launcher file for all six platforms. Run it
-directly; on Windows it runs as an `.exe` regardless of the name.
+directly; on Windows it runs as an `.exe` regardless of the name. The
+per-platform archives carry the same native binary with a plain name if you
+prefer not to run the APE launcher.
 
 ## Quick start
 

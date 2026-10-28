@@ -54,8 +54,17 @@ and its Release shape. Method facts are pointed at, not restated.
 
 ## Release shape
 
-- GitHub Release `v0.0.1` with assets `minicon-harness.com`,
-  `minicon-harness.com.sha256`, `build-receipt.json` and `README.md`.
+- GitHub Release assets: the APE (`minicon-harness.com` + `.sha256`),
+  `build-receipt.json`, `README.md`, **plus one native archive per
+  platform** — `minicon-harness-<version>-windows-x86_64.zip`,
+  `minicon-harness-<version>-windows-arm64.zip`,
+  `minicon-harness-<version>-linux-x86_64.tar.gz`,
+  `minicon-harness-<version>-linux-arm64.tar.gz`,
+  `minicon-harness-<version>-macos-universal.tar.gz` — each with its own
+  `.sha256` sidecar. Windows archives are zip; Unix archives are tar.gz.
+  The macOS archive is a `lipo` universal binary of the two osx cells.
+  Archive members re-verify against the build receipt's per-cell digests
+  before promotion, exactly like the APE bytes.
 - The Release body is a template rendered verbatim; per-version facts live
   in `prd/archive/`, not in the template.
 - Publishing is one workflow that re-verifies the pack receipt, creates the

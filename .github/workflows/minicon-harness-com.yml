@@ -237,6 +237,99 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  native-archives:
+    name: native archives (per-platform)
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: minicon-harness-com
+          path: bundle
+      - name: Stage six cells from the packed APE (zip overlay, no rebuild)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          receipt = json.loads(Path('bundle/build-receipt.json').read_text())
+          version = receipt['version']
+          with zipfile.ZipFile('bundle/minicon-harness.com') as archive:
+              for cell in ('osx-aarch64', 'osx-x86_64', 'lnx-aarch64',
+                           'lnx-x86_64', 'win-aarch64', 'win-x86_64'):
+                  leaf = 'minicon-harness.exe' if cell.startswith('win-') else 'minicon-harness'
+                  entry = f'cells/{cell}/{leaf}'
+                  raw = archive.read(entry)
+                  identity = receipt['payloads'][cell]
+                  import hashlib
+                  assert hashlib.sha256(raw).hexdigest() == identity['sha256']
+                  assert len(raw) == identity['bytes']
+                  destination = Path(f'cells/{cell}')
+                  destination.mkdir(parents=True, exist_ok=True)
+                  (destination / leaf).write_bytes(raw)
+          print('six cells extracted and digest-verified against the receipt')
+          PY
+      - name: Archive exact cell bytes per platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir -p package
+          # macOS universal: lipo the two darwin cells (candidate.yml method).
+          mkdir -p "package/minicon-harness-$version-macos-universal"
+          lipo -create -output "package/minicon-harness-$version-macos-universal/minicon-harness"             cells/osx-aarch64/minicon-harness cells/osx-x86_64/minicon-harness
+          [[ "$(lipo -archs "package/minicon-harness-$version-macos-universal/minicon-harness")" == *arm64* ]]
+          [[ "$(lipo -archs "package/minicon-harness-$version-macos-universal/minicon-harness")" == *x86_64* ]]
+          chmod 0755 "package/minicon-harness-$version-macos-universal/minicon-harness"
+          for platform in linux-x86_64 linux-arm64 macos-universal; do
+            name="minicon-harness-$version-$platform"
+            case "$platform" in
+              linux-x86_64) cell=lnx-x86_64 ;;
+              linux-arm64) cell=lnx-aarch64 ;;
+            esac
+            if [[ "$platform" != macos-universal ]]; then
+              mkdir -p "package/$name"
+              cp "cells/$cell/minicon-harness" "package/$name/"
+              chmod 0755 "package/$name/minicon-harness"
+            fi
+            cp README.md "package/$name/" 2>/dev/null || true
+            tar -czf "package/$name.tar.gz" -C package "$name"
+            rm -rf "package/$name"
+          done
+          for platform in windows-x86_64 windows-arm64; do
+            name="minicon-harness-$version-$platform"
+            case "$platform" in
+              windows-x86_64) cell=win-x86_64 ;;
+              windows-arm64) cell=win-aarch64 ;;
+            esac
+            mkdir -p "package/$name"
+            cp "cells/$cell/minicon-harness.exe" "package/$name/"
+            python3 - "$name" <<'PY'
+          import sys, zipfile
+          name = sys.argv[1]
+          with zipfile.ZipFile(f'package/{name}.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+              z.write(f'package/{name}/minicon-harness.exe', f'{name}/minicon-harness.exe')
+          PY
+            rm -rf "package/$name"
+          done
+          cd package
+          for archive in *.tar.gz *.zip; do
+            shasum -a 256 "$archive" > "$archive.sha256"
+          done
+          ls -lh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: minicon-harness-native-archives
+          path: package/*
+          if-no-files-found: error
+          retention-days: 14
+
   test:
     name: court ${{ matrix.cell }}
     needs: build

@@ -69,6 +69,12 @@ jobs:
           path: bundle
           run-id: ${{ inputs.pack_run_id }}
           github-token: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: minicon-harness-native-archives
+          path: native
+          run-id: ${{ inputs.pack_run_id }}
+          github-token: ${{ github.token }}
 
       - name: Verify receipt and packed bytes
         env:
@@ -92,10 +98,52 @@ jobs:
           print(f"verified: {len(raw)} bytes, sha256 {sidecar}")
           PY
 
+      - name: Verify native archive members against the receipt
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, tarfile, zipfile
+          from pathlib import Path
+          rec = json.loads(Path("bundle/build-receipt.json").read_text())
+          version = os.environ["VERSION"]
+          expected = {
+              f"minicon-harness-{version}-windows-x86_64.zip": "win-x86_64",
+              f"minicon-harness-{version}-windows-arm64.zip": "win-aarch64",
+              f"minicon-harness-{version}-linux-x86_64.tar.gz": "lnx-x86_64",
+              f"minicon-harness-{version}-linux-arm64.tar.gz": "lnx-aarch64",
+              f"minicon-harness-{version}-macos-universal.tar.gz": None,
+          }
+          for name, cell in expected.items():
+              path = Path("native") / name
+              assert path.is_file(), f"missing archive {name}"
+              sidecar = Path(f"native/{name}.sha256")
+              assert sidecar.is_file(), f"missing sidecar {name}.sha256"
+              got = hashlib.sha256(path.read_bytes()).hexdigest()
+              assert got == sidecar.read_text().split()[0], name
+              suffix = ".zip" if name.endswith(".zip") else ".tar.gz"
+              member = f"{name[:-len(suffix)]}/minicon-harness{' exe' if suffix == '.zip' else ''}"
+              member = member.replace("minicon-harness exe", "minicon-harness.exe")
+              if suffix == ".zip":
+                  raw = zipfile.ZipFile(path).read(member)
+              else:
+                  raw = tarfile.open(path).extractfile(member).read()
+              if cell is not None:
+                  identity = rec["payloads"][cell]
+                  assert hashlib.sha256(raw).hexdigest() == identity["sha256"], name
+                  assert len(raw) == identity["bytes"], name
+              else:
+                  assert raw[:4] in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xxbe"), name
+              print(f"verified {name}: member {member} ({len(raw)} bytes)")
+          PY
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: verified-promotion-${{ github.run_id }}
-          path: bundle/
+          path: |
+            bundle/
+            native/
           if-no-files-found: error
           retention-days: 14
 
@@ -108,12 +156,12 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: verified-promotion-${{ github.run_id }}
-          path: bundle
+          path: promotion
       - name: Run the exact promoted bytes
         run: |
           set -euo pipefail
-          chmod +x bundle/minicon-harness.com
-          out=$(bundle/minicon-harness.com --version)
+          chmod +x promotion/bundle/minicon-harness.com
+          out=$(promotion/bundle/minicon-harness.com --version)
           test "$out" = "minicon-harness ${{ inputs.version }}"
           echo "executed from promotion: $out"
 
@@ -134,7 +182,7 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: verified-promotion-${{ github.run_id }}
-          path: bundle
+          path: promotion
       - name: Re-verify and publish exact bytes without rebuild
         env:
           GH_TOKEN: ${{ github.token }}
@@ -157,12 +205,12 @@ jobs:
           import pathlib, sys
           version = sys.argv[1]
           text = pathlib.Path(".github/release-notes.md").read_text().replace("VERSION", version)
-          pathlib.Path("bundle/release-notes.md").write_text(text)
+          pathlib.Path("promotion/bundle/release-notes.md").write_text(text)
           PY
             gh release create "$TAG" --draft --target "$SOURCE_SHA" \
-              --title "minicon-harness $VERSION" --notes-file bundle/release-notes.md \
+              --title "minicon-harness $VERSION" --notes-file promotion/bundle/release-notes.md \
               bundle/minicon-harness.com bundle/minicon-harness.com.sha256 \
-              bundle/build-receipt.json bundle/README.md
+              bundle/build-receipt.json bundle/README.md               native/minicon-harness-*.tar.gz native/minicon-harness-*.zip native/minicon-harness-*.sha256
             gh release edit "$TAG" --draft=false
           fi
 
