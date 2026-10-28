@@ -134,7 +134,7 @@ jobs:
                   assert hashlib.sha256(raw).hexdigest() == identity["sha256"], name
                   assert len(raw) == identity["bytes"], name
               else:
-                  assert raw[:4] in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xxbe"), name
+                  assert raw[:4] in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"), name
               print(f"verified {name}: member {member} ({len(raw)} bytes)")
           PY
 
