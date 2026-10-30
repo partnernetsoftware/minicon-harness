@@ -209,8 +209,10 @@ jobs:
           PY
             gh release create "$TAG" --draft --target "$SOURCE_SHA" \
               --title "minicon-harness $VERSION" --notes-file promotion/bundle/release-notes.md \
-              bundle/minicon-harness.com bundle/minicon-harness.com.sha256 \
-              bundle/build-receipt.json bundle/README.md               native/minicon-harness-*.tar.gz native/minicon-harness-*.zip native/minicon-harness-*.sha256
+              promotion/bundle/minicon-harness.com promotion/bundle/minicon-harness.com.sha256 \
+              promotion/bundle/build-receipt.json promotion/bundle/README.md \
+              promotion/native/minicon-harness-*.tar.gz promotion/native/minicon-harness-*.zip \
+              promotion/native/minicon-harness-*.sha256
             gh release edit "$TAG" --draft=false
           fi
 
