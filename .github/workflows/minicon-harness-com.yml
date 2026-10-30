@@ -408,6 +408,8 @@ jobs:
       - name: version + refusal journeys (windows)
         if: matrix.family == 'windows'
         shell: pwsh
+        env:
+          EXPECTED_VERSION: ${{ needs.build.outputs.version }}
         run: |
           $ErrorActionPreference = "Stop"
           Copy-Item -LiteralPath bundle/minicon-harness.com -Destination bundle/minicon-harness-ape.exe
