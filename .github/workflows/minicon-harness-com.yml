@@ -218,6 +218,7 @@ jobs:
               fh.write(f"com_sha256={rec['minicon_harness_com_sha256']}\n")
               fh.write(f"source_sha={rec['source_sha']}\n")
               fh.write(f"source_tree_digest={rec['source_tree_digest']}\n")
+              fh.write(f"version={rec['version']}\n")
           PY
 
       - name: Stage flat artifact
