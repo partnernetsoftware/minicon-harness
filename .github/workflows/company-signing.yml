@@ -1,0 +1,338 @@
+name: Trusted Signing Court (minicon-harness)
+
+# Mirrors minicon's company-signing.yml: consume one exact successful
+# unsigned pack run, sign the APE and the two Windows cells with the company
+# Azure Artifact Signing Public Trust profile over OIDC, verify publisher and
+# timestamp, bind before/after hashes into a signing receipt, and execute the
+# signed bytes on native courts. Inert while release-policy.json
+# signing.mode == "off": preflight fails closed, no unsigned fallback.
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character current main HEAD
+        required: true
+        type: string
+      pack_run_id:
+        description: Successful unsigned minicon-harness.com run for source_sha
+        required: true
+        type: string
+      qualification_only:
+        description: Sign and execute exact bytes for provider qualification; never release-eligible
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: minicon-harness-trusted-signing-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      upstream_attempt: ${{ steps.identity.outputs.upstream_attempt }}
+      version: ${{ steps.identity.outputs.version }}
+      release_eligible: ${{ steps.identity.outputs.release_eligible }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind exact source, policy mode, and upstream run identity
+        id: identity
+        run: |
+          set -euo pipefail
+          git checkout --detach "$SOURCE_SHA"
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
+          signing_mode="$(jq -r .signing.mode release-policy.json)"
+          [[ "$signing_mode" == off || "$signing_mode" == required ]] ||
+            { echo "release-policy.json signing.mode is neither off nor required" >&2; exit 1; }
+          release_eligible=false
+          if [[ "$QUALIFICATION_ONLY" != true ]]; then
+            [[ "$signing_mode" == required ]] ||
+              { echo "release-eligible signing requires signing.mode == required" >&2; exit 1; }
+            if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null 2>&1; then
+              echo "v$version already exists; release-eligible signing requires an unpublished version" >&2
+              exit 1
+            fi
+            release_eligible=true
+          fi
+          attempt=$(gh run view "$PACK_RUN_ID" --json headSha,runAttempt
+            --jq 'select(.headSha == env.SOURCE_SHA) | .runAttempt')
+          [[ -n "$attempt" ]] || { echo "pack run does not belong to SOURCE_SHA" >&2; exit 1; }
+          {
+            echo "version=$version"
+            echo "release_eligible=$release_eligible"
+            echo "upstream_attempt=$attempt"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PACK_RUN_ID: ${{ inputs.pack_run_id }}
+          QUALIFICATION_ONLY: ${{ inputs.qualification_only }}
+          GH_TOKEN: ${{ github.token }}
+
+  sign:
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      signed_com_sha256: ${{ steps.receipt.outputs.signed_com_sha256 }}
+    environment: release-signing
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: minicon-harness-com
+          path: upstream/com
+          run-id: ${{ inputs.pack_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: minicon-harness-native-archives
+          path: upstream/native
+          run-id: ${{ inputs.pack_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify unsigned identity and stage exact signing set
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = Get-Content upstream/com/build-receipt.json -Raw | ConvertFrom-Json
+          if ($build.source_sha -ne $env:SOURCE_SHA -or $build.source_dirty -ne $false) { throw 'unsigned build identity mismatch' }
+          if ($build.version -ne $env:EXPECTED_VERSION) { throw 'unsigned build version mismatch' }
+          New-Item -ItemType Directory -Force signing-input | Out-Null
+          Copy-Item upstream/com/minicon-harness.com signing-input/minicon-harness.com
+          # The Windows cells live inside the APE's zip overlay; extract the
+          # two signing inputs from the packed bytes themselves (no rebuild).
+          python - <<'PY'
+          import hashlib, json, zipfile
+          from pathlib import Path
+          rec = json.loads(Path('upstream/com/build-receipt.json').read_text())
+          with zipfile.ZipFile('upstream/com/minicon-harness.com') as archive:
+              for cell in ('win-aarch64', 'win-x86_64'):
+                  raw = archive.read(f'cells/{cell}/minicon-harness.exe')
+                  identity = rec['payloads'][cell]
+                  assert hashlib.sha256(raw).hexdigest() == identity['sha256']
+                  assert len(raw) == identity['bytes']
+                  Path(f'signing-input/{cell}.exe').write_bytes(raw)
+          print('signing inputs extracted and digest-verified')
+          PY
+          $paths = [ordered]@{
+            'minicon-harness.com' = 'upstream/com/minicon-harness.com'
+            'win-x86_64' = 'signing-input/win-x86_64.exe'
+            'win-aarch64' = 'signing-input/win-aarch64.exe'
+          }
+          $before = [ordered]@{}
+          foreach ($entry in $paths.GetEnumerator()) {
+            $before[$entry.Key] = (Get-FileHash -LiteralPath $entry.Value -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          if ($before['minicon-harness.com'] -ne $build.minicon_harness_com_sha256) { throw 'unsigned APE digest mismatch' }
+          $before | ConvertTo-Json | Set-Content -LiteralPath unsigned-hashes.json -Encoding utf8NoBOM
+          # The pack asserts an empty Authenticode Security Directory and a
+          # matching VERSIONINFO before shipping; the signature appends into
+          # the reserved fourth data directory without moving headers.
+          @('minicon-harness.com', 'win-x86_64.exe', 'win-aarch64.exe') |
+            Set-Content -LiteralPath signing-input/signing-catalog.txt -Encoding ascii
+
+      - name: Upload immutable three-file signing input
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trusted-signing-unsigned-input
+          path: signing-input/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Azure login (GitHub OIDC federated identity, signer role only)
+        uses: azure/login@0949e32778441b2c442592b7a0e6313466dc8f29 # v3.0.2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign exact three files with Azure Artifact Signing (Public Trust)
+        uses: Azure/artifact-signing-action@208f8af4bf26cf2af8597424e3cb5582801523ba # v2.0.0
+        with:
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files-catalog: signing-input/signing-catalog.txt
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          description: MiniCon Harness
+          description-url: https://github.com/partnernetsoftware/minicon-harness
+          exclude-workload-identity-credential: true
+          exclude-environment-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+          correlation-id: minicon-harness-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Require exactly the three signed paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = (Resolve-Path signing-input).Path
+          $actual = @(Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object { $_.Name -ne 'signing-catalog.txt' } | ForEach-Object {
+            $_.FullName.Substring($root.Length + 1).Replace('\', '/')
+          } | Sort-Object)
+          $expected = @('minicon-harness.com', 'win-aarch64.exe', 'win-x86_64.exe')
+          if (($actual -join "`n") -ne ($expected -join "`n")) {
+            throw "signing output path set mismatch: $($actual -join ', ')"
+          }
+
+      - name: Verify publisher, timestamp, and write before-to-after receipt
+        id: receipt
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          UPSTREAM_RUN_ID: ${{ inputs.pack_run_id }}
+          UPSTREAM_ATTEMPT: ${{ needs.preflight.outputs.upstream_attempt }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+          RELEASE_ELIGIBLE: ${{ needs.preflight.outputs.release_eligible }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $before = Get-Content unsigned-hashes.json -Raw | ConvertFrom-Json -AsHashtable
+          $build = Get-Content upstream/com/build-receipt.json -Raw | ConvertFrom-Json
+          $paths = [ordered]@{
+            'minicon-harness.com' = 'minicon-harness.com'
+            'win-x86_64' = 'win-x86_64.exe'
+            'win-aarch64' = 'win-aarch64.exe'
+          }
+          $assets = [ordered]@{}
+          foreach ($entry in $paths.GetEnumerator()) {
+            $path = Join-Path (Resolve-Path signing-input).Path $entry.Value
+            $sig = Get-AuthenticodeSignature -LiteralPath $path
+            if ($sig.Status -ne 'Valid') { throw "$($entry.Key): Authenticode status $($sig.Status)" }
+            if ($null -eq $sig.SignerCertificate -or $null -eq $sig.TimeStamperCertificate) { throw "$($entry.Key): missing signer or timestamp" }
+            if ($sig.SignerCertificate.Subject -notmatch '(?:^|,\s*)O=PARTNERNET SOFTWARE PTY LTD(?:,|$)') {
+              throw "$($entry.Key): unexpected publisher $($sig.SignerCertificate.Subject)"
+            }
+            $version = (Get-Item -LiteralPath $path).VersionInfo
+            $escapedVersion = [regex]::Escape($env:EXPECTED_VERSION)
+            if ($version.ProductName -ne 'MiniCon Harness' -or $version.ProductVersion -notmatch "^$escapedVersion(?:\.0)?$") {
+              throw "$($entry.Key): VERSIONINFO mismatch ProductName=$($version.ProductName) ProductVersion=$($version.ProductVersion)"
+            }
+            $after = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($after -eq $before[$entry.Key]) { throw "$($entry.Key): signing did not change bytes" }
+            $assets[$entry.Key] = [ordered]@{
+              path = $entry.Value
+              before_sha256 = $before[$entry.Key]
+              after_sha256 = $after
+              after_bytes = (Get-Item -LiteralPath $path).Length
+              authenticode_status = "$($sig.Status)"
+              signer_subject = $sig.SignerCertificate.Subject
+              signer_issuer = $sig.SignerCertificate.Issuer
+              signer_thumbprint = $sig.SignerCertificate.Thumbprint
+              signer_not_before = $sig.SignerCertificate.NotBefore.ToUniversalTime().ToString('o')
+              signer_not_after = $sig.SignerCertificate.NotAfter.ToUniversalTime().ToString('o')
+              timestamp_subject = $sig.TimeStamperCertificate.Subject
+              timestamp_issuer = $sig.TimeStamperCertificate.Issuer
+              file_product_name = $version.ProductName
+              file_product_version = $version.ProductVersion
+            }
+          }
+          $receipt = [ordered]@{
+            schema = 2
+            kind = 'minicon-harness-trusted-signing'
+            source_sha = $env:SOURCE_SHA
+            product_version = $env:EXPECTED_VERSION
+            signing_provider = 'azure-artifact-signing'
+            publisher_organization = 'PARTNERNET SOFTWARE PTY LTD'
+            file_digest = 'SHA256'
+            timestamp_rfc3161 = 'http://timestamp.acs.microsoft.com'
+            timestamp_digest = 'SHA256'
+            upstream = [ordered]@{ run_id = [int64]$env:UPSTREAM_RUN_ID; run_attempt = [int]$env:UPSTREAM_ATTEMPT }
+            signing_run = [ordered]@{ id = [int64]$env:GITHUB_RUN_ID; attempt = [int]$env:GITHUB_RUN_ATTEMPT }
+            release_eligible = [bool]::Parse($env:RELEASE_ELIGIBLE)
+            assets = $assets
+          }
+          $receipt | ConvertTo-Json -Depth 8 | Set-Content signing-input/signing-receipt.json -Encoding utf8NoBOM
+          "signed_com_sha256=$($assets['minicon-harness.com'].after_sha256)" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trusted-signed-minicon-harness
+          path: signing-input/
+          if-no-files-found: error
+          retention-days: 14
+
+  test:
+    name: signed ${{ matrix.cell }}
+    needs: [preflight, sign]
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {cell: lnx-x86_64, runner: ubuntu-24.04, family: linux, expected_os: Linux, expected_arch: X64}
+          - {cell: lnx-aarch64, runner: ubuntu-24.04-arm, family: linux, expected_os: Linux, expected_arch: ARM64}
+          - {cell: win-x86_64, runner: windows-2025, family: windows, expected_os: Windows, expected_arch: X64}
+          - {cell: win-aarch64, runner: windows-11-arm, family: windows, expected_os: Windows, expected_arch: ARM64}
+          - {cell: osx-x86_64, runner: macos-15-intel, family: macos, expected_os: macOS, expected_arch: X64}
+          - {cell: osx-aarch64, runner: macos-15, family: macos, expected_os: macOS, expected_arch: ARM64}
+    runs-on: ${{ matrix.runner }}
+    env:
+      CELL: ${{ matrix.cell }}
+      EXPECTED_COM_SHA256: ${{ needs.sign.outputs.signed_com_sha256 }}
+      EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+      EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: trusted-signed-minicon-harness
+          path: bundle
+      - name: Guard signed identity (no compile)
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(python3 -c 'import hashlib; print(hashlib.sha256(open("bundle/minicon-harness.com","rb").read()).hexdigest())')
+          test "$actual" = "$EXPECTED_COM_SHA256"
+      - name: version + refusal journeys on the signed APE (unix)
+        if: matrix.family != 'windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x bundle/minicon-harness.com
+          out=$(bundle/minicon-harness.com --version)
+          test "$out" = "minicon-harness $EXPECTED_VERSION"
+          if bundle/minicon-harness.com --bogus >/dev/null 2>&1; then
+            echo "unknown flag must exit nonzero" >&2; exit 1
+          fi
+          echo "signed APE runs: $out"
+      - name: version + refusal journeys on the signed APE (windows)
+        if: matrix.family == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item bundle/minicon-harness.com bundle/minicon-harness-ape.exe
+          $out = & bundle/minicon-harness-ape.exe --version
+          $expected = "minicon-harness $env:EXPECTED_VERSION"
+          if ($out -ne $expected) { throw "version mismatch: $out" }
+          $p = Start-Process -FilePath "bundle/minicon-harness-ape.exe" -ArgumentList "--bogus" -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -eq 0) { throw "unknown flag must exit nonzero" }
+          # The signed Windows cell must still be Authenticode-valid on this
+          # machine (the APE wraps it; the cell is the actual PE identity).
+          $sig = Get-AuthenticodeSignature -LiteralPath bundle/win-x86_64.exe
+          if ($sig.Status -ne 'Valid') { throw "signed cell status: $($sig.Status)" }
+          Write-Host "signed cell ok: $($sig.SignerCertificate.Subject)"
