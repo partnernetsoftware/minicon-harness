@@ -1,8 +1,7 @@
 # 0.0.2 — csih-informed capability pass
 
-Status: `[-]` planned 2026-10-30. Source of lessons: unisacc `apps/csih`
-(PRD.md + docs/). Owner: `PRD.md` 0.0.2 frontier; delivery method stays in
-`prd/PRD_01_01_com_delivery.md`.
+Status: `[v]` shipped 2026-10-30 as v0.0.2
+(releases/tag/v0.0.2, pack run 41050922828, release run 41055546482).
 
 ## What csih teaches that fits this harness
 

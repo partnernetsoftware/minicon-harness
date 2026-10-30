@@ -29,23 +29,35 @@ minicon-harness — one-file bounded agent worker
 │   └── [v] OpenAI-compatible codec over ureq; no redirects, 4 MiB bounded body
 ├── [v] CLI: --root --task --base-url --model --allow-cmd --key-env
 │   └── [v] --version banner (exact LF literal, court-verified)
-├── 0.0.2 frontier (learned from unisacc/csih)
-│   ├── [-] file gains an edit op: exact-match replace, 0 hits fail /
+├── 0.0.2 frontier (shipped, learned from unisacc/csih)
+│   ├── [v] file gains an edit op: exact-match replace, 0 hits fail /
 │   │   2+ hits fail / exactly 1 replaces, atomic write-back (edit.cx rule)
-│   ├── [-] exec gains a required `why` field, echoed as the one-line
+│   ├── [v] exec gains a required `why` field, echoed as the one-line
 │   │   tool summary the caller reads first
-│   ├── [-] structured tool status: success comes from the tool's own rc
+│   ├── [v] structured tool status: success comes from the tool's own rc
 │   │   (exec exit code, write really landed), never from a returned ok
-│   ├── [-] retry with backoff on 429/5xx (2s/5s, max 2), 401 never retried,
+│   ├── [v] retry with backoff on 429/5xx (2s/5s, max 2), 401 never retried,
 │   │   in-flight cancel stays possible
-│   ├── [_] session journal: one jsonl per --root, /resume replays it as
+│   ├── [v] session journal: one jsonl per --root, /resume replays it as
 │   │   prior context (csih owned-session, minus the takeover protocol)
-│   ├── [_] /undo for file writes+edits (bounded 20 steps), /diff to show
+│   ├── [v] /undo for file writes+edits (bounded 20 steps), /diff to show
 │   │   what this invocation changed
-│   └── [_] CSIH.md-style project file: HARNESS.md at --root joined to the
+│   └── [v] CSIH.md-style project file: HARNESS.md at --root joined to the
 │       system prompt (8KB codepoint-safe cap)
 ├── Delivery: minicon-harness.com → prd/PRD_01_01_com_delivery.md
 ├── Windows signing: company Authenticode → prd/PRD_01_02_windows_signing.md
+├── 0.0.3 frontier (signed releases)
+│   ├── [-] S1 signing qualification on this repository (owner fills 3
+│   │   secrets, one qualification_only run, receipt read back)
+│   ├── [-] S2 release-policy signing.mode → required (owner flip)
+│   ├── [-] S3 release.yml consumes the signed chain: mode=required
+│   │   publishes only receipt-verified signed bytes; mode=off keeps the
+│   │   unsigned path
+│   ├── [-] S4 Defender court scans the exact published bytes, clean
+│   │   verdict or the release blocks
+│   ├── [-] S5 release automation repaired: v0.0.3 published by CI alone
+│   │   (403 diagnosed or routed via a PAT secret)
+│   └── [_] S6 docs court: README/README.zh cover 0.0.2 flags + signing
 │   ├── [v] six native cells (win/osx/lnx × x86_64/aarch64), release profile
 │   ├── [v] cosmocc APE trampoline + ZipOS /zip/cells overlay (5.62 MB packed)
 │   ├── [v] Authenticode signability padding (unsigned 0.0.1; slot reserved)
