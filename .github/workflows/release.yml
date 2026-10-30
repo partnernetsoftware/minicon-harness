@@ -170,7 +170,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: inputs.dry_run == false
-    environment: release
     permissions:
       actions: read
       contents: write
