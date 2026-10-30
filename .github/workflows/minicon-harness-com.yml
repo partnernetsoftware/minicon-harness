@@ -34,6 +34,7 @@ jobs:
       com_sha256: ${{ steps.pack.outputs.com_sha256 }}
       source_sha: ${{ steps.pack.outputs.source_sha }}
       source_tree_digest: ${{ steps.pack.outputs.source_tree_digest }}
+      version: ${{ steps.pack.outputs.version }}
       artifact_id: ${{ steps.upload_com.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -385,11 +386,13 @@ jobs:
       - name: version + refusal journeys (unix)
         if: matrix.family != 'windows'
         shell: bash
+        env:
+          EXPECTED_VERSION: ${{ needs.build.outputs.version }}
         run: |
           set -euo pipefail
           chmod +x bundle/minicon-harness.com
           out=$(bundle/minicon-harness.com --version)
-          test "$out" = "minicon-harness 0.0.1"
+          test "$out" = "minicon-harness $EXPECTED_VERSION"
           echo "version ok: $out"
           if bundle/minicon-harness.com --bogus > /dev/null 2>&1; then
             echo "unknown flag must exit nonzero" >&2; exit 1
@@ -408,7 +411,8 @@ jobs:
           $ErrorActionPreference = "Stop"
           Copy-Item -LiteralPath bundle/minicon-harness.com -Destination bundle/minicon-harness-ape.exe
           $out = & bundle/minicon-harness-ape.exe --version
-          if ($out -ne "minicon-harness 0.0.1") { throw "version mismatch: $out" }
+          $expected = "minicon-harness $env:EXPECTED_VERSION"
+          if ($out -ne $expected) { throw "version mismatch: $out" }
           Write-Host "version ok: $out"
           $p = Start-Process -FilePath "bundle/minicon-harness-ape.exe" -ArgumentList "--bogus" -Wait -PassThru -NoNewWindow
           if ($p.ExitCode -eq 0) { throw "unknown flag must exit nonzero" }
