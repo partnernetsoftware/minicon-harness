@@ -1,6 +1,6 @@
 [package]
 name = "minicon-harness"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "Minimal bounded agent harness in Rust: exactly two tools, file and exec."
 license = "MIT OR Apache-2.0"

@@ -120,27 +120,69 @@ impl FileTool {
     /// a sibling and are renamed over the destination, so a failure mid-write
     /// leaves the destination at its previous contents.
     pub fn write(&self, relative: &str, contents: &str) -> Result<usize, String> {
+        let path = self.resolve(relative)?;
+        self.publish(&path, relative, contents.as_bytes())?;
+        Ok(contents.len())
+    }
+
+    /// Exact-match replace, csih edit.cx rules: zero occurrences is a
+    /// failure (a no-op that reads like success hides a wrong context), two
+    /// or more is a failure (which one?), exactly one replaces and is
+    /// published atomically. The result is the file size AFTER the edit, so
+    /// a caller can tell truncation from growth without a second read.
+    pub fn edit(&self, relative: &str, old: &str, new: &str) -> Result<usize, String> {
+        if old.is_empty() {
+            return Err(
+                "file: edit refused: `old` is empty; an empty match is ambiguous by \
+                 construction"
+                    .to_owned(),
+            );
+        }
+        let path = self.resolve(relative)?;
+        let bytes = read_bounded(&path, FILE_TOOL_MAX_READ_BYTES)
+            .map_err(|error| format!("file: edit {relative:?} failed: {error}"))?;
+        let contents = String::from_utf8(bytes)
+            .map_err(|_| format!("file: edit {relative:?} failed: file is not valid UTF-8"))?;
+        let count = contents.matches(old).count();
+        match count {
+            0 => Err(format!(
+                "file: edit {relative:?} failed: the search text occurs 0 times; nothing was \
+                 written"
+            )),
+            1 => {
+                let replaced = contents.replacen(old, new, 1);
+                self.publish(&path, relative, replaced.as_bytes())?;
+                Ok(replaced.len())
+            }
+            n => Err(format!(
+                "file: edit {relative:?} failed: the search text occurs {n} times; give a \
+                 longer, unique match. Nothing was written"
+            )),
+        }
+    }
+
+    /// The shared atomic publish behind `write` and `edit`.
+    fn publish(&self, path: &std::path::Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
         use std::io::Write as _;
 
-        let path = self.resolve(relative)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|error| format!("file: write {relative:?} failed: {error}"))?;
         }
-        let sibling = sibling_temporary_path(&path);
+        let sibling = sibling_temporary_path(path);
         {
             let mut file = std::fs::File::create(&sibling)
                 .map_err(|error| format!("file: write {relative:?} failed: {error}"))?;
-            file.write_all(contents.as_bytes())
+            file.write_all(bytes)
                 .map_err(|error| format!("file: write {relative:?} failed: {error}"))?;
             file.sync_all()
                 .map_err(|error| format!("file: write {relative:?} failed: {error}"))?;
         }
-        std::fs::rename(&sibling, &path).map_err(|error| {
+        std::fs::rename(&sibling, path).map_err(|error| {
             let _ = std::fs::remove_file(&sibling);
             format!("file: write {relative:?} failed: {error}")
         })?;
-        Ok(contents.len())
+        Ok(())
     }
 }
 
@@ -669,6 +711,67 @@ mod tests {
         assert!(outcome.timed_out);
         assert_eq!(outcome.exit_code, None);
         assert!(start.elapsed() < std::time::Duration::from_secs(10));
+    }
+
+    #[test]
+    fn file_edit_replaces_exactly_one_occurrence() {
+        let root = fixture_root("edit-one");
+        let tool = FileTool::new(root.to_str().unwrap()).unwrap();
+        tool.write(
+            "code.txt",
+            "alpha
+beta
+alpha
+",
+        )
+        .unwrap();
+        // Make the match unique first, then edit.
+        tool.write(
+            "code.txt",
+            "alpha
+beta
+gamma
+",
+        )
+        .unwrap();
+        let size_after = tool.edit("code.txt", "beta", "BETA").unwrap();
+        assert_eq!(
+            tool.read("code.txt").unwrap(),
+            "alpha
+BETA
+gamma
+"
+        );
+        assert_eq!(size_after, tool.read("code.txt").unwrap().len());
+    }
+
+    #[test]
+    fn file_edit_zero_occurrences_fails_and_writes_nothing() {
+        let root = fixture_root("edit-zero");
+        let tool = FileTool::new(root.to_str().unwrap()).unwrap();
+        tool.write("keep.txt", "original").unwrap();
+        let error = tool.edit("keep.txt", "absent text", "x").unwrap_err();
+        assert!(error.contains("0 times"), "{error}");
+        assert_eq!(tool.read("keep.txt").unwrap(), "original");
+    }
+
+    #[test]
+    fn file_edit_ambiguous_occurrences_fail_and_write_nothing() {
+        let root = fixture_root("edit-ambiguous");
+        let tool = FileTool::new(root.to_str().unwrap()).unwrap();
+        tool.write("dup.txt", "same same").unwrap();
+        let error = tool.edit("dup.txt", "same", "other").unwrap_err();
+        assert!(error.contains("2 times"), "{error}");
+        assert_eq!(tool.read("dup.txt").unwrap(), "same same");
+    }
+
+    #[test]
+    fn file_edit_empty_old_is_refused() {
+        let root = fixture_root("edit-empty");
+        let tool = FileTool::new(root.to_str().unwrap()).unwrap();
+        tool.write("f.txt", "x").unwrap();
+        let error = tool.edit("f.txt", "", "y").unwrap_err();
+        assert!(error.contains("refused"), "{error}");
     }
 
     #[test]

@@ -1,6 +1,63 @@
 //! The wire layer: one `Transport` seam, an OpenAI-compatible
-//! chat-completions codec, nothing else. A wire-format fix never touches a
-//! tool bound.
+//! chat-completions codec, retry with backoff. A wire-format fix never
+//! touches a tool bound.
+
+/// How long one model round trip may take before the exchange is abandoned.
+pub const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Largest response body the stock transport will accumulate. A response body
+/// becomes a model reply that becomes a prompt, so the bound belongs to the
+/// read, for the same reason the file tool's read bound does.
+pub const HTTP_MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Retry policy for transient model-API failures: 429 and 5xx are worth one
+/// more try (2s, then 5s); anything else -- a bad key, a malformed request --
+/// fails immediately because the next try would fail identically.
+pub const RETRY_DELAYS: [std::time::Duration; 2] = [
+    std::time::Duration::from_secs(2),
+    std::time::Duration::from_secs(5),
+];
+
+/// Classifies a transport error as retryable. The stock transport embeds the
+/// HTTP status in its error text (`... answered HTTP 429: ...`), so the
+/// classification reads that back; a custom transport keeps the same contract
+/// or opts out of retry by never naming a retryable status.
+fn retryable(error: &str) -> bool {
+    const MARKERS: [&str; 6] = [
+        " HTTP 429",
+        " HTTP 500",
+        " HTTP 502",
+        " HTTP 503",
+        " HTTP 504",
+        " HTTP 529",
+    ];
+    MARKERS.iter().any(|marker| error.contains(marker))
+}
+
+/// Sends one request with the retry policy above. Real sleeps only in
+/// release builds; tests pass a sleeper so they stay instant.
+pub fn post_with_retry<Sleep>(
+    transport: &dyn Transport,
+    url: &str,
+    bearer: &str,
+    body: &str,
+    sleep: Sleep,
+) -> Result<String, String>
+where
+    Sleep: Fn(std::time::Duration),
+{
+    let mut attempt = 0usize;
+    loop {
+        match transport.post_json(url, bearer, body, &[]) {
+            Ok(body) => return Ok(body),
+            Err(error) if attempt < RETRY_DELAYS.len() && retryable(&error) => {
+                sleep(RETRY_DELAYS[attempt]);
+                attempt += 1;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
 
 /// One HTTP round trip, so the turn loop can be tested without a network.
 ///
@@ -33,14 +90,6 @@ pub trait Transport {
         self.post_json(url, bearer, body, extra_headers)
     }
 }
-
-/// Largest response body the stock transport will accumulate. A response body
-/// becomes a model reply that becomes a prompt, so the bound belongs to the
-/// read, for the same reason the file tool's read bound does.
-pub const HTTP_MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
-
-/// How long one round trip may take before the exchange is abandoned.
-pub const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// The stock transport over [`ureq`]. One bounded POST; no redirects (a
 /// redirected POST replays the bearer token to a host the caller never
@@ -148,7 +197,7 @@ fn tool_definitions() -> serde_json::Value {
                     "properties": {
                         "op": {
                             "type": "string",
-                            "enum": ["read", "write"],
+                            "enum": ["read", "write", "edit"],
                             "description": "Which operation to perform."
                         },
                         "path": {
@@ -158,6 +207,16 @@ fn tool_definitions() -> serde_json::Value {
                         "contents": {
                             "type": "string",
                             "description": "The full new contents, for op=write only."
+                        },
+                        "old": {
+                            "type": "string",
+                            "description": "Exact text to replace, for op=edit only. Must \
+                                            occur exactly once: 0 or 2+ occurrences are \
+                                            refused and nothing is written."
+                        },
+                        "new": {
+                            "type": "string",
+                            "description": "The replacement text, for op=edit only."
                         }
                     },
                     "required": ["op", "path"]
@@ -175,6 +234,10 @@ fn tool_definitions() -> serde_json::Value {
                 "parameters": {
                     "type": "object",
                     "properties": {
+                        "why": {
+                            "type": "string",
+                            "description": "One short line saying what this command is for."
+                        },
                         "argv": {
                             "type": "array",
                             "items": { "type": "string" },
@@ -182,7 +245,7 @@ fn tool_definitions() -> serde_json::Value {
                                             arguments."
                         }
                     },
-                    "required": ["argv"]
+                    "required": ["why", "argv"]
                 }
             }
         }
@@ -321,6 +384,81 @@ mod tests {
             }
             other => panic!("expected tool calls, got {other:?}"),
         }
+    }
+
+    fn text_reply(text: &str) -> String {
+        serde_json::json!({"choices":[{"message":{"role":"assistant","content":text}}]}).to_string()
+    }
+
+    #[test]
+    fn retry_5xx_then_succeed() {
+        struct FlakyTransport(std::cell::Cell<usize>);
+        impl Transport for FlakyTransport {
+            fn post_json(
+                &self,
+                _u: &str,
+                _b: &str,
+                _body: &str,
+                _h: &[(&str, &str)],
+            ) -> Result<String, String> {
+                let n = self.0.get();
+                self.0.set(n + 1);
+                if n < 2 {
+                    Err("harness: the endpoint answered HTTP 503: busy".to_owned())
+                } else {
+                    Ok(text_reply("done"))
+                }
+            }
+        }
+        let t = FlakyTransport(std::cell::Cell::new(0));
+        let slept = std::cell::RefCell::new(Vec::new());
+        let reply = post_with_retry(&t, "u", "k", "{}", |d| {
+            slept.borrow_mut().push(d);
+        })
+        .unwrap();
+        assert_eq!(reply, text_reply("done"));
+        assert_eq!(slept.borrow().len(), 2);
+        assert_eq!(slept.borrow()[0], std::time::Duration::from_secs(2));
+        assert_eq!(slept.borrow()[1], std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn retry_exhausts_after_three_5xx() {
+        struct Always503;
+        impl Transport for Always503 {
+            fn post_json(
+                &self,
+                _u: &str,
+                _b: &str,
+                _body: &str,
+                _h: &[(&str, &str)],
+            ) -> Result<String, String> {
+                Err("harness: the endpoint answered HTTP 503: busy".to_owned())
+            }
+        }
+        let error = post_with_retry(&Always503, "u", "k", "{}", |_| {}).unwrap_err();
+        assert!(error.contains("503"));
+    }
+
+    #[test]
+    fn retry_never_retries_401() {
+        struct Always401(std::cell::Cell<usize>);
+        impl Transport for Always401 {
+            fn post_json(
+                &self,
+                _u: &str,
+                _b: &str,
+                _body: &str,
+                _h: &[(&str, &str)],
+            ) -> Result<String, String> {
+                self.0.set(self.0.get() + 1);
+                Err("harness: the endpoint answered HTTP 401: bad key".to_owned())
+            }
+        }
+        let t = Always401(std::cell::Cell::new(0));
+        let error = post_with_retry(&t, "u", "k", "{}", |_| {}).unwrap_err();
+        assert!(error.contains("401"));
+        assert_eq!(t.0.get(), 1, "401 must not retry");
     }
 
     #[test]

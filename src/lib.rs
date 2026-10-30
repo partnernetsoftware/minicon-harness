@@ -8,6 +8,7 @@
 //! model against a filesystem and a command line, with every bound stated
 //! as a constant next to the code that enforces it.
 
+pub mod journal;
 pub mod tools;
 pub mod wire;
 
@@ -146,6 +147,15 @@ pub struct Request {
     /// The environment variable read for the API bearer. Defaults to
     /// `HARNESS_API_KEY`.
     pub key_env: String,
+    /// Resume: replay this journal as prior context ahead of the new task.
+    /// `None` starts a fresh journal; `Some` appends to the existing one.
+    pub resume: bool,
+    /// Undo every file write/edit this invocation recorded, then stop. No
+    /// model round trip happens.
+    pub undo: bool,
+    /// Print the diff of what the journal's last invocation changed, then
+    /// stop. No model round trip happens.
+    pub diff: bool,
 }
 
 /// What flag parsing produced. `Version` short-circuits the run: printing
@@ -157,13 +167,15 @@ pub enum Parsed {
 }
 
 /// Parses the CLI form: `--root PATH --task TEXT [--base-url URL]
-/// [--model NAME] [--allow-cmd NAME]... [--key-env NAME]`.
+/// [--model NAME] [--allow-cmd NAME]... [--key-env NAME] [--resume]
+/// [--undo] [--diff]`.
 pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
     if args.len() == 1 && args[0] == "--version" {
         return Ok(Parsed::Version);
     }
     let usage = "usage: minicon-harness --root PATH --task TEXT [--base-url URL] \
-                 [--model NAME] [--allow-cmd NAME]... [--key-env NAME]"
+                 [--model NAME] [--allow-cmd NAME]... [--key-env NAME] \
+                 [--resume] [--undo] [--diff]"
         .to_owned();
     let mut root = None;
     let mut task = None;
@@ -171,6 +183,9 @@ pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
     let mut model = DEFAULT_MODEL.to_owned();
     let mut allow_cmd = Vec::new();
     let mut key_env = "HARNESS_API_KEY".to_owned();
+    let mut resume = false;
+    let mut undo = false;
+    let mut diff = false;
     let mut position = 0usize;
     while let Some(flag) = args.get(position).map(String::as_str) {
         position += 1;
@@ -188,10 +203,22 @@ pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
             "--model" => model = value()?,
             "--allow-cmd" => allow_cmd.push(value()?),
             "--key-env" => key_env = value()?,
+            "--resume" => resume = true,
+            "--undo" => undo = true,
+            "--diff" => diff = true,
             other => {
                 return Err(format!("unexpected argument {other:?}\n{usage}"));
             }
         }
+    }
+    if undo && diff {
+        return Err("--undo and --diff are mutually exclusive".to_owned());
+    }
+    if task.is_none() && !undo && !diff {
+        return Err(format!(
+            "--task TEXT is required
+{usage}"
+        ));
     }
     Ok(Parsed::Run(Request {
         root: root.ok_or_else(|| {
@@ -200,11 +227,14 @@ pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
                  default, which would widen the file tool's bound silently)\n{usage}"
             )
         })?,
-        task: task.ok_or_else(|| format!("--task TEXT is required\n{usage}"))?,
+        task: task.unwrap_or_default(),
         base_url,
         model,
         allow_cmd,
         key_env,
+        resume,
+        undo,
+        diff,
     }))
 }
 
@@ -214,17 +244,44 @@ pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
 pub const OPENAI_COMPATIBLE_CHAT_URL: &str = "https://api.deepseek.com/chat/completions";
 pub const DEFAULT_MODEL: &str = "deepseek-chat";
 
-/// The instruction the task is wrapped in, so the model knows what the two
-/// tools' bounds are before it trips over them.
+/// The instruction the task is wrapped in, so the model knows what the tools'
+/// bounds are before it trips over them, plus the project's own conventions
+/// from `HARNESS.md` (fallback `AGENTS.md`) at the root when present.
 pub fn system_prompt(root: &std::path::Path) -> String {
-    format!(
+    let mut prompt = format!(
         "You are a bounded harness agent. You have exactly two tools, `file` and `exec`, and \
          no others. Every path is relative to the task root {root}; paths outside it are \
          refused, not rewritten. `exec` runs one allow-listed command per call with no shell. \
          A refusal is information: read it, adjust, and continue. Only after all requested \
          work has succeeded, answer with final plain text and no tool call.",
         root = root.display(),
-    )
+    );
+    if let Some(project) = project_conventions(root) {
+        prompt.push_str("\n\nProject conventions (from the task root):\n");
+        prompt.push_str(&project);
+    }
+    prompt
+}
+
+/// Reads `HARNESS.md` (fallback `AGENTS.md`) at the root, capped at 8KB on a
+/// codepoint boundary. Absent file → nothing; the cap never splits a char.
+fn project_conventions(root: &std::path::Path) -> Option<String> {
+    const CAP: usize = 8 * 1024;
+    for name in ["HARNESS.md", "AGENTS.md"] {
+        let path = root.join(name);
+        if let Ok(raw) = std::fs::read(&path) {
+            let capped = &raw[..raw.len().min(CAP)];
+            let mut text = String::from_utf8_lossy(capped).into_owned();
+            while !text.is_char_boundary(text.len()) {
+                text.pop();
+            }
+            if raw.len() > CAP {
+                text.push_str("\n... (truncated at 8KB)");
+            }
+            return Some(text);
+        }
+    }
+    None
 }
 
 /// Runs one bounded task to a final assistant message.
@@ -251,20 +308,48 @@ pub fn run_with_budget(
     let exec_tool = ExecTool::new(file_tool.root_path(), &request.allow_cmd)
         .with_deadline(budget.deadline)
         .with_cancellation(budget.cancelled.clone());
+    let journal = journal::Journal::for_root(file_tool.root_path());
     let mut messages = vec![
         serde_json::json!({ "role": "system", "content": system_prompt(file_tool.root_path()) }),
         serde_json::json!({ "role": "user", "content": request.task }),
     ];
+    // Resume: replay the journal's task/answer pairs ahead of the new task,
+    // so the model continues where the last invocation stopped. The turn and
+    // tool-call bounds stay per-invocation, never accumulated.
+    if request.resume {
+        let context = journal.resume_context().map_err(Failure::Backend)?;
+        if !context.is_empty() {
+            messages.insert(1, serde_json::json!({ "role": "user", "content": context }));
+        }
+        if request.task.is_empty() {
+            return Err(Failure::Backend(
+                "--resume with no --task has nothing to continue; give a task".to_owned(),
+            ));
+        }
+    }
+    if !request.task.is_empty() {
+        journal
+            .append(&journal::Record::Task(request.task.clone()))
+            .map_err(Failure::Backend)?;
+    }
     let mut tool_calls_spent = 0usize;
 
     for _turn in 0..INVOCATION_MAX_MODEL_TURNS {
         let body = wire::request_body(&request.model, &messages);
-        let remaining = budget.take_model_turn()?;
-        let reply = transport.post_json_with_timeout(&request.base_url, key, &body, &[], remaining);
+        budget.take_model_turn()?;
+        // Retry with backoff stays inside one budget turn: the 10-minute
+        // deadline still bounds the whole invocation.
+        let reply =
+            wire::post_with_retry(transport, &request.base_url, key, &body, std::thread::sleep);
         budget.check()?;
         let reply = reply?;
         match wire::parse_reply(&reply)? {
-            ModelReply::Text(text) => return Ok(text),
+            ModelReply::Text(text) => {
+                journal
+                    .append(&journal::Record::Answer(text.clone()))
+                    .map_err(Failure::Backend)?;
+                return Ok(text);
+            }
             ModelReply::ToolCalls(calls) => {
                 if tool_calls_spent + calls.len() > INVOCATION_MAX_TOOL_CALLS {
                     return Err(format!(
@@ -294,13 +379,21 @@ pub fn run_with_budget(
                     budget.take_tool_call()?;
                     tool_calls_spent += 1;
                     // A refusal is a result, not an early return.
-                    let result = dispatch_tool_call(&file_tool, &exec_tool, call)
-                        .unwrap_or_else(|refusal| refusal);
+                    let dispatched = dispatch_tool_call(&file_tool, &exec_tool, call)
+                        .unwrap_or_else(|refusal| Dispatched {
+                            result: refusal,
+                            change: None,
+                        });
+                    if let Some(change) = &dispatched.change {
+                        // Only successful changes carry a record; appending
+                        // it is what makes --undo and --diff real evidence.
+                        journal.append(change).map_err(Failure::Backend)?;
+                    }
                     budget.check()?;
                     messages.push(serde_json::json!({
                         "role": "tool",
                         "tool_call_id": call.id,
-                        "content": result,
+                        "content": dispatched.result,
                     }));
                 }
             }
@@ -313,13 +406,50 @@ pub fn run_with_budget(
     .into())
 }
 
+/// The machine-readable status of one dispatched tool call, prefixed to the
+/// tool result so the model reads structured truth before prose. Success
+/// comes from the tool's own evidence -- an exec's exit code, a write that
+/// really landed, an edit that replaced exactly once -- never from a
+/// function having returned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ToolStatus {
+    Ok,
+    Failed,
+    Refused,
+}
+
+impl ToolStatus {
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Ok => "status=ok",
+            Self::Failed => "status=failed",
+            Self::Refused => "status=refused",
+        }
+    }
+}
+
+/// Formats one tool result: `status=... ` then the body. `Err` maps to
+/// `Failed` or `Refused` by the caller's classification; both are results,
+/// not aborts.
+fn tool_result(status: ToolStatus, body: String) -> String {
+    format!("{} {body}", status.tag())
+}
+
+/// The outcome of one dispatched call: the model-facing result text plus,
+/// for a successful file change, the journal record that makes it reversible.
+struct Dispatched {
+    result: String,
+    change: Option<journal::Record>,
+}
+
 /// Runs one tool call. `Err` is still something to tell the model, not a
-/// reason to abandon the run.
+/// reason to abandon the run; it means the call itself failed or was
+/// refused.
 fn dispatch_tool_call(
     file_tool: &FileTool,
     exec_tool: &ExecTool,
     call: &WireToolCall,
-) -> Result<String, String> {
+) -> Result<Dispatched, String> {
     let arguments: serde_json::Value = serde_json::from_str(&call.arguments).map_err(|error| {
         format!(
             "{}: refused: the arguments are not a JSON object: {error}",
@@ -333,7 +463,10 @@ fn dispatch_tool_call(
                 .and_then(serde_json::Value::as_str)
                 .ok_or_else(|| "file: refused: no `path` argument".to_owned())?;
             match arguments.get("op").and_then(serde_json::Value::as_str) {
-                Some("read") => file_tool.read(path),
+                Some("read") => file_tool.read(path).map(|contents| Dispatched {
+                    result: tool_result(ToolStatus::Ok, contents),
+                    change: None,
+                }),
                 Some("write") => {
                     let contents = arguments
                         .get("contents")
@@ -341,15 +474,64 @@ fn dispatch_tool_call(
                         .ok_or_else(|| {
                             "file: refused: op=write needs a `contents` argument".to_owned()
                         })?;
+                    // A zero-byte write is a legal empty file, not a failure:
+                    // success here means the bytes really landed on disk.
+                    let previous = file_tool.read(path).ok();
                     let written = file_tool.write(path, contents)?;
-                    Ok(format!("file: wrote {written} bytes to {path}"))
+                    Ok(Dispatched {
+                        result: tool_result(
+                            ToolStatus::Ok,
+                            format!("wrote {written} bytes to {path}"),
+                        ),
+                        change: Some(journal::Record::Wrote {
+                            path: path.to_owned(),
+                            previous,
+                        }),
+                    })
+                }
+                Some("edit") => {
+                    let old = arguments
+                        .get("old")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| {
+                            "file: refused: op=edit needs an `old` argument".to_owned()
+                        })?;
+                    let new = arguments
+                        .get("new")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| {
+                            "file: refused: op=edit needs a `new` argument".to_owned()
+                        })?;
+                    let previous = file_tool.read(path).ok();
+                    let size_after = file_tool.edit(path, old, new)?;
+                    // previous is the true before-state only when the edit
+                    // succeeded; on failure the record is not appended.
+                    Ok(Dispatched {
+                        result: tool_result(
+                            ToolStatus::Ok,
+                            format!("edited {path}; file is now {size_after} bytes"),
+                        ),
+                        change: Some(journal::Record::Edited {
+                            path: path.to_owned(),
+                            previous: previous.unwrap_or_default(),
+                        }),
+                    })
                 }
                 other => Err(format!(
-                    "file: refused: op must be \"read\" or \"write\", got {other:?}"
+                    "file: refused: op must be \"read\", \"write\" or \"edit\", got {other:?}"
                 )),
             }
         }
         "exec" => {
+            let why = arguments
+                .get("why")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    "exec: refused: the `why` argument is required: one short line saying what \
+                     this command is for"
+                        .to_owned()
+                })?;
             let argv = arguments
                 .get("argv")
                 .and_then(serde_json::Value::as_array)
@@ -365,15 +547,26 @@ fn dispatch_tool_call(
                 .split_first()
                 .ok_or_else(|| "exec: refused: argv is empty".to_owned())?;
             let outcome = exec_tool.run(program, args)?;
-            Ok(format!(
-                "exec: exit={} timed_out={}\nstdout:\n{}\nstderr:\n{}",
-                outcome
-                    .exit_code
-                    .map_or_else(|| "terminated".to_owned(), |code| code.to_string()),
-                outcome.timed_out,
-                outcome.stdout,
-                outcome.stderr
-            ))
+            let status = if outcome.timed_out || outcome.exit_code != Some(0) {
+                ToolStatus::Failed
+            } else {
+                ToolStatus::Ok
+            };
+            Ok(Dispatched {
+                result: tool_result(
+                    status,
+                    format!(
+                        "why: {why}\nexec: exit={} timed_out={}\nstdout:\n{}\nstderr:\n{}",
+                        outcome
+                            .exit_code
+                            .map_or_else(|| "terminated".to_owned(), |code| code.to_string()),
+                        outcome.timed_out,
+                        outcome.stdout,
+                        outcome.stderr
+                    ),
+                ),
+                change: None,
+            })
         }
         // Refused, and named: the model invented a tool, and telling it so is
         // how it stops trying.
@@ -392,6 +585,47 @@ pub fn main_entry() -> Result<(), String> {
             Ok(())
         }
         Parsed::Run(request) => {
+            // --undo and --diff are local journal operations: no key, no
+            // model round trip, they work offline on any previous root.
+            if request.undo || request.diff {
+                let file_tool = FileTool::new(&request.root)?;
+                let journal = journal::Journal::for_root(file_tool.root_path());
+                if request.undo {
+                    let steps = journal.undo_steps().map_err(|error| error.to_string())?;
+                    let last = steps.last().ok_or_else(|| {
+                        "harness: nothing to undo; the journal has no file changes".to_owned()
+                    })?;
+                    match &last.previous {
+                        Some(previous) => {
+                            file_tool.write(&last.path, previous)?;
+                            println!("undid {} (restored {} bytes)", last.path, previous.len());
+                        }
+                        None => {
+                            let path = file_tool.root_path().join(&last.path);
+                            std::fs::remove_file(&path)
+                                .map_err(|error| format!("harness: {}", error))?;
+                            println!("undid {} (created file removed)", last.path);
+                        }
+                    }
+                    return Ok(());
+                }
+                // --diff
+                let changed = journal.changed_files().map_err(|error| error.to_string())?;
+                if changed.is_empty() {
+                    println!("no file changes recorded");
+                    return Ok(());
+                }
+                for (path, first_previous, _last_previous) in changed {
+                    let live = file_tool.read(&path).ok();
+                    // Show the FIRST previous against the LIVE file: that is
+                    // what "what did this journal change" means to a person.
+                    println!(
+                        "{}",
+                        journal::render_diff(&path, &first_previous, live.as_deref())
+                    );
+                }
+                return Ok(());
+            }
             let key = std::env::var(&request.key_env)
                 .ok()
                 .filter(|value| !value.is_empty())
@@ -473,9 +707,32 @@ mod tests {
                 assert_eq!(request.root, "r");
                 assert_eq!(request.task, "t");
                 assert_eq!(request.key_env, "HARNESS_API_KEY");
+                assert!(!request.resume && !request.undo && !request.diff);
             }
             other => panic!("expected a run request, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_args_carries_undo_diff_resume_flags() {
+        let parsed =
+            parse_args(&["--root".into(), "r".into(), "--undo".into()]).expect("undo alone");
+        match parsed {
+            Parsed::Run(request) => {
+                assert!(request.undo);
+                assert!(!request.diff && !request.resume);
+                assert!(request.task.is_empty());
+            }
+            other => panic!("expected a run request, got {other:?}"),
+        }
+        let error = parse_args(&[
+            "--root".into(),
+            "r".into(),
+            "--undo".into(),
+            "--diff".into(),
+        ])
+        .unwrap_err();
+        assert!(error.contains("mutually exclusive"));
     }
 
     #[test]
@@ -511,6 +768,9 @@ mod tests {
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
             key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
         };
         let model = ScriptedTransport::new(&[text_reply("done")]);
         let answer = run(&model, &request, "synthetic").expect("one turn");
@@ -532,6 +792,9 @@ mod tests {
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
             key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
         };
         let call = serde_json::json!({"choices":[{"message":{
             "role":"assistant", "content":null, "tool_calls":[{
@@ -550,7 +813,7 @@ mod tests {
         assert_eq!(messages.last().unwrap()["role"], "tool");
         assert_eq!(
             messages.last().unwrap()["content"],
-            "file: wrote 2 bytes to note.txt"
+            "status=ok wrote 2 bytes to note.txt"
         );
         assert_eq!(
             std::fs::read_to_string(root.join("note.txt")).unwrap(),
@@ -568,6 +831,9 @@ mod tests {
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
             key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
         };
         let call = serde_json::json!({"choices":[{"message":{
             "role":"assistant", "content":null, "tool_calls":[{
@@ -599,6 +865,9 @@ mod tests {
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
             key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
         };
         let call = serde_json::json!({"choices":[{"message":{
             "role":"assistant", "content":null, "tool_calls":[{
@@ -629,6 +898,9 @@ mod tests {
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
             key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
         };
         let call = serde_json::json!({"choices":[{"message":{
             "role":"assistant", "content":null, "tool_calls":[{
@@ -666,6 +938,9 @@ mod tests {
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
             key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
         };
         let calls: Vec<_> = (0..100)
             .map(|index| {
@@ -717,6 +992,9 @@ mod tests {
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
             key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
         };
         let calls: Vec<_> = (0..64)
             .map(|index| {
@@ -761,5 +1039,85 @@ mod tests {
             );
         }
         assert!(!root.join("effect-64").exists());
+    }
+
+    #[test]
+    fn resume_replays_prior_task_and_answer() {
+        let root = fixture_root("resume-e2e");
+        let root_str = root.to_str().unwrap().to_owned();
+        let first = Request {
+            root: root_str.clone(),
+            task: "first task".to_owned(),
+            base_url: "http://127.0.0.1/fixture".to_owned(),
+            model: "fixture".to_owned(),
+            allow_cmd: Vec::new(),
+            key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
+        };
+        let model = ScriptedTransport::new(&[text_reply("first answer")]);
+        run(&model, &first, "synthetic").expect("first run");
+        let second = Request {
+            resume: true,
+            task: "second task".to_owned(),
+            ..first
+        };
+        let model2 = ScriptedTransport::new(&[text_reply("second answer")]);
+        run(&model2, &second, "synthetic").expect("resumed run");
+        let sent = model2.sent.borrow();
+        let body: serde_json::Value = serde_json::from_str(&sent[0]).unwrap();
+        let messages = body["messages"].as_array().unwrap();
+        let replay = messages[1]["content"].as_str().unwrap();
+        assert!(replay.contains("Previous task: first task"), "{replay}");
+        assert!(replay.contains("Previous answer: first answer"), "{replay}");
+        assert_eq!(messages[2]["content"], "second task");
+    }
+
+    #[test]
+    fn undo_journal_records_the_write() {
+        let root = fixture_root("undo-e2e");
+        let root_str = root.to_str().unwrap().to_owned();
+        let request = Request {
+            root: root_str.clone(),
+            task: "write and undo".to_owned(),
+            base_url: "http://127.0.0.1/fixture".to_owned(),
+            model: "fixture".to_owned(),
+            allow_cmd: Vec::new(),
+            key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
+        };
+        let call = serde_json::json!({"choices":[{"message":{
+            "role":"assistant", "content":null, "tool_calls":[{
+                "id":"c", "type":"function", "function":{"name":"file","arguments":
+                "{\"op\":\"write\",\"path\":\"u.txt\",\"contents\":\"new\"}"}
+            }]
+        }}]})
+        .to_string();
+        let model = ScriptedTransport::new(&[call, text_reply("done")]);
+        run(&model, &request, "synthetic").unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("u.txt")).unwrap(), "new");
+        let file_tool = FileTool::new(&root_str).unwrap();
+        let journal = journal::Journal::for_root(file_tool.root_path());
+        let steps = journal.undo_steps().unwrap();
+        let last = steps.last().unwrap();
+        assert_eq!(last.path, "u.txt");
+        assert_eq!(last.previous, None);
+    }
+
+    #[test]
+    fn project_file_enters_the_system_prompt() {
+        let root = fixture_root("project-file");
+        std::fs::write(root.join("HARNESS.md"), "always answer in haiku").unwrap();
+        let prompt = system_prompt(&root);
+        assert!(prompt.contains("always answer in haiku"), "{prompt}");
+        assert!(prompt.starts_with("You are a bounded harness agent."));
+        let root2 = fixture_root("project-file-fallback");
+        std::fs::write(root2.join("AGENTS.md"), "agents fallback").unwrap();
+        assert!(system_prompt(&root2).contains("agents fallback"));
+        let root3 = fixture_root("project-file-none");
+        assert!(!system_prompt(&root3).contains("Project conventions"));
     }
 }
