@@ -29,12 +29,29 @@ minicon-harness — one-file bounded agent worker
 │   └── [v] OpenAI-compatible codec over ureq; no redirects, 4 MiB bounded body
 ├── [v] CLI: --root --task --base-url --model --allow-cmd --key-env
 │   └── [v] --version banner (exact LF literal, court-verified)
+├── 0.0.2 frontier (learned from unisacc/csih)
+│   ├── [-] file gains an edit op: exact-match replace, 0 hits fail /
+│   │   2+ hits fail / exactly 1 replaces, atomic write-back (edit.cx rule)
+│   ├── [-] exec gains a required `why` field, echoed as the one-line
+│   │   tool summary the caller reads first
+│   ├── [-] structured tool status: success comes from the tool's own rc
+│   │   (exec exit code, write really landed), never from a returned ok
+│   ├── [-] retry with backoff on 429/5xx (2s/5s, max 2), 401 never retried,
+│   │   in-flight cancel stays possible
+│   ├── [_] session journal: one jsonl per --root, /resume replays it as
+│   │   prior context (csih owned-session, minus the takeover protocol)
+│   ├── [_] /undo for file writes+edits (bounded 20 steps), /diff to show
+│   │   what this invocation changed
+│   └── [_] CSIH.md-style project file: HARNESS.md at --root joined to the
+│       system prompt (8KB codepoint-safe cap)
 ├── Delivery: minicon-harness.com → prd/PRD_01_01_com_delivery.md
 │   ├── [v] six native cells (win/osx/lnx × x86_64/aarch64), release profile
 │   ├── [v] cosmocc APE trampoline + ZipOS /zip/cells overlay (5.62 MB packed)
 │   ├── [v] Authenticode signability padding (unsigned 0.0.1; slot reserved)
 │   └── [v] GitHub CI pack + six-cell execute court + public Release v0.0.1
-└── [no] plugin host, permission policy, sessions, streaming, MCP, desktop
+└── [no] plugin host, permission policy, streaming, MCP, desktop authority
+    (sessions enter 0.0.2 as plain journals; the takeover/owner-lock
+    protocol stays out)
     authority. The model API cannot execute tools; the tools cannot reach the
     model API. Scope extensions need a new owner decision here.
 ```
@@ -50,7 +67,7 @@ minicon-harness — one-file bounded agent worker
   recompiles the worker against cosmopolitan libc, and cells are never
   rebuilt on a test runner.
 
-## 0.0.1 frontier
+## 0.0.1 frontier (shipped)
 
 [v] First public release shipped 2026-10-27: six cells packed into
 `minicon-harness.com` (5,619,674 bytes, sha256 8ea3eb68...), each cell executed
