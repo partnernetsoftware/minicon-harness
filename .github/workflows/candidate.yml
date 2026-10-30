@@ -1,0 +1,107 @@
+name: Release Candidate (minicon-harness)
+
+# Seals the exact packed bytes of one successful minicon-harness.com run as
+# the Candidate: every court re-verifies the digest chain, nothing rebuilds.
+# Signing is a separate owner decision (company-signing.yml); this file is
+# the identity anchor the signing readiness checker requires.
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character current main HEAD
+        required: true
+        type: string
+      pack_run_id:
+        description: Successful minicon-harness.com run for source_sha
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: minicon-harness-candidate-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      upstream_attempt: ${{ steps.identity.outputs.upstream_attempt }}
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Bind exact source and upstream run identity
+        id: identity
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
+          attempt=$(gh run view "$PACK_RUN_ID" --json headSha,runAttempt
+            --jq 'select(.headSha == env.SOURCE_SHA) | .runAttempt')
+          [[ -n "$attempt" ]] || { echo "pack run does not belong to SOURCE_SHA" >&2; exit 1; }
+          { echo "version=$version"; echo "upstream_attempt=$attempt"; } >> "$GITHUB_OUTPUT"
+        env:
+          PACK_RUN_ID: ${{ inputs.pack_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+
+  candidate:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: minicon-harness-com
+          path: candidate/com
+          run-id: ${{ inputs.pack_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: minicon-harness-native-archives
+          path: candidate/native
+          run-id: ${{ inputs.pack_run_id }}
+          github-token: ${{ github.token }}
+      - name: Seal the Candidate identity
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          UPSTREAM_RUN_ID: ${{ inputs.pack_run_id }}
+          UPSTREAM_ATTEMPT: ${{ needs.preflight.outputs.upstream_attempt }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          rec = json.loads(Path('candidate/com/build-receipt.json').read_text())
+          assert rec['source_sha'] == os.environ['SOURCE_SHA']
+          assert rec['source_dirty'] is False
+          com = Path('candidate/com/minicon-harness.com').read_bytes()
+          assert hashlib.sha256(com).hexdigest() == rec['minicon_harness_com_sha256']
+          manifest = {
+              'schema': 1,
+              'kind': 'minicon-harness-release-candidate',
+              'version': rec['version'],
+              'source_sha': rec['source_sha'],
+              'source_tree_digest': rec['source_tree_digest'],
+              'upstream': {
+                  'run_id': int(os.environ['UPSTREAM_RUN_ID']),
+                  'run_attempt': int(os.environ['UPSTREAM_ATTEMPT']),
+              },
+              'payloads': rec['payloads'],
+              'minicon_harness_com_sha256': rec['minicon_harness_com_sha256'],
+          }
+          Path('candidate/candidate-manifest.json').write_text(
+              json.dumps(manifest, indent=2) + '\n')
+          print(json.dumps(manifest, indent=2))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: minicon-harness-candidate-${{ inputs.source_sha }}
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 14
