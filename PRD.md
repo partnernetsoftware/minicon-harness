@@ -45,6 +45,7 @@ minicon-harness — one-file bounded agent worker
 │   └── [_] CSIH.md-style project file: HARNESS.md at --root joined to the
 │       system prompt (8KB codepoint-safe cap)
 ├── Delivery: minicon-harness.com → prd/PRD_01_01_com_delivery.md
+├── Windows signing: company Authenticode → prd/PRD_01_02_windows_signing.md
 │   ├── [v] six native cells (win/osx/lnx × x86_64/aarch64), release profile
 │   ├── [v] cosmocc APE trampoline + ZipOS /zip/cells overlay (5.62 MB packed)
 │   ├── [v] Authenticode signability padding (unsigned 0.0.1; slot reserved)
