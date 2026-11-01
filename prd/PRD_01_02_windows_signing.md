@@ -31,16 +31,15 @@ signature with an RFC 3161 timestamp
 │   ARTIFACT_SIGNING_{ENDPOINT,ACCOUNT,PROFILE} environment variables are
 │   set (endpoint https://eus.codesigning.azure.net/, account
 │   partnernetsigning, profile minicon-public)
-└── [-] OWNER_ACTION: the three environment secrets
-    AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID must hold the
-    Entra app values this repository's OIDC identity federates to. Secret
-    values are unreadable through the API, and the skill recommends one
-    least-privilege principal per repository: either copy the values from
-    minicon's environment page, or follow
-    sign-windows-artifacts/references/azure-artifact-signing-setup.md to
-    create a new app scoped to this repo, then also grant it Certificate
-    Profile Signer at the minicon-public profile scope
-    (`check-azure-signing-state.sh` verifies RBAC once done)
+└── [-] OWNER_ACTION: create the per-repo Entra app via the portal
+    click-path in `prd/PRD_01_02_owner_runbook.md` (App registration ->
+    federated credential subject
+    repo:partnernetsoftware@53246189/minicon-harness@1435216282:environment:release-signing
+    -> Certificate Profile Signer at the minicon-public profile scope),
+    then send back Application (client) ID / Directory (tenant) ID /
+    Subscription ID; the worker writes the three environment secrets and
+    runs both checkers. Rule upheld: one least-privilege principal per
+    repository, no copying another product's AZURE_CLIENT_ID
 ```
 
 ## Memory palace
