@@ -48,7 +48,8 @@ jobs:
         id: identity
         run: |
           set -euo pipefail
-          git checkout --detach "$SOURCE_SHA"
+          git fetch origin "$SOURCE_SHA" --depth 1
+          git checkout --detach FETCH_HEAD
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
           signing_mode="$(jq -r .signing.mode release-policy.json)"
           [[ "$signing_mode" == off || "$signing_mode" == required ]] ||
