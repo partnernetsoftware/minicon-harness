@@ -109,6 +109,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNING_RUN_ID: ${{ inputs.signing_run_id }}
+          PACK_RUN_ID: ${{ inputs.pack_run_id }}
           SOURCE_SHA: ${{ inputs.source_sha }}
           VERSION: ${{ inputs.version }}
         run: |
