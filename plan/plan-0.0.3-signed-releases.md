@@ -1,6 +1,6 @@
 # 0.0.3 — signed releases + defender court
 
-Status: `[-]` planned 2026-10-30. Owner decision this plan implements:
+Status: `[v]` shipped 2026-11-01 as v0.0.3 (signed). Owner decision this plan implements:
 **every future release ships company-signed bytes**. Delivery method stays in
 `prd/PRD_01_01_com_delivery.md`; signing mechanics live in
 `prd/PRD_01_02_windows_signing.md`.
