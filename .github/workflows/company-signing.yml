@@ -229,8 +229,12 @@ jobs:
             }
             $version = (Get-Item -LiteralPath $path).VersionInfo
             $escapedVersion = [regex]::Escape($env:EXPECTED_VERSION)
-            if ($version.ProductName -ne 'MiniCon Harness' -or $version.ProductVersion -notmatch "^$escapedVersion(?:\.0)?$") {
-              throw "$($entry.Key): VERSIONINFO mismatch ProductName=$($version.ProductName) ProductVersion=$($version.ProductVersion)"
+            if ($entry.Key -eq 'minicon-harness.com') {
+              # Only the APE carries the VERSIONINFO resource; raw cells
+              # are plain Rust binaries with an empty version block.
+              if ($version.ProductName -ne 'MiniCon Harness' -or $version.ProductVersion -notmatch "^$escapedVersion(?:\.0)?$") {
+                throw "$($entry.Key): VERSIONINFO mismatch ProductName=$($version.ProductName) ProductVersion=$($version.ProductVersion)"
+              }
             }
             $after = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($after -eq $before[$entry.Key]) { throw "$($entry.Key): signing did not change bytes" }
