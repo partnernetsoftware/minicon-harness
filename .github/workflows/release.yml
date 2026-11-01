@@ -181,14 +181,16 @@ jobs:
           from pathlib import Path
           rec = json.loads(Path("bundle/build-receipt.json").read_text())
           raw = Path("bundle/minicon-harness.com").read_bytes()
-          assert rec["minicon_harness_com_sha256"] == hashlib.sha256(raw).hexdigest()
+          signed_mode = Path("bundle/signing-receipt.json").is_file()
+          if not signed_mode:
+              assert rec["minicon_harness_com_sha256"] == hashlib.sha256(raw).hexdigest()
           assert rec["source_sha"] == os.environ["SOURCE_SHA"]
           assert rec["version"] == os.environ["VERSION"]
           assert rec["source_dirty"] is False
           assert rec["within_ceiling"] is True
           sidecar = Path("bundle/minicon-harness.com.sha256").read_text().split()[0]
-          assert sidecar == rec["minicon_harness_com_sha256"]
-          print(f"verified: {len(raw)} bytes, sha256 {sidecar}")
+          assert sidecar == hashlib.sha256(raw).hexdigest()
+          print(f"verified{' (signed)' if signed_mode else ''}: {len(raw)} bytes, sha256 {sidecar}")
           PY
 
       - name: Verify native archive members against the receipt
