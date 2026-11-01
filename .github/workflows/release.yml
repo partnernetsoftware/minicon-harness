@@ -11,6 +11,10 @@ on:
         description: Successful minicon-harness.com workflow run ID
         required: true
         type: string
+      signing_run_id:
+        description: Successful company-signing run ID (required when release-policy signing.mode=required)
+        required: false
+        type: string
       source_sha:
         description: Exact pack source SHA
         required: true
@@ -63,12 +67,89 @@ jobs:
           [[ "$(jq -r .head_sha <<<"$run")" == "$SOURCE_SHA" ]]
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Bind the signing policy
+        id: policy
+        run: |
+          set -euo pipefail
+          if [[ -f release-policy.json ]]; then
+            mode=$(jq -r .signing.mode release-policy.json)
+          else
+            mode=off
+          fi
+          if [[ "$mode" == required && -z "$SIGNING_RUN_ID" ]]; then
+            echo "signing.mode=required but signing_run_id is empty" >&2
+            exit 1
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+        env:
+          SIGNING_RUN_ID: ${{ inputs.signing_run_id }}
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: steps.policy.outputs.mode != 'required'
         with:
           name: minicon-harness-com
           path: bundle
           run-id: ${{ inputs.pack_run_id }}
           github-token: ${{ github.token }}
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: steps.policy.outputs.mode != 'required'
+        with:
+          name: minicon-harness-native-archives
+          path: native
+          run-id: ${{ inputs.pack_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify the signing run (mode=required)
+        if: steps.policy.outputs.mode == 'required'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_RUN_ID: ${{ inputs.signing_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          signing="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGNING_RUN_ID")"
+          [[ "$(jq -r .path <<<"$signing")" == ".github/workflows/company-signing.yml" ]]
+          [[ "$(jq -r .conclusion <<<"$signing")" == "success" ]]
+          [[ "$(jq -r .head_sha <<<"$signing")" == "$(jq -r .head_sha <<<"$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PACK_RUN_ID")")" ]]
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: steps.policy.outputs.mode == 'required'
+        with:
+          name: trusted-signed-minicon-harness
+          path: signed
+          run-id: ${{ inputs.signing_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Stage the signed bytes over the unsigned bundle
+        if: steps.policy.outputs.mode == 'required'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          receipt = json.loads(Path("signed/signing-receipt.json").read_text())
+          assert receipt["kind"] == "minicon-harness-trusted-signing"
+          assert receipt["source_sha"] == os.environ["SOURCE_SHA"]
+          assert receipt["product_version"] == os.environ["VERSION"]
+          assert receipt["publisher_organization"] == "PARTNERNET SOFTWARE PTY LTD"
+          assert receipt["release_eligible"] is True
+          assets = receipt["assets"]
+          ape = Path("signed/minicon-harness.com")
+          got = hashlib.sha256(ape.read_bytes()).hexdigest()
+          assert got == assets["minicon-harness.com"]["after_sha256"], "signed APE digest"
+          assert got != assets["minicon-harness.com"]["before_sha256"], "signing changed nothing"
+          Path("bundle").mkdir(exist_ok=True)
+          ape.replace("bundle/minicon-harness.com")
+          sha_line = got + "  minicon-harness.com\n"
+          Path("bundle/minicon-harness.com.sha256").write_text(sha_line)
+          Path("signed/signing-receipt.json").replace("bundle/signing-receipt.json")
+          print("staged signed APE:", got[:16])
+          PY
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          VERSION: ${{ inputs.version }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: minicon-harness-native-archives
@@ -92,7 +173,6 @@ jobs:
           assert rec["version"] == os.environ["VERSION"]
           assert rec["source_dirty"] is False
           assert rec["within_ceiling"] is True
-          assert rec["signed"] is False
           sidecar = Path("bundle/minicon-harness.com.sha256").read_text().split()[0]
           assert sidecar == rec["minicon_harness_com_sha256"]
           print(f"verified: {len(raw)} bytes, sha256 {sidecar}")
@@ -210,6 +290,7 @@ jobs:
               --title "minicon-harness $VERSION" --notes-file promotion/bundle/release-notes.md \
               promotion/bundle/minicon-harness.com promotion/bundle/minicon-harness.com.sha256 \
               promotion/bundle/build-receipt.json promotion/bundle/README.md \
+              promotion/bundle/signing-receipt.json* \
               promotion/native/minicon-harness-*.tar.gz promotion/native/minicon-harness-*.zip \
               promotion/native/minicon-harness-*.sha256
             gh release edit "$TAG" --draft=false

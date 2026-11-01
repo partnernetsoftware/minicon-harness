@@ -6,6 +6,6 @@
     "minicon_harness_com": true
   },
   "signing": {
-    "mode": "off"
+    "mode": "required"
   }
 }
