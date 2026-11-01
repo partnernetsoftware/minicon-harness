@@ -64,7 +64,7 @@ jobs:
             fi
             release_eligible=true
           fi
-          attempt=$(gh run view "$PACK_RUN_ID" --json runAttempt -q .runAttempt)
+          attempt=$(gh run view "$PACK_RUN_ID" --json attempt -q .attempt)
           head=$(gh run view "$PACK_RUN_ID" --json headSha -q .headSha)
           if [[ "$head" != "$SOURCE_SHA" ]]; then
             echo "pack run does not belong to SOURCE_SHA" >&2
