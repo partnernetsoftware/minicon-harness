@@ -64,9 +64,12 @@ jobs:
             fi
             release_eligible=true
           fi
-          attempt=$(gh run view "$PACK_RUN_ID" --json headSha,runAttempt --jq '.headSha + " " + (.runAttempt|tostring)')
-          [[ "$attempt" == "$SOURCE_SHA "* ]] || { echo "pack run does not belong to SOURCE_SHA" >&2; exit 1; }
-          attempt=${attempt##* }
+          attempt=$(gh run view "$PACK_RUN_ID" --json runAttempt -q .runAttempt)
+          head=$(gh run view "$PACK_RUN_ID" --json headSha -q .headSha)
+          if [[ "$head" != "$SOURCE_SHA" ]]; then
+            echo "pack run does not belong to SOURCE_SHA" >&2
+            exit 1
+          fi
           {
             echo "version=$version"
             echo "release_eligible=$release_eligible"
