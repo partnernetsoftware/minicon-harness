@@ -130,19 +130,7 @@ jobs:
           Copy-Item upstream/com/minicon-harness.com signing-input/minicon-harness.com
           # The Windows cells live inside the APE's zip overlay; extract the
           # two signing inputs from the packed bytes themselves (no rebuild).
-          python - <<'PY'
-          import hashlib, json, zipfile
-          from pathlib import Path
-          rec = json.loads(Path('upstream/com/build-receipt.json').read_text())
-          with zipfile.ZipFile('upstream/com/minicon-harness.com') as archive:
-              for cell in ('win-aarch64', 'win-x86_64'):
-                  raw = archive.read(f'cells/{cell}/minicon-harness.exe')
-                  identity = rec['payloads'][cell]
-                  assert hashlib.sha256(raw).hexdigest() == identity['sha256']
-                  assert len(raw) == identity['bytes']
-                  Path(f'signing-input/{cell}.exe').write_bytes(raw)
-          print('signing inputs extracted and digest-verified')
-          PY
+          python scripts/extract-signing-cells.py --ape upstream/com/minicon-harness.com --receipt upstream/com/build-receipt.json --out signing-input
           $paths = [ordered]@{
             'minicon-harness.com' = 'upstream/com/minicon-harness.com'
             'win-x86_64' = 'signing-input/win-x86_64.exe'
