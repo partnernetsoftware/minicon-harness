@@ -51,7 +51,14 @@ jobs:
           git fetch origin main --depth 1
           git checkout --detach "$SOURCE_SHA"
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
-          signing_mode="$(jq -r .signing.mode release-policy.json)"
+          if [[ -f release-policy.json ]]; then
+            signing_mode="$(jq -r .signing.mode release-policy.json)"
+          else
+            # The exact bytes predate the signing policy file;
+            # qualification is still allowed (never release-eligible),
+            # while a release-eligible run fails the mode check below.
+            signing_mode=off
+          fi
           [[ "$signing_mode" == off || "$signing_mode" == required ]] ||
             { echo "release-policy.json signing.mode is neither off nor required" >&2; exit 1; }
           release_eligible=false
