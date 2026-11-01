@@ -40,8 +40,9 @@ jobs:
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
-          attempt=$(gh run view "$PACK_RUN_ID" --json headSha,runAttempt --jq 'select(.headSha == env.SOURCE_SHA) | .runAttempt')
-          [[ -n "$attempt" ]] || { echo "pack run does not belong to SOURCE_SHA" >&2; exit 1; }
+          attempt=$(gh run view "$PACK_RUN_ID" --json headSha,runAttempt --jq '.headSha + " " + (.runAttempt|tostring)')
+          [[ "$attempt" == "$SOURCE_SHA "* ]] || { echo "pack run does not belong to SOURCE_SHA" >&2; exit 1; }
+          attempt=${attempt##* }
           { echo "version=$version"; echo "upstream_attempt=$attempt"; } >> "$GITHUB_OUTPUT"
         env:
           PACK_RUN_ID: ${{ inputs.pack_run_id }}

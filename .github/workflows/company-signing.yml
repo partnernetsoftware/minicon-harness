@@ -48,8 +48,8 @@ jobs:
         id: identity
         run: |
           set -euo pipefail
-          git fetch origin "$SOURCE_SHA" --depth 1
-          git checkout --detach FETCH_HEAD
+          git fetch origin main --depth 1
+          git checkout --detach "$SOURCE_SHA"
           version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)
           signing_mode="$(jq -r .signing.mode release-policy.json)"
           [[ "$signing_mode" == off || "$signing_mode" == required ]] ||
@@ -64,8 +64,9 @@ jobs:
             fi
             release_eligible=true
           fi
-          attempt=$(gh run view "$PACK_RUN_ID" --json headSha,runAttempt --jq 'select(.headSha == env.SOURCE_SHA) | .runAttempt')
-          [[ -n "$attempt" ]] || { echo "pack run does not belong to SOURCE_SHA" >&2; exit 1; }
+          attempt=$(gh run view "$PACK_RUN_ID" --json headSha,runAttempt --jq '.headSha + " " + (.runAttempt|tostring)')
+          [[ "$attempt" == "$SOURCE_SHA "* ]] || { echo "pack run does not belong to SOURCE_SHA" >&2; exit 1; }
+          attempt=${attempt##* }
           {
             echo "version=$version"
             echo "release_eligible=$release_eligible"
