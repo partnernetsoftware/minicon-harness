@@ -1,8 +1,12 @@
 # minicon-harness product requirements
 
-minicon-harness is a bounded agent worker in one portable file: exactly two
-tools, `file` and `exec`, an OpenAI-compatible model loop, and no installer,
-no bundled runtime and no permission-policy engine. Its packaging model
+minicon-harness is a bounded agent worker in one portable file: exactly three
+tools, `file`, `exec` and `screen`, an OpenAI-compatible model loop, and no
+installer, no bundled runtime and no permission-policy engine. `screen` is the
+computer-use half: it observes the desktop or performs one bounded operation on
+it, under the same rule as the other two -- the tool's own bounds are the whole
+policy. Its contract, and the assessment of which sibling CU work was migrated,
+is owned by `prd/PRD_01_03_computer_use.md`. Its packaging model
 follows the minicon.com method of the sibling `partnernetsoftware/minicon`
 repository: native cells per OS/ISA, a Cosmopolitan fat-trampoline
 `minicon-harness.com` with a ZipOS overlay, and a six-cell native execution
@@ -24,6 +28,10 @@ minicon-harness — one-file bounded agent worker
 │   │   256 KiB bounded reads, atomic publish-by-rename
 │   ├── [v] exec tool: allow-listed basename argv, no shell, env allow-list,
 │   │   30 s kill, 1 MiB bounded combined capture with marker
+│   ├── [v] screen tool: observe (window inventory + one PNG under the root)
+│   │   or act (focus/move/click/type/key/scroll, one per call, `why`
+│   │   required), granted per invocation by --allow-screen, Windows
+│   │   qualified, other platforms refuse by name
 │   ├── [v] bounded loop: 16 model turns, 64 tool calls, 10-minute deadline;
 │   │   refusals are tool results, never aborts
 │   └── [v] OpenAI-compatible codec over ureq; no redirects, 4 MiB bounded body
@@ -46,6 +54,7 @@ minicon-harness — one-file bounded agent worker
 │       system prompt (8KB codepoint-safe cap)
 ├── Delivery: minicon-harness.com → prd/PRD_01_01_com_delivery.md
 ├── Windows signing: company Authenticode → prd/PRD_01_02_windows_signing.md
+├── Computer use: the `screen` tool → prd/PRD_01_03_computer_use.md
 ├── 0.0.3 frontier (signed releases)
 │   ├── [-] S1 signing qualification on this repository (owner fills 3
 │   │   secrets, one qualification_only run, receipt read back)
@@ -62,23 +71,37 @@ minicon-harness — one-file bounded agent worker
 │   ├── [v] cosmocc APE trampoline + ZipOS /zip/cells overlay (5.62 MB packed)
 │   ├── [v] Authenticode signability padding (unsigned 0.0.1; slot reserved)
 │   └── [v] GitHub CI pack + six-cell execute court + public Release v0.0.1
-└── [no] plugin host, permission policy, streaming, MCP, desktop authority
+└── [no] plugin host, permission policy, streaming, MCP, a scripting surface
+    over the desktop, a second model loop
     (sessions enter 0.0.2 as plain journals; the takeover/owner-lock
-    protocol stays out)
+    protocol stays out; `screen` exposes eight bounded operations, not an
+    automation language)
     authority. The model API cannot execute tools; the tools cannot reach the
     model API. Scope extensions need a new owner decision here.
 ```
 
 ## Governing invariants
 
-- The two tools' own bounds are the whole policy. There is no second
+- The three tools' own bounds are the whole policy. There is no second
   permission layer, and a refusal is information returned to the model.
+- An operation on the desktop is performed once and read back; a system that
+  keeps its own geometry produces a failure that names both rectangles, never a
+  success that reports the request.
 - Every bound is a named constant next to the code that enforces it.
 - One invocation, one bounded task, one final answer on stdout. The process
   exits; no service identity, no listener.
 - The `.com` artifact is a pack of already-qualified native cells. It never
   recompiles the worker against cosmopolitan libc, and cells are never
   rebuilt on a test runner.
+
+## 0.0.4 frontier (in the tree, not yet published)
+
+[v] The `screen` tool is implemented and qualified on Windows in this tree:
+observe, capture, focus, move (with readback), click, type, key, scroll, behind
+`--allow-screen`, std-only (`prd/PRD_01_03_computer_use.md`). `Cargo.toml`,
+`release-policy.json` and the cell courts still say `0.0.3`: the version is
+bumped when a signed six-cell Candidate is actually cut, not when the source
+grows a third tool. Until then no released artifact carries computer use.
 
 ## 0.0.1 frontier (shipped)
 
