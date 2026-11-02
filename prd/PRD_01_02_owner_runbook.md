@@ -24,12 +24,13 @@
 4. Credential name 填 `github-minicon-harness-release-signing` → **Add**
 
 > 网页表单会自动拼出 subject，正确值应等于：
-> `repo:partnernetsoftware@53246189/minicon-harness@1435216282:environment:release-signing`
+> `repo:<ORG>@<ORG_ID>/minicon-harness@<REPO_ID>:environment:release-signing`
+> （数字 ID 用 `gh api orgs/partnernetsoftware --jq .id` 与 `gh api repos/partnernetsoftware/minicon-harness --jq .id` 现算）
 > （可以展开凭据详情核对一眼）
 
 ## 第 3 步：给签名 profile 授权（约 3 分钟）
 
-1. 顶部搜索并打开 **Artifact Signing**（或 Subscription → 资源组 `rg-signing` → 账号 `partnernetsigning`）
+1. 顶部搜索并打开 **Artifact Signing**（公司账号；资源组与账号名见 GitHub Environment vars）
 2. 左侧 **Certificate profiles** → 点 **minicon-public**
 3. 左侧 **Access control (IAM)** → **+ Add** → **Add role assignment**
 4. Role 搜 **Artifact Signing Certificate Profile Signer** → 下一步

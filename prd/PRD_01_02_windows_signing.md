@@ -29,12 +29,13 @@ signature with an RFC 3161 timestamp
 │   (qualification) at main f267658
 ├── [v] GitHub side: release-signing environment exists;
 │   ARTIFACT_SIGNING_{ENDPOINT,ACCOUNT,PROFILE} environment variables are
-│   set (endpoint https://eus.codesigning.azure.net/, account
-│   partnernetsigning, profile minicon-public)
+│   set (endpoint <ENDPOINT>, account <ACCOUNT>, profile <PROFILE>;
+│   values live in the release-signing Environment variables)
 └── [-] OWNER_ACTION: create the per-repo Entra app via the portal
     click-path in `prd/PRD_01_02_owner_runbook.md` (App registration ->
     federated credential subject
-    repo:partnernetsoftware@53246189/minicon-harness@1435216282:environment:release-signing
+    repo:<ORG>@<ORG_ID>/minicon-harness@<REPO_ID>:environment:release-signing
+    (exact numeric subject is computed on demand with gh api, never stored)
     -> Certificate Profile Signer at the minicon-public profile scope),
     then send back Application (client) ID / Directory (tenant) ID /
     Subscription ID; the worker writes the three environment secrets and
