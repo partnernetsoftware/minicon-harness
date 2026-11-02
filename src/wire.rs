@@ -179,10 +179,12 @@ pub enum ModelReply {
     ToolCalls(Vec<WireToolCall>),
 }
 
-/// The two tools, as the wire wants tool definitions written. Both are
-/// advertised **always**, including when `--allow-cmd` is empty: an empty
-/// allow-list makes every `exec` call refused; it does not hide the tool, so
-/// a model cannot tell "not allowed yet" from "tool absent" by probing.
+/// The three tools, as the wire wants tool definitions written. All are
+/// advertised **always**, including when `--allow-cmd` is empty or
+/// `--allow-screen` was not passed: an empty allow-list makes every `exec` call
+/// refused and an ungranted screen makes every `screen` call refused; neither
+/// hides its tool, so a model cannot tell "not allowed yet" from "tool absent"
+/// by probing.
 fn tool_definitions() -> serde_json::Value {
     serde_json::json!([
         {
@@ -246,6 +248,77 @@ fn tool_definitions() -> serde_json::Value {
                         }
                     },
                     "required": ["why", "argv"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "screen",
+                "description": "Observe the desktop, or perform exactly one operation on it. \
+                                op=observe lists top-level windows and can write one PNG under \
+                                the task root; op=act performs one named operation and reports \
+                                what the desktop says afterwards. Only granted when the caller \
+                                passed --allow-screen.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "op": {
+                            "type": "string",
+                            "enum": ["observe", "act"],
+                            "description": "Which half to use: reading or operating."
+                        },
+                        "why": {
+                            "type": "string",
+                            "description": "For op=act only: one short line saying what this \
+                                            operation is for."
+                        },
+                        "window": {
+                            "type": "string",
+                            "description": "Window title. For op=observe it filters the list; \
+                                            for op=act it names the target. A substring is \
+                                            accepted only when it matches exactly one window."
+                        },
+                        "capture": {
+                            "description": "For op=observe: true captures the whole desktop, or \
+                                            give a window title to capture just that window. The \
+                                            PNG path is composed by the tool under \
+                                            .harness/capture and is returned, never supplied."
+                        },
+                        "action": {
+                            "type": "string",
+                            "enum": ["focus", "move", "click", "type", "key", "scroll"],
+                            "description": "For op=act: the one operation to perform."
+                        },
+                        "x": { "type": "integer", "description": "Screen coordinate or move target." },
+                        "y": { "type": "integer", "description": "Screen coordinate or move target." },
+                        "width": { "type": "integer", "description": "For action=move." },
+                        "height": { "type": "integer", "description": "For action=move." },
+                        "button": {
+                            "type": "string",
+                            "enum": ["left", "right"],
+                            "description": "For action=click; defaults to left."
+                        },
+                        "double": {
+                            "type": "boolean",
+                            "description": "For action=click: click twice."
+                        },
+                        "text": {
+                            "type": "string",
+                            "description": "For action=type: literal text to deliver to the \
+                                            focused window."
+                        },
+                        "keys": {
+                            "type": "string",
+                            "description": "For action=key: a key combination such as \
+                                            \"ctrl+s\" or \"win+left\"."
+                        },
+                        "delta": {
+                            "type": "integer",
+                            "description": "For action=scroll: wheel delta, positive scrolls up."
+                        }
+                    },
+                    "required": ["op"]
                 }
             }
         }
@@ -337,7 +410,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn request_body_carries_model_messages_and_both_tools() {
+    fn request_body_carries_model_messages_and_all_three_tools() {
         let messages = vec![
             serde_json::json!({"role":"system","content":"s"}),
             serde_json::json!({"role":"user","content":"t"}),
@@ -345,7 +418,7 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_str(&request_body("fixture", &messages)).unwrap();
         assert_eq!(body["model"], "fixture");
-        assert_eq!(body["tools"].as_array().map(Vec::len), Some(2));
+        assert_eq!(body["tools"].as_array().map(Vec::len), Some(3));
         assert_eq!(body["stream"], false);
     }
 

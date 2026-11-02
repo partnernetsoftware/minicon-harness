@@ -1,17 +1,26 @@
 //! # minicon-harness
 //!
-//! A minimal bounded agent loop with exactly two tools, `file` and `exec`.
-//! Not a plugin host, not a permission-policy framework -- the two tools' own
-//! bounds (the `--root` path, the `--allow-cmd` list) are the whole policy.
+//! A minimal bounded agent loop with exactly three tools: `file`, `exec` and
+//! `screen`. `screen` was frozen open in 0.0.3 and enters here as the
+//! computer-use half of the harness, under the same rule as the other two --
+//! the tool's own bounds are the whole policy, and a refusal is information.
+//! Not a plugin host, not a permission-policy framework -- the three tools' own
+//! bounds (the `--root` path, the `--allow-cmd` list, the `--allow-screen`
+//! grant) are the whole policy.
 //!
 //! In the spirit of pi-agent: the smallest complete thing that can run a
-//! model against a filesystem and a command line, with every bound stated
-//! as a constant next to the code that enforces it.
+//! model against a filesystem, a command line and a desktop, with every bound
+//! stated as a constant next to the code that enforces it.
 
 pub mod journal;
+pub mod screen;
 pub mod tools;
 pub mod wire;
 
+pub use screen::{
+    Act, CaptureTarget, ClickButton, ScreenTool, SCREEN_TOOL_CAPTURE_DIR,
+    SCREEN_TOOL_MAX_CAPTURE_BYTES, SCREEN_TOOL_MAX_TYPE_CHARS, SCREEN_TOOL_MAX_WINDOWS,
+};
 pub use tools::{ExecOutcome, ExecTool, FileTool};
 pub use wire::{ModelReply, Transport, WireToolCall};
 
@@ -144,6 +153,10 @@ pub struct Request {
     /// naming the missing allow-list, so a model cannot tell "not allowed yet"
     /// from "tool absent" by probing.
     pub allow_cmd: Vec<String>,
+    /// `--allow-screen`. False does **not** hide the `screen` tool: it is
+    /// still advertised, and every call is refused naming the flag. Computer
+    /// use is granted per invocation, never inherited from the desktop.
+    pub allow_screen: bool,
     /// The environment variable read for the API bearer. Defaults to
     /// `HARNESS_API_KEY`.
     pub key_env: String,
@@ -174,7 +187,7 @@ pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
         return Ok(Parsed::Version);
     }
     let usage = "usage: minicon-harness --root PATH --task TEXT [--base-url URL] \
-                 [--model NAME] [--allow-cmd NAME]... [--key-env NAME] \
+                 [--model NAME] [--allow-cmd NAME]... [--allow-screen] [--key-env NAME] \
                  [--resume] [--undo] [--diff]"
         .to_owned();
     let mut root = None;
@@ -182,6 +195,7 @@ pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
     let mut base_url = OPENAI_COMPATIBLE_CHAT_URL.to_owned();
     let mut model = DEFAULT_MODEL.to_owned();
     let mut allow_cmd = Vec::new();
+    let mut allow_screen = false;
     let mut key_env = "HARNESS_API_KEY".to_owned();
     let mut resume = false;
     let mut undo = false;
@@ -202,6 +216,7 @@ pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
             "--base-url" => base_url = value()?,
             "--model" => model = value()?,
             "--allow-cmd" => allow_cmd.push(value()?),
+            "--allow-screen" => allow_screen = true,
             "--key-env" => key_env = value()?,
             "--resume" => resume = true,
             "--undo" => undo = true,
@@ -231,6 +246,7 @@ pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
         base_url,
         model,
         allow_cmd,
+        allow_screen,
         key_env,
         resume,
         undo,
@@ -249,11 +265,13 @@ pub const DEFAULT_MODEL: &str = "deepseek-chat";
 /// from `HARNESS.md` (fallback `AGENTS.md`) at the root when present.
 pub fn system_prompt(root: &std::path::Path) -> String {
     let mut prompt = format!(
-        "You are a bounded harness agent. You have exactly two tools, `file` and `exec`, and \
-         no others. Every path is relative to the task root {root}; paths outside it are \
-         refused, not rewritten. `exec` runs one allow-listed command per call with no shell. \
-         A refusal is information: read it, adjust, and continue. Only after all requested \
-         work has succeeded, answer with final plain text and no tool call.",
+        "You are a bounded harness agent. You have exactly three tools, `file`, `exec` and \
+         `screen`, and no others. Every path is relative to the task root {root}; paths outside \
+         it are refused, not rewritten. `exec` runs one allow-listed command per call with no \
+         shell. `screen` observes the desktop or performs one operation on it, and is only \
+         granted when the caller passed --allow-screen. A refusal is information: read it, \
+         adjust, and continue. Only after all requested work has succeeded, answer with final \
+         plain text and no tool call.",
         root = root.display(),
     );
     if let Some(project) = project_conventions(root) {
@@ -308,6 +326,7 @@ pub fn run_with_budget(
     let exec_tool = ExecTool::new(file_tool.root_path(), &request.allow_cmd)
         .with_deadline(budget.deadline)
         .with_cancellation(budget.cancelled.clone());
+    let screen_tool = ScreenTool::new(file_tool.root_path(), request.allow_screen);
     let journal = journal::Journal::for_root(file_tool.root_path());
     let mut messages = vec![
         serde_json::json!({ "role": "system", "content": system_prompt(file_tool.root_path()) }),
@@ -379,7 +398,7 @@ pub fn run_with_budget(
                     budget.take_tool_call()?;
                     tool_calls_spent += 1;
                     // A refusal is a result, not an early return.
-                    let dispatched = dispatch_tool_call(&file_tool, &exec_tool, call)
+                    let dispatched = dispatch_tool_call(&file_tool, &exec_tool, &screen_tool, call)
                         .unwrap_or_else(|refusal| Dispatched {
                             result: refusal,
                             change: None,
@@ -448,6 +467,7 @@ struct Dispatched {
 fn dispatch_tool_call(
     file_tool: &FileTool,
     exec_tool: &ExecTool,
+    screen_tool: &ScreenTool,
     call: &WireToolCall,
 ) -> Result<Dispatched, String> {
     let arguments: serde_json::Value = serde_json::from_str(&call.arguments).map_err(|error| {
@@ -568,10 +588,150 @@ fn dispatch_tool_call(
                 change: None,
             })
         }
+        "screen" => {
+            let op = arguments
+                .get("op")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "screen: refused: no `op` argument; use \"observe\" or \"act\"".to_owned())?;
+            match op {
+                "observe" => {
+                    let window = arguments
+                        .get("window")
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|value| !value.trim().is_empty());
+                    // `capture` is either true (the whole desktop) or a window
+                    // title (that window only). Both write under the root.
+                    let capture = match arguments.get("capture") {
+                        Some(serde_json::Value::Bool(true)) => Some(CaptureTarget::Desktop),
+                        Some(serde_json::Value::String(title)) if !title.trim().is_empty() => {
+                            Some(CaptureTarget::Window(title.clone()))
+                        }
+                        _ => None,
+                    };
+                    screen_tool
+                        .observe(window, capture)
+                        .map(|body| Dispatched {
+                            result: tool_result(ToolStatus::Ok, body),
+                            change: None,
+                        })
+                }
+                "act" => {
+                    let why = arguments
+                        .get("why")
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| {
+                            "screen: refused: the `why` argument is required: one short line \
+                             saying what this operation is for"
+                                .to_owned()
+                        })?;
+                    let action = arguments
+                        .get("action")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| {
+                            "screen: refused: act needs an `action` (focus, move, click, type, \
+                             key, scroll)"
+                                .to_owned()
+                        })?;
+                    let title = || -> Result<String, String> {
+                        arguments
+                            .get("window")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                            .ok_or_else(|| {
+                                format!("screen: refused: action {action:?} needs a `window` title")
+                            })
+                    };
+                    let number = |name: &str| -> Result<i32, String> {
+                        arguments
+                            .get(name)
+                            .and_then(serde_json::Value::as_i64)
+                            .map(|value| value as i32)
+                            .ok_or_else(|| {
+                                format!("screen: refused: action {action:?} needs an integer {name}")
+                            })
+                    };
+                    let act = match action {
+                        "focus" => Act::Focus { title: title()? },
+                        "move" => Act::Move {
+                            title: title()?,
+                            x: number("x")?,
+                            y: number("y")?,
+                            width: number("width")?,
+                            height: number("height")?,
+                        },
+                        "click" => Act::Click {
+                            x: number("x")?,
+                            y: number("y")?,
+                            button: match arguments.get("button").and_then(serde_json::Value::as_str) {
+                                Some("right") => ClickButton::Right,
+                                _ => ClickButton::Left,
+                            },
+                            double: arguments
+                                .get("double")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false),
+                        },
+                        "type" => Act::Type {
+                            text: arguments
+                                .get("text")
+                                .and_then(serde_json::Value::as_str)
+                                .ok_or_else(|| {
+                                    "screen: refused: action \"type\" needs a `text` argument"
+                                        .to_owned()
+                                })?,
+                        },
+                        "key" => Act::Key {
+                            keys: arguments
+                                .get("keys")
+                                .and_then(serde_json::Value::as_str)
+                                .ok_or_else(|| {
+                                    "screen: refused: action \"key\" needs a `keys` argument, \
+                                     e.g. \"ctrl+s\" or \"win+left\""
+                                        .to_owned()
+                                })?
+                                .to_owned(),
+                        },
+                        "scroll" => Act::Scroll {
+                            x: number("x")?,
+                            y: number("y")?,
+                            delta: number("delta")?,
+                        },
+                        other => {
+                            return Err(format!(
+                                "screen: refused: unknown action {other:?}; act accepts focus, \
+                                 move, click, type, key, scroll"
+                            ))
+                        }
+                    };
+                    let outcome = screen_tool.act(act)?;
+                    Ok(Dispatched {
+                        result: tool_result(
+                            ToolStatus::Ok,
+                            format!(
+                                "why: {why}\nscreen: act={}{}\nreadback: {}",
+                                outcome.action,
+                                outcome
+                                    .window
+                                    .as_ref()
+                                    .map(|title| format!(" window={title:?}"))
+                                    .unwrap_or_default(),
+                                outcome.readback
+                            ),
+                        ),
+                        change: None,
+                    })
+                }
+                other => Err(format!(
+                    "screen: refused: op must be \"observe\" or \"act\", got {other:?}"
+                )),
+            }
+        }
         // Refused, and named: the model invented a tool, and telling it so is
         // how it stops trying.
         other => Err(format!(
-            "{other}: refused: there is no such tool; this harness has exactly `file` and `exec`"
+            "{other}: refused: there is no such tool; this harness has exactly `file`, `exec` \
+             and `screen`"
         )),
     }
 }
@@ -767,6 +927,7 @@ mod tests {
             base_url: "http://127.0.0.1/fixture".to_owned(),
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
+            allow_screen: false,
             key_env: "HARNESS_API_KEY".to_owned(),
             resume: false,
             undo: false,
@@ -779,7 +940,7 @@ mod tests {
         assert_eq!(sent.len(), 1);
         let body: serde_json::Value = serde_json::from_str(&sent[0]).unwrap();
         assert_eq!(body["messages"][1]["content"], "say something");
-        assert_eq!(body["tools"].as_array().map(Vec::len), Some(2));
+        assert_eq!(body["tools"].as_array().map(Vec::len), Some(3));
     }
 
     #[test]
@@ -791,6 +952,7 @@ mod tests {
             base_url: "http://127.0.0.1/fixture".to_owned(),
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
+            allow_screen: false,
             key_env: "HARNESS_API_KEY".to_owned(),
             resume: false,
             undo: false,
@@ -830,6 +992,7 @@ mod tests {
             base_url: "http://127.0.0.1/fixture".to_owned(),
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
+            allow_screen: false,
             key_env: "HARNESS_API_KEY".to_owned(),
             resume: false,
             undo: false,
@@ -864,6 +1027,7 @@ mod tests {
             base_url: "http://127.0.0.1/fixture".to_owned(),
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
+            allow_screen: false,
             key_env: "HARNESS_API_KEY".to_owned(),
             resume: false,
             undo: false,
@@ -885,7 +1049,83 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
-        assert!(content.contains("exactly `file` and `exec`"), "{content}");
+        assert!(
+            content.contains("exactly `file`, `exec` and `screen`"),
+            "{content}"
+        );
+    }
+
+    #[test]
+    fn screen_is_dispatched_and_refused_when_not_granted() {
+        let root = fixture_root("screen-ungranted");
+        let request = Request {
+            root: root.to_str().unwrap().to_owned(),
+            task: "look at the desktop".to_owned(),
+            base_url: "http://127.0.0.1/fixture".to_owned(),
+            model: "fixture".to_owned(),
+            allow_cmd: Vec::new(),
+            allow_screen: false,
+            key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
+        };
+        let call = serde_json::json!({"choices":[{"message":{
+            "role":"assistant", "content":null, "tool_calls":[{
+                "id":"s-0", "type":"function", "function":{
+                    "name":"screen", "arguments":"{\"op\":\"observe\"}"
+                }
+            }]
+        }}]})
+        .to_string();
+        let model = ScriptedTransport::new(&[call, text_reply("stopped")]);
+        let answer = run(&model, &request, "synthetic").expect("a refusal is a tool result");
+        assert_eq!(answer, "stopped");
+        let sent = model.sent.borrow();
+        let second: serde_json::Value = serde_json::from_str(&sent[1]).unwrap();
+        let content = second["messages"].as_array().unwrap().last().unwrap()["content"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(content.contains("refused"), "{content}");
+        assert!(content.contains("--allow-screen"), "{content}");
+        // Nothing was observed: no capture directory was created by a refusal.
+        assert!(!root.join(SCREEN_TOOL_CAPTURE_DIR).exists());
+    }
+
+    #[test]
+    fn screen_act_requires_why_before_any_operation() {
+        let root = fixture_root("screen-why");
+        let request = Request {
+            root: root.to_str().unwrap().to_owned(),
+            task: "click something".to_owned(),
+            base_url: "http://127.0.0.1/fixture".to_owned(),
+            model: "fixture".to_owned(),
+            allow_cmd: Vec::new(),
+            allow_screen: true,
+            key_env: "HARNESS_API_KEY".to_owned(),
+            resume: false,
+            undo: false,
+            diff: false,
+        };
+        let call = serde_json::json!({"choices":[{"message":{
+            "role":"assistant", "content":null, "tool_calls":[{
+                "id":"s-1", "type":"function", "function":{
+                    "name":"screen",
+                    "arguments":"{\"op\":\"act\",\"action\":\"click\",\"x\":1,\"y\":2}"
+                }
+            }]
+        }}]})
+        .to_string();
+        let model = ScriptedTransport::new(&[call, text_reply("stopped")]);
+        run(&model, &request, "synthetic").expect("a refusal is a tool result");
+        let sent = model.sent.borrow();
+        let second: serde_json::Value = serde_json::from_str(&sent[1]).unwrap();
+        let content = second["messages"].as_array().unwrap().last().unwrap()["content"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(content.contains("`why` argument is required"), "{content}");
     }
 
     #[test]
@@ -897,6 +1137,7 @@ mod tests {
             base_url: "http://127.0.0.1/fixture".to_owned(),
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
+            allow_screen: false,
             key_env: "HARNESS_API_KEY".to_owned(),
             resume: false,
             undo: false,
@@ -937,6 +1178,7 @@ mod tests {
             base_url: "http://127.0.0.1/fixture".to_owned(),
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
+            allow_screen: false,
             key_env: "HARNESS_API_KEY".to_owned(),
             resume: false,
             undo: false,
@@ -991,6 +1233,7 @@ mod tests {
             base_url: "http://127.0.0.1/fixture".to_owned(),
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
+            allow_screen: false,
             key_env: "HARNESS_API_KEY".to_owned(),
             resume: false,
             undo: false,
@@ -1051,6 +1294,7 @@ mod tests {
             base_url: "http://127.0.0.1/fixture".to_owned(),
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
+            allow_screen: false,
             key_env: "HARNESS_API_KEY".to_owned(),
             resume: false,
             undo: false,
@@ -1084,6 +1328,7 @@ mod tests {
             base_url: "http://127.0.0.1/fixture".to_owned(),
             model: "fixture".to_owned(),
             allow_cmd: Vec::new(),
+            allow_screen: false,
             key_env: "HARNESS_API_KEY".to_owned(),
             resume: false,
             undo: false,
