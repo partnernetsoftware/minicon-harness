@@ -1,8 +1,9 @@
 # 0.0.4 — semantic computer use: typed controls + named targets
 
-Status: `[v]` W1-W5 delivered in the tree (2026-11-04); `[_]` W6, the CI signed
-Release, is a separate step and is not claimed until the tag has downloadable
-assets. Owner direction this plan implements:
+Status: `[v]` W1-W5 delivered (2026-11-04), including a green six-cell pack and
+a sealed Candidate; `[_]` W6, the public signed Release, is **not** done --
+`gh release view v0.0.4` returns "release not found" and Latest is still
+v0.0.3. No "released" claim is made. Owner direction this plan implements:
 **design the CU capability ourselves and build it**; the harness later studies
 **omp** for capability shape, but dynamic logic runs on our own **unisa + ujs**
 architecture, not bun. This plan does not embed an engine.
@@ -70,13 +71,14 @@ with the same bounds/readback/generation discipline as pixel operations
 │   still the typed frame, text is still a rendering of it
 │   evidence: `cargo test --offline` on every cell + non-Windows whole-file
 │   type-check; dependency: W1..W3
-├── [_] W5 — version 0.0.4
+├── [v] W5 — version 0.0.4
 │   invariant: Cargo.toml, Cargo.lock, release-policy.json and the APE
 │   VERSIONINFO move together; PRD/README stop calling 0.0.4 "not yet
 │   published" and record what a bump does and does not promise; the six-cell
 │   pack is run once so the new FFI is actually cross-compiled, not merely
 │   type-checked locally
-│   evidence: consistent version grep + a green minicon-harness.com run;
+│   evidence: consistent version grep + pack run 41798684738 (six unique
+│   green cells, aggregate court green) + Candidate run 41800442971 sealed;
 │   dependency: W4
 └── [_] W6 — delivery chain (separate from source)
     invariant: pack → candidate → signing → defender → release is CI's job;
@@ -128,14 +130,24 @@ flowchart LR
 - `[no]` per-OS qualification or an image arm in the wire codec.
 - `[no]` silently clipping the control list or guessing an ambiguous target.
 
-## Evidence to be collected
+## Evidence
 
-- `cargo test --offline` on Windows (unit) and `cargo test --offline --
-  --ignored` (real desktop, three journeys after this plan).
-- `cu-controls.json` written by the real-desktop journey, read by an
-  **independent** Python script: controls are sorted, labelled uniquely,
-  bounded, and the resolved hover pointer lies inside the chosen rect.
-- Whole-file type-check of `screen.rs` + `cu.rs` in the non-Windows
+- `[v]` `cargo test --offline`: 71 passed, 3 ignored; `cargo test --offline --
+  --ignored`: all three real-desktop journeys pass. `cargo build --offline`
+  reports no warnings; `git diff --check` clean.
+- `[v]` `cu-controls.json` written by the semantic journey and read by an
+  **independent** Python script: unique labels, class-derived role,
+  centre-inside-rect, `press=false`, `performed`, and a `stale` verdict with
+  `as_of != current_generation`. Fixture control `button:OK` at
+  `rect=[228,251,90,26]`, hover at `[273,264]`, readback `inside control rect`.
+- `[v]` whole-file type-check of `screen.rs` + `cu.rs` in the non-Windows
   configuration (six cells still refuse by name).
-- A green `minicon-harness.com` run on the pushed SHA: first time the screen
-  and CU modules are actually cross-compiled into the six native cells.
+- `[v]` `minicon-harness.com` run **41798684738** on `5fd7f19`: six unique
+  green native cells plus the aggregate court -- the first time screen and CU
+  were actually cross-compiled into the packed APE. Candidate run
+  **41800442971** sealed those bytes after one CI fix.
+- `[v]` CI fix: `candidate.yml`'s preflight asked `gh` for a nonexistent
+  `runAttempt` field and failed closed. Aligned with `company-signing.yml`'s
+  `attempt` field (`ba2b6ce`) and re-ran the Candidate successfully.
+- `[_]` W6: `gh release list` still shows v0.0.3 as Latest; `gh release view
+  v0.0.4` says "release not found". Signing/defender/publish were not run.

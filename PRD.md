@@ -126,7 +126,11 @@ iteration -- "bump only when a signed six-cell Candidate is cut" -- is
 superseded by the owner's 2026-11-04 instruction to move the version: **source
 version and published Release are now separate facts**. W6 (pack → candidate →
 sign → defender → release) is CI's job; until `v0.0.4` exists as a tag with
-downloadable signed assets, nothing here claims a release.
+downloadable signed assets, nothing here claims a release. So far the six-cell
+pack (run 41798684738, six unique green cells) and the Candidate seal (run
+41800442971) are green -- the first real cross-compile of screen and CU. The
+public Release is **not** published: `gh release view v0.0.4` returns "release
+not found" and Latest is still v0.0.3.
 
 ## 0.0.1 frontier (shipped)
 
