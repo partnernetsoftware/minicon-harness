@@ -89,6 +89,58 @@ impl DisplayInfo {
     }
 }
 
+/// One observation, as typed state. The CU host binds a generation to this
+/// value; nothing here is a rendered prompt string.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScreenSnapshot {
+    pub platform: String,
+    pub qualified: bool,
+    /// Virtual desktop origin and size.
+    pub desktop: (i32, i32, i32, i32),
+    pub displays: Vec<DisplayInfo>,
+    pub windows: Vec<WindowInfo>,
+    pub capture: Option<CaptureOutcome>,
+}
+
+impl ScreenSnapshot {
+    /// The deterministic, model-facing text. Two calls against an unchanged
+    /// desktop read the same, and the window list is bounded here rather than
+    /// in the snapshot so typed consumers can see the full inventory.
+    pub fn to_text(&self) -> String {
+        let total = self.windows.len();
+        let listed = total.min(SCREEN_TOOL_MAX_WINDOWS);
+        let mut text = format!("platform={} windows={total}", self.platform);
+        if total > listed {
+            text.push_str(&format!(" (listed {listed}, bound {SCREEN_TOOL_MAX_WINDOWS})"));
+        }
+        text.push_str(&format!(
+            "\ndesktop={},{} {}x{} displays={}",
+            self.desktop.0, self.desktop.1, self.desktop.2, self.desktop.3,
+            self.displays.len()
+        ));
+        for (index, display) in self.displays.iter().enumerate() {
+            text.push('\n');
+            text.push_str(&display.to_line(index));
+        }
+        for window in self.windows.iter().take(listed) {
+            text.push('\n');
+            text.push_str(&window.to_line());
+        }
+        if let Some(outcome) = &self.capture {
+            text.push_str(&format!(
+                "\ncapture: {} bytes={} image={}x{} scale={} source={}",
+                outcome.path,
+                outcome.bytes,
+                outcome.width,
+                outcome.height,
+                outcome.scale,
+                outcome.source
+            ));
+        }
+        text
+    }
+}
+
 /// One window as `observe` reports it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WindowInfo {
@@ -181,15 +233,19 @@ impl ScreenTool {
         Ok(())
     }
 
-    /// Reads the desktop. `title` filters by substring when given; `capture`
-    /// writes one PNG under [`SCREEN_TOOL_CAPTURE_DIR`]. `scale` 0 means choose
-    /// the smallest factor that keeps a store-mode PNG inside the byte bound.
-    pub fn observe(
+    /// Reads the desktop into a structured snapshot. `title` filters by
+    /// substring when given; `capture` writes one PNG under
+    /// [`SCREEN_TOOL_CAPTURE_DIR`]. `scale` 0 means choose the smallest factor
+    /// that keeps a store-mode PNG inside the byte bound.
+    ///
+    /// The snapshot is the single source of truth: [`ScreenTool::observe`]
+    /// renders it for the model, and the CU host consumes it as typed state.
+    pub fn snapshot(
         &self,
         title: Option<&str>,
         capture: Option<CaptureTarget>,
         scale: u32,
-    ) -> Result<String, String> {
+    ) -> Result<ScreenSnapshot, String> {
         self.admit()?;
         if scale > SCREEN_TOOL_MAX_CAPTURE_SCALE {
             return Err(format!(
@@ -221,44 +277,41 @@ impl ScreenTool {
                 window.handle,
             )
         });
-        let total = windows.len();
-        let listed = windows.len().min(SCREEN_TOOL_MAX_WINDOWS);
-        let mut text = format!("platform={} windows={total}", native::PLATFORM);
-        if total > listed {
-            text.push_str(&format!(" (listed {listed}, bound {SCREEN_TOOL_MAX_WINDOWS})"));
-        }
-        // The virtual desktop is not the primary monitor: on a multi-monitor
-        // host its origin can be negative. Reporting the geometry is what makes
-        // a coordinate on a secondary display a well-formed request.
-        text.push_str(&format!(
-            "\ndesktop={},{} {}x{} displays={}",
-            virtual_screen.0,
-            virtual_screen.1,
-            virtual_screen.2,
-            virtual_screen.3,
-            displays.len()
-        ));
-        for (index, display) in displays.iter().enumerate() {
-            text.push('\n');
-            text.push_str(&display.to_line(index));
-        }
-        for window in windows.iter().take(listed) {
-            text.push('\n');
-            text.push_str(&window.to_line());
-        }
-        if let Some(target) = capture {
-            let outcome = self.capture(target, scale)?;
-            text.push_str(&format!(
-                "\ncapture: {} bytes={} image={}x{} scale={} source={}",
-                outcome.path,
-                outcome.bytes,
-                outcome.width,
-                outcome.height,
-                outcome.scale,
-                outcome.source
-            ));
-        }
-        Ok(text)
+        // Deterministic order for every consumer of the snapshot: focused
+        // first, then top-left to bottom-right. Sorting here (not only in the
+        // text renderer) keeps the typed frame and the prompt in agreement.
+        windows.sort_by_key(|window| {
+            (
+                !window.focused,
+                window.minimized,
+                window.y,
+                window.x,
+                window.handle,
+            )
+        });
+        let capture = match capture {
+            Some(target) => Some(self.capture(target, scale)?),
+            None => None,
+        };
+        Ok(ScreenSnapshot {
+            platform: native::PLATFORM.to_owned(),
+            qualified: native::QUALIFIED,
+            desktop: virtual_screen,
+            displays,
+            windows,
+            capture,
+        })
+    }
+
+    /// Model-facing rendering of [`ScreenTool::snapshot`]. Kept as a thin
+    /// wrapper so an existing caller cannot drift from the typed state.
+    pub fn observe(
+        &self,
+        title: Option<&str>,
+        capture: Option<CaptureTarget>,
+        scale: u32,
+    ) -> Result<String, String> {
+        Ok(self.snapshot(title, capture, scale)?.to_text())
     }
 
     /// Performs exactly one operation. Nothing here retries: an operation is
@@ -657,6 +710,17 @@ fn foreground_evidence(before: Option<String>, after: Option<String>) -> Result<
         (None, Some(title)) => Ok(format!("foreground={title:?} (no foreground before input)")),
         (None, None) => Ok("foreground=<none>".to_owned()),
     }
+}
+
+/// Contract-level platform facts, readable by the CU host without going
+/// through a native effect. An unqualified cell reports `false` here rather
+/// than being described as Windows.
+pub fn platform_qualified() -> bool {
+    native::QUALIFIED
+}
+
+pub fn platform_name() -> &'static str {
+    native::PLATFORM
 }
 
 // ---------------------------------------------------------------------------

@@ -12,11 +12,17 @@
 //! model against a filesystem, a command line and a desktop, with every bound
 //! stated as a constant next to the code that enforces it.
 
+pub mod cu;
 pub mod journal;
 pub mod screen;
 pub mod tools;
 pub mod wire;
 
+pub use cu::{
+    act_names, capability, CuAction, CuCall, CuCapability, CuFrame, CuHost, CuKind, CuParam,
+    CuReceipt, CuRequest, CuResult, CuType, CuVerdict, CAPABILITIES, CU_ABI_MAJOR,
+    CU_ABI_MINOR, CU_MAX_RECEIPTS,
+};
 pub use screen::{
     capture_scale, downsample, Act, CaptureTarget, ClickButton, DisplayInfo, ScreenTool,
     SCREEN_TOOL_CAPTURE_DIR, SCREEN_TOOL_MAX_CAPTURE_BYTES, SCREEN_TOOL_MAX_CAPTURE_FILES,
@@ -270,8 +276,9 @@ pub fn system_prompt(root: &std::path::Path) -> String {
         "You are a bounded harness agent. You have exactly three tools, `file`, `exec` and \
          `screen`, and no others. Every path is relative to the task root {root}; paths outside \
          it are refused, not rewritten. `exec` runs one allow-listed command per call with no \
-         shell. `screen` observes the desktop or performs one operation on it, and is only \
-         granted when the caller passed --allow-screen. A refusal is information: read it, \
+         shell. `screen` observes the desktop, performs one operation, or discloses its \
+         versioned capability contract; it is only granted when the caller passed \
+         --allow-screen. A refusal is information: read it, \
          adjust, and continue. Only after all requested work has succeeded, answer with final \
          plain text and no tool call.",
         root = root.display(),
@@ -328,7 +335,10 @@ pub fn run_with_budget(
     let exec_tool = ExecTool::new(file_tool.root_path(), &request.allow_cmd)
         .with_deadline(budget.deadline)
         .with_cancellation(budget.cancelled.clone());
-    let screen_tool = ScreenTool::new(file_tool.root_path(), request.allow_screen);
+    let cu_host = cu::CuHost::new(ScreenTool::new(
+        file_tool.root_path(),
+        request.allow_screen,
+    ));
     let journal = journal::Journal::for_root(file_tool.root_path());
     let mut messages = vec![
         serde_json::json!({ "role": "system", "content": system_prompt(file_tool.root_path()) }),
@@ -400,7 +410,7 @@ pub fn run_with_budget(
                     budget.take_tool_call()?;
                     tool_calls_spent += 1;
                     // A refusal is a result, not an early return.
-                    let dispatched = dispatch_tool_call(&file_tool, &exec_tool, &screen_tool, call)
+                    let dispatched = dispatch_tool_call(&file_tool, &exec_tool, &cu_host, call)
                         .unwrap_or_else(|refusal| Dispatched {
                             result: refusal,
                             change: None,
@@ -463,23 +473,13 @@ struct Dispatched {
     change: Option<journal::Record>,
 }
 
-/// Shared by `click` and `drag`: an unrecognised button name falls back to
-/// left, matching the tool description's stated default.
-fn click_button(value: Option<&serde_json::Value>) -> ClickButton {
-    match value.and_then(serde_json::Value::as_str) {
-        Some("right") => ClickButton::Right,
-        Some("middle") => ClickButton::Middle,
-        _ => ClickButton::Left,
-    }
-}
-
 /// Runs one tool call. `Err` is still something to tell the model, not a
 /// reason to abandon the run; it means the call itself failed or was
 /// refused.
 fn dispatch_tool_call(
     file_tool: &FileTool,
     exec_tool: &ExecTool,
-    screen_tool: &ScreenTool,
+    cu_host: &cu::CuHost,
     call: &WireToolCall,
 ) -> Result<Dispatched, String> {
     let arguments: serde_json::Value = serde_json::from_str(&call.arguments).map_err(|error| {
@@ -601,183 +601,21 @@ fn dispatch_tool_call(
             })
         }
         "screen" => {
-            let op = arguments
-                .get("op")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| "screen: refused: no `op` argument; use \"observe\" or \"act\"".to_owned())?;
-            match op {
-                "observe" => {
-                    let window = arguments
-                        .get("window")
-                        .and_then(serde_json::Value::as_str)
-                        .filter(|value| !value.trim().is_empty());
-                    // `capture` is true (whole virtual desktop), a window title,
-                    // or an explicit rectangle in virtual-desktop coordinates.
-                    let capture = match arguments.get("capture") {
-                        Some(serde_json::Value::Bool(true)) => Some(CaptureTarget::Desktop),
-                        Some(serde_json::Value::String(title)) if !title.trim().is_empty() => {
-                            Some(CaptureTarget::Window(title.clone()))
-                        }
-                        Some(serde_json::Value::Object(region)) => {
-                            let rect_number = |name: &str| -> Result<i32, String> {
-                                region
-                                    .get(name)
-                                    .and_then(serde_json::Value::as_i64)
-                                    .map(|value| value as i32)
-                                    .ok_or_else(|| {
-                                        format!("screen: refused: a capture region needs an \
-                                                 integer {name}")
-                                    })
-                            };
-                            Some(CaptureTarget::Region {
-                                x: rect_number("x")?,
-                                y: rect_number("y")?,
-                                width: rect_number("width")?,
-                                height: rect_number("height")?,
-                            })
-                        }
-                        _ => None,
-                    };
-                    let scale = match arguments.get("scale") {
-                        None => 0,
-                        Some(value) => value
-                            .as_u64()
-                            .filter(|scale| *scale <= SCREEN_TOOL_MAX_CAPTURE_SCALE as u64)
-                            .map(|scale| scale as u32)
-                            .ok_or_else(|| {
-                                format!(
-                                    "screen: refused: scale must be an integer 0..={}, \
-                                     0 chooses automatically",
-                                    SCREEN_TOOL_MAX_CAPTURE_SCALE
-                                )
-                            })?,
-                    };
-                    screen_tool
-                        .observe(window, capture, scale)
-                        .map(|body| Dispatched {
-                            result: tool_result(ToolStatus::Ok, body),
-                            change: None,
-                        })
-                }
-                "act" => {
-                    let why = arguments
-                        .get("why")
-                        .and_then(serde_json::Value::as_str)
-                        .filter(|value| !value.trim().is_empty())
-                        .ok_or_else(|| {
-                            "screen: refused: the `why` argument is required: one short line \
-                             saying what this operation is for"
-                                .to_owned()
-                        })?;
-                    let action = arguments
-                        .get("action")
-                        .and_then(serde_json::Value::as_str)
-                        .ok_or_else(|| {
-                            "screen: refused: act needs an `action` (focus, move, click, hover, \
-                             drag, type, key, scroll)"
-                                .to_owned()
-                        })?;
-                    let title = || -> Result<String, String> {
-                        arguments
-                            .get("window")
-                            .and_then(serde_json::Value::as_str)
-                            .map(str::to_owned)
-                            .ok_or_else(|| {
-                                format!("screen: refused: action {action:?} needs a `window` title")
-                            })
-                    };
-                    let number = |name: &str| -> Result<i32, String> {
-                        arguments
-                            .get(name)
-                            .and_then(serde_json::Value::as_i64)
-                            .map(|value| value as i32)
-                            .ok_or_else(|| {
-                                format!("screen: refused: action {action:?} needs an integer {name}")
-                            })
-                    };
-                    let act = match action {
-                        "focus" => Act::Focus { title: title()? },
-                        "move" => Act::Move {
-                            title: title()?,
-                            x: number("x")?,
-                            y: number("y")?,
-                            width: number("width")?,
-                            height: number("height")?,
-                        },
-                        "click" => Act::Click {
-                            x: number("x")?,
-                            y: number("y")?,
-                            button: click_button(arguments.get("button")),
-                            double: arguments
-                                .get("double")
-                                .and_then(serde_json::Value::as_bool)
-                                .unwrap_or(false),
-                        },
-                        "hover" => Act::Hover {
-                            x: number("x")?,
-                            y: number("y")?,
-                        },
-                        "drag" => Act::Drag {
-                            x: number("x")?,
-                            y: number("y")?,
-                            to_x: number("to_x")?,
-                            to_y: number("to_y")?,
-                            button: click_button(arguments.get("button")),
-                        },
-                        "type" => Act::Type {
-                            text: arguments
-                                .get("text")
-                                .and_then(serde_json::Value::as_str)
-                                .ok_or_else(|| {
-                                    "screen: refused: action \"type\" needs a `text` argument"
-                                        .to_owned()
-                                })?,
-                        },
-                        "key" => Act::Key {
-                            keys: arguments
-                                .get("keys")
-                                .and_then(serde_json::Value::as_str)
-                                .ok_or_else(|| {
-                                    "screen: refused: action \"key\" needs a `keys` argument, \
-                                     e.g. \"ctrl+s\" or \"win+left\""
-                                        .to_owned()
-                                })?
-                                .to_owned(),
-                        },
-                        "scroll" => Act::Scroll {
-                            x: number("x")?,
-                            y: number("y")?,
-                            delta: number("delta")?,
-                        },
-                        other => {
-                            return Err(format!(
-                                "screen: refused: unknown action {other:?}; act accepts focus, \
-                                 move, click, hover, drag, type, key, scroll"
-                            ))
-                        }
-                    };
-                    let outcome = screen_tool.act(act)?;
-                    Ok(Dispatched {
-                        result: tool_result(
-                            ToolStatus::Ok,
-                            format!(
-                                "why: {why}\nscreen: act={}{}\nreadback: {}",
-                                outcome.action,
-                                outcome
-                                    .window
-                                    .as_ref()
-                                    .map(|title| format!(" window={title:?}"))
-                                    .unwrap_or_default(),
-                                outcome.readback
-                            ),
-                        ),
-                        change: None,
-                    })
-                }
-                other => Err(format!(
-                    "screen: refused: op must be \"observe\" or \"act\", got {other:?}"
-                )),
-            }
+            // The CU host is the only entrance to computer use: it owns the
+            // ABI check, capability naming, grant, observation generation and
+            // typed evidence. The wire codec is only an adapter over it.
+            let result = cu_host.invoke_json(&arguments);
+            let status = match result.verdict {
+                cu::CuVerdict::Performed => ToolStatus::Ok,
+                cu::CuVerdict::Unknown | cu::CuVerdict::NotPerformed => ToolStatus::Failed,
+                cu::CuVerdict::Refused
+                | cu::CuVerdict::Unsupported
+                | cu::CuVerdict::Stale => ToolStatus::Refused,
+            };
+            Ok(Dispatched {
+                result: tool_result(status, result.text),
+                change: None,
+            })
         }
         // Refused, and named: the model invented a tool, and telling it so is
         // how it stops trying.
@@ -1185,37 +1023,42 @@ mod tests {
         let root = fixture_root("screen-parse");
         let file_tool = FileTool::new(root.to_str().unwrap()).unwrap();
         let exec_tool = ExecTool::new(file_tool.root_path(), &[]);
-        let screen_tool = ScreenTool::new(file_tool.root_path(), false);
-        let dispatch = |arguments: &str| {
+        let cu_host = cu::CuHost::new(ScreenTool::new(file_tool.root_path(), false));
+        let dispatch = |arguments: &str| -> String {
             dispatch_tool_call(
                 &file_tool,
                 &exec_tool,
-                &screen_tool,
+                &cu_host,
                 &WireToolCall {
                     id: "s".to_owned(),
                     name: "screen".to_owned(),
                     arguments: arguments.to_owned(),
                 },
             )
-            .map(|_| ())
+            .expect("a refusal is a tool result")
+            .result
         };
 
         // A region object is parsed field by field; a missing one is named.
-        let region = dispatch(r#"{"op":"observe","capture":{"x":0,"y":0,"width":10}}"#)
-            .unwrap_err();
+        let region = dispatch(r#"{"op":"observe","capture":{"x":0,"y":0,"width":10}}"#);
         assert!(region.contains("integer height"), "{region}");
         // Scale is bounded here too, so even an ungranted invocation cannot
         // smuggle a huge factor past the dispatcher.
-        let scale = dispatch(r#"{"op":"observe","scale":99}"#).unwrap_err();
+        let scale = dispatch(r#"{"op":"observe","scale":99}"#);
         assert!(scale.contains("scale must be an integer"), "{scale}");
         // drag is wired to the destination coordinates.
         let drag = dispatch(
             r#"{"op":"act","why":"move a slider","action":"drag","x":1,"y":2,"to_x":3}"#,
-        )
-        .unwrap_err();
+        );
         assert!(drag.contains("integer to_y"), "{drag}");
-        let ungranted = dispatch(r#"{"op":"observe"}"#).unwrap_err();
+        let ungranted = dispatch(r#"{"op":"observe"}"#);
         assert!(ungranted.contains("--allow-screen"), "{ungranted}");
+        // An ABI-major mismatch is refused before any capability activation.
+        let mismatch = dispatch(r#"{"op":"observe","abi_major":9}"#);
+        assert!(mismatch.contains("ABI major"), "{mismatch}");
+        // Disclosure works without a grant: the contract is information.
+        let disclosed = dispatch(r#"{"op":"disclose"}"#);
+        assert!(disclosed.contains("capability=observe"), "{disclosed}");
     }
 
     #[test]

@@ -185,7 +185,7 @@ pub enum ModelReply {
 /// refused and an ungranted screen makes every `screen` call refused; neither
 /// hides its tool, so a model cannot tell "not allowed yet" from "tool absent"
 /// by probing.
-fn tool_definitions() -> serde_json::Value {
+pub(crate) fn tool_definitions() -> serde_json::Value {
     serde_json::json!([
         {
             "type": "function",
@@ -255,20 +255,38 @@ fn tool_definitions() -> serde_json::Value {
             "type": "function",
             "function": {
                 "name": "screen",
-                "description": "Observe the desktop, or perform exactly one operation on it. \
+                "description": "A versioned host capability contract for computer use. \
                                 op=observe lists the virtual desktop geometry, every display \
-                                and all top-level windows, and can write one PNG under the task \
-                                root; op=act performs one named operation and reports what the \
-                                desktop says afterwards. Pointer operations are verified by a \
-                                cursor readback. Only granted when the caller passed \
-                                --allow-screen.",
+                                and all top-level windows, can write one PNG under the task \
+                                root, and returns a generation number; op=act performs one \
+                                named operation with a cursor/window/foreground readback; \
+                                op=disclose reports the ABI, grant, capability manifest and \
+                                evidence receipts. Pin `as_of` to the generation you reasoned \
+                                from: a stale generation is refused, never replayed. Only \
+                                granted when the caller passed --allow-screen.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "op": {
                             "type": "string",
-                            "enum": ["observe", "act"],
-                            "description": "Which half to use: reading or operating."
+                            "enum": ["observe", "act", "disclose"],
+                            "description": "Which half to use: reading, operating, or disclosing the contract itself."
+                        },
+                        "as_of": {
+                            "type": "integer",
+                            "description": "Generation returned by the observe this call is \
+                                            based on. A different generation is refused as \
+                                            stale before any desktop effect."
+                        },
+                        "abi_major": {
+                            "type": "integer",
+                            "description": "Host capability ABI major. Defaults to 1; any other \
+                                            value is refused before activation."
+                        },
+                        "abi_minor": {
+                            "type": "integer",
+                            "description": "Host capability ABI minor. Defaults to 0; a newer \
+                                            minor is accepted but cannot widen authority."
                         },
                         "why": {
                             "type": "string",
