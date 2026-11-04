@@ -1,9 +1,11 @@
 # 0.0.4 — semantic computer use: typed controls + named targets
 
-Status: `[v]` W1-W5 delivered (2026-11-04), including a green six-cell pack and
-a sealed Candidate; `[_]` W6, the public signed Release, is **not** done --
-`gh release view v0.0.4` returns "release not found" and Latest is still
-v0.0.3. No "released" claim is made. Owner direction this plan implements:
+Status: `[v]` W1-W6 delivered (2026-11-04). W6 closed with public **v0.0.4**:
+`gh release list` shows it as Latest, `gh release view v0.0.4` reports
+`isDraft:false`, `isPrerelease:false`, `publishedAt 2026-11-04T18:30:16Z`
+and 15 downloadable assets; `release.yml` run **41889579027** is green on all
+five jobs (verify, execute-linux, publish, defender, post-publish). Owner
+direction this plan implements:
 **design the CU capability ourselves and build it**; the harness later studies
 **omp** for capability shape, but dynamic logic runs on our own **unisa + ujs**
 architecture, not bun. This plan does not embed an engine.
@@ -41,7 +43,7 @@ about an engine ABI (PRD 31's readiness gate stays BLOCKED).
 ```text
 Outcome: a text-only model can read UI controls and address one by name,
 with the same bounds/readback/generation discipline as pixel operations
-├── [_] W1 — typed control inventory
+├── [v] W1 — typed control inventory
 │   invariant: EnumChildWindows over one resolved window; class-derived
 │   role, WM_GETTEXT text (200 ms timeout, abort-if-hung), rect, visible,
 │   enabled, stable label; bounded at 128 controls / 256 chars per text and
@@ -49,13 +51,13 @@ with the same bounds/readback/generation discipline as pixel operations
 │   evidence: `controls[]` in CuFrame JSON and in the model-facing text;
 │   zero controls is a named result, never an empty success
 │   dependency: none; non-goal: UIA COM, value patterns, third-party widgets
-├── [_] W2 — observe asks for controls
+├── [v] W2 — observe asks for controls
 │   invariant: `controls=true` scans the foreground window, a string scans
 │   one uniquely named window; no `controls` means no scan, so a plain
 │   observe costs nothing extra; the source and any truncation are reported
 │   evidence: wire schema + capability params + admission tests
 │   dependency: W1
-├── [_] W3 — act:control, a named target
+├── [v] W3 — act:control, a named target
 │   invariant: exact label wins, otherwise a substring must be unique;
 │   invisible/disabled controls, a missing frame, a stale generation and a
 │   centre outside the virtual desktop are refused by name; press defaults
@@ -64,7 +66,7 @@ with the same bounds/readback/generation discipline as pixel operations
 │   evidence: typed refusal matrix + one real-desktop hover at a resolved
 │   control centre; dependency: W1, W2
 │   non-goal: replaying a control by hwnd, acting on an unobserved window
-├── [_] W4 — the contract stays the single source of truth
+├── [v] W4 — the contract stays the single source of truth
 │   invariant: one new CAPABILITIES row, one CuAction variant, one wire enum
 │   value, and a test that the enum agrees; cu-abi stays 1.0 (the calling
 │   shape did not change, the manifest is discoverable); ScreenSnapshot is
@@ -80,18 +82,22 @@ with the same bounds/readback/generation discipline as pixel operations
 │   evidence: consistent version grep + pack run 41798684738 (six unique
 │   green cells, aggregate court green) + Candidate run 41800442971 sealed;
 │   dependency: W4
-└── [_] W6 — delivery chain (separate from source)
+└── [v] W6 — delivery chain (separate from source)
     invariant: pack → candidate → signing → defender → release is CI's job;
-    a source version bump is NOT a published Release. No "released" claim is
-    made until `gh release view v0.0.4` shows the tag with downloadable
-    signed assets. Every published Windows binary is company-signed, not just
-    the APE: the signed cells go into the two Windows zips, with rewritten
-    sidecars, and the post-publish court re-checks the downloaded assets
-    against the signing receipt's `after_sha256`
-    invariant: CI, not a laptop, creates the public Release; the 0.0.3
+    a source version bump is NOT a published Release. Every published Windows
+    binary is company-signed, not just the APE: the signed cells go into the
+    two Windows zips, with rewritten sidecars, and the post-publish court
+    re-checks the downloaded assets against the signing receipt's
+    `after_sha256`. CI, not a laptop, created the public Release; the 0.0.3
     `GITHUB_TOKEN` 403 came from a deleted `environment: release` gate on the
-    publish job, which is restored on main
-    evidence: release view + re-hashed download, or an explicit blocker
+    publish job, which is restored on main. The Defender court scans with
+    `MpCmdRun -Scan -ScanType 3 -File` (not `-Path`, which exits 2 with
+    "Invalid command line argument") and both Defender and post-publish now
+    resolve `TAG` from `verify` outputs.
+    evidence: pack 41875365398, Candidate 41881243482, signing 41881370195
+    (attempt 3), release 41889579027 all green; `gh release view v0.0.4`
+    public + 15 assets; independent re-download/re-hash of the APE and both
+    Windows zip members against the receipt's `after_sha256`
     dependency: W5, release-signing environment secrets
 ```
 
@@ -120,8 +126,10 @@ flowchart LR
 5. W5: bump the four version files, run the full suite, the two ignored
    journeys, the non-Windows whole-file type-check, then push and dispatch
    the pack workflow.
-6. W6: continue the CI chain only as far as it actually goes; report the
-   blocker rather than implying a release.
+6. W6: run the CI chain to the public Release and verify from the owner's
+   point of view (release visible, assets downloaded, hashes re-checked,
+   published binary executed). Report a blocker rather than implying a
+   release when the chain is not green.
 
 ## Non-goals
 
@@ -155,8 +163,14 @@ flowchart LR
 - `[v]` CI fix: `candidate.yml`'s preflight asked `gh` for a nonexistent
   `runAttempt` field and failed closed. Aligned with `company-signing.yml`'s
   `attempt` field (`ba2b6ce`) and re-ran the Candidate successfully.
-- `[_]` W6: `gh release list` still shows v0.0.3 as Latest; `gh release view
-  v0.0.4` says "release not found". Signing/defender/publish were not run.
+- `[v]` W6 public Release: `gh release list` shows `minicon-harness 0.0.4
+  Latest v0.0.4` (published 2026-11-04T18:30:16Z); `gh release view v0.0.4`
+  is non-draft, non-prerelease, with 15 assets. CI created it: pack
+  **41875365398** (head `1d49eda`), Candidate **41881243482**, signing
+  **41881370195** (attempt 3, eight jobs green), dry-run **41887515390**,
+  publish **41887683531**, final all-green court **41889579027**. Re-running
+  `release.yml` on the already-public tag logged `Release v0.0.4 already
+  exists; skipping create` -- no repack, no resign, no asset overwrite.
 - `[v]` W6 pre-work: audited the v0.0.3 Release assets from the owner's point
   of view. Downloaded the published `windows-x86_64.zip`, hashed its member
   and compared it with `signing-receipt.json`: the member matched
@@ -173,10 +187,30 @@ flowchart LR
   `environment: release` gate on the publish job (minicon's successful
   `release.yml` has it); the gate is restored on main. No org-policy or PAT
   attribution is needed.
-- `[_]` W6 chain restart: pack had to be re-run at the current main HEAD so
-  pack/candidate/signing/release all share one `head_sha`. GitHub Actions is
+- `[v]` W6 chain restart: pack was re-run at the current main HEAD so
+  pack/candidate/signing/release all share one `head_sha`. GitHub Actions was
   under a **major incident with degraded availability** (status page,
   2026-11-04T16:12Z onward): macOS runner allocation stalled, one pack run
-  reported inconsistent states and the API returned intermittent EOF. This
-  is a platform blocker, not a repository failure; the chain resumes when
-  runners are allocated. No "released" claim is made.
+  reported inconsistent states and the API returned intermittent EOF. Two
+  `signed osx-aarch64` attempts were cancelled by runner-queue timeouts, not
+  by signing failures; attempt 3 was green. No org-policy or PAT attribution.
+- `[v]` W6 Defender court fix (`1eb379c`): the first publish run
+  **41887683531** failed only its Defender job. Logs showed `TAG:` empty
+  (`needs: publish` cannot see `needs.verify.outputs.tag`) and MpCmdRun
+  exiting 2 with `CmdTool: Invalid command line argument` / usage
+  `-Scan [-ScanType #] [-File <path> ...]`. Local A/B on the same Windows
+  Defender CLI reproduced `-Path` → exit 2 and `-File` → exit 0, on both a
+  file and a directory. `release.yml` now uses `-File`, adds `verify` to the
+  `defender` and `post-publish` needs, asserts a non-empty `TAG`, and checks
+  the release download's exit code. Run **41889579027** logs
+  `TAG: v0.0.4`, three `found no threats` scans (release dir + both expanded
+  Windows zips), `Defender court: clean`, `published APE ok: minicon-harness
+  0.0.4`, and the post-publish court printing `published signed win-x86_64:
+  7ca2ba6d203568d1` / `win-aarch64: f2ddb03eda100678`.
+- `[v]` W6 owner-view acceptance (independent of CI): downloaded all 15
+  v0.0.4 assets with `gh release download`, re-hashed them locally. The
+  signed APE, its sidecar and the receipt's `after_sha256` all agree
+  (`7e1c2633a8176b8f`), and both Windows zip members equal the receipt's
+  `after_sha256` (`7ca2ba6d203568d1`, `f2ddb03eda100678`) rather than
+  `before_sha256`; the zip sidecars match the archives. `ape.exe --version`
+  copied from the download prints `minicon-harness 0.0.4`.

@@ -32,7 +32,9 @@ signature with an RFC 3161 timestamp
 │   in the post-publish court. Before 0.0.4 this was a **gap**: 0.0.3 published
 │   zips containing the *unsigned* cells (member digest ==
 │   receipt `before_sha256`), so only the APE was signed. Verified by
-│   downloading the v0.0.3 assets and hashing the zip member.
+│   downloading the v0.0.3 assets and hashing the zip member. The v0.0.4
+│   post-publish court (run 41889579027) and an independent re-download
+│   both confirm the published cells now match `after_sha256`.
 ├── [v] readiness: check-product-signing-readiness.sh reports READY
 │   (qualification) at main f267658
 ├── [v] GitHub side: release-signing environment exists;

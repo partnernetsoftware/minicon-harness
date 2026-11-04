@@ -94,7 +94,7 @@ minicon-harness — one-file bounded agent worker
   recompiles the worker against cosmopolitan libc, and cells are never
   rebuilt on a test runner.
 
-## 0.0.4 frontier (in the tree, version bumped; release chain separate)
+## 0.0.4 frontier (shipped as a public signed Release)
 
 [v] The `screen` tool is implemented and qualified on Windows in this tree:
 multi-display observe, desktop/window/region capture with scale-down, focus,
@@ -125,12 +125,17 @@ VERSIONINFO) now say **0.0.4**, following
 iteration -- "bump only when a signed six-cell Candidate is cut" -- is
 superseded by the owner's 2026-11-04 instruction to move the version: **source
 version and published Release are now separate facts**. W6 (pack → candidate →
-sign → defender → release) is CI's job; until `v0.0.4` exists as a tag with
-downloadable signed assets, nothing here claims a release. So far the six-cell
-pack (run 41798684738, six unique green cells) and the Candidate seal (run
-41800442971) are green -- the first real cross-compile of screen and CU. The
-public Release is **not** published: `gh release view v0.0.4` returns "release
-not found" and Latest is still v0.0.3.
+sign → defender → release) is CI's job, and it is now **done**: public
+`v0.0.4` is Latest (`gh release view v0.0.4`: non-draft, non-prerelease,
+published 2026-11-04T18:30:16Z, 15 assets). Chain: pack **41875365398**,
+Candidate **41881243482**, company signing **41881370195** (attempt 3),
+final all-green `release.yml` **41889579027** (verify, execute-linux,
+publish, Defender, post-publish). The Defender court scans with
+`MpCmdRun -File`, not the rejected `-Path` (`1eb379c`); the post-publish
+court and an independent local re-download both confirm that the two
+published Windows zips carry the company-signed cells matching the receipt's
+`after_sha256`, not the unsigned `before_sha256`. Full evidence is in
+`plan/plan-0.0.4-cu-semantic-observation.md`.
 
 ## 0.0.1 frontier (shipped)
 
