@@ -157,3 +157,26 @@ flowchart LR
   `attempt` field (`ba2b6ce`) and re-ran the Candidate successfully.
 - `[_]` W6: `gh release list` still shows v0.0.3 as Latest; `gh release view
   v0.0.4` says "release not found". Signing/defender/publish were not run.
+- `[v]` W6 pre-work: audited the v0.0.3 Release assets from the owner's point
+  of view. Downloaded the published `windows-x86_64.zip`, hashed its member
+  and compared it with `signing-receipt.json`: the member matched
+  `before_sha256` (unsigned), not `after_sha256`. So 0.0.3 shipped only a
+  signed APE in signed form; the two Windows archives were unsigned, contrary
+  to `plan-0.0.3` S3. `release.yml` now stages the signed cells into both
+  Windows zips, rewrites the sidecars, checks the members against the
+  signing receipt and re-checks the downloaded Release assets post-publish.
+  End-to-end rehearsal against the real v0.0.3 bytes (stage -> receipt
+  verify -> five archive members -> published-asset court) passed on all
+  four Python steps. `.github/release-notes.md` no longer says "unsigned".
+- `[v]` W6 blocker audit: the 0.0.3 `gh release create` 403
+  ("Resource not accessible by integration") came from a deleted
+  `environment: release` gate on the publish job (minicon's successful
+  `release.yml` has it); the gate is restored on main. No org-policy or PAT
+  attribution is needed.
+- `[_]` W6 chain restart: pack had to be re-run at the current main HEAD so
+  pack/candidate/signing/release all share one `head_sha`. GitHub Actions is
+  under a **major incident with degraded availability** (status page,
+  2026-11-04T16:12Z onward): macOS runner allocation stalled, one pack run
+  reported inconsistent states and the API returned intermittent EOF. This
+  is a platform blocker, not a repository failure; the chain resumes when
+  runners are allocated. No "released" claim is made.
