@@ -78,9 +78,11 @@ screen
 │   ├── [v] lists top-level windows: hwnd, pid, rect, minimized/maximized/focused, class, title
 │   ├── [v] optional `window` filter (substring), refused when it matches nothing
 │   ├── [v] deterministic order: focused first, then top-left to bottom-right
-│   └── [v] `capture`: true → whole virtual desktop, a window title → that window,
-│           or {x,y,width,height} → one region; one PNG under .harness/capture
-│           with path composed by the tool and the resulting size/scale reported
+│   ├── [v] `capture`: true → whole virtual desktop, a window title → that window,
+│   │       or {x,y,width,height} → one region; one PNG under .harness/capture
+│   │       with path composed by the tool and the resulting size/scale reported
+│   └── [v] `controls`: true → foreground window, or a title → one window; typed
+│           child-control inventory (prd/PRD_01_05_semantic_controls.md)
 ├── op=disclose [v] — the versioned host contract, generations and receipts
 │   └── [v] ABI, grant, capability manifest and evidence receipts
 │           (owned by prd/PRD_01_04_cu_base.md, `src/cu.rs`)
@@ -92,7 +94,9 @@ screen
     ├── [v] drag         x, y, to_x, to_y, button?        (12 stepped moves + pointer readback)
     ├── [v] type         text                             (foreground before/after)
     ├── [v] key          keys ("ctrl+s", "win+left")     (foreground before/after)
-    └── [v] scroll       x, y, delta                      (pointer readback)
+    ├── [v] scroll       x, y, delta                      (pointer readback)
+    └── [v] control      control, press?, button?, double? (named target from the
+            current frame; pointer readback must land inside the control rect)
 ```
 
 Bounds, each a named constant beside the code that enforces it:
@@ -107,6 +111,9 @@ Bounds, each a named constant beside the code that enforces it:
 | `SCREEN_TOOL_MAX_TYPE_CHARS` | 4096 | characters one `act:type` delivers |
 | `SCREEN_TOOL_MOVE_TOLERANCE_PX` | 4 | readback slack before a move counts as not performed |
 | `SCREEN_TOOL_POINTER_TOLERANCE_PX` | 4 | readback slack before a pointer action counts as not performed |
+| `SCREEN_TOOL_MAX_CONTROLS` | 128 | child controls in one scan; a hit is reported as `truncated` |
+| `SCREEN_TOOL_MAX_CONTROL_TEXT` | 256 | characters per control text |
+| `SCREEN_TOOL_CONTROL_TIMEOUT_MS` | 200 | one cross-process `WM_GETTEXT` |
 
 Four invariants the tool keeps, all inherited from PRD 38's CU0..CU2:
 
@@ -129,6 +136,7 @@ Readback covers the whole surface now, not only window moves:
 | click / hover / drag / scroll | `GetCursorPos` after `SetCursorPos` | requested vs reported pointer differs by > 4 px |
 | type / key | foreground title before and after `SendInput` | foreground disappeared; a changed title is reported, not refused (Enter can open a dialog) |
 | focus | re-enumerated foreground window | window manager refuses the foreground request |
+| control | `GetCursorPos` must lie inside the control rect of the current frame | ambiguous/stale name, hidden or disabled control, centre off-desktop, or pointer outside the rect |
 | capture | IHDR dimensions and scale in the result | PNG over the byte bound at the chosen scale |
 
 Two consequences worth stating: a pointer request outside the virtual desktop
@@ -138,8 +146,9 @@ desktop geometry named.
 
 ## Evidence
 
-- `[v]` `cargo test --offline`: 61 passed, 2 ignored (the pixel journey here
-  and the contract journey in `PRD_01_04`).
+- `[v]` `cargo test --offline`: 71 passed, 3 ignored (the pixel journey here,
+  the contract journey in `PRD_01_04` and the semantic journey in
+  `PRD_01_05`).
 - `[v]` `cargo test --offline real_desktop -- --ignored --nocapture` on this
   Windows machine (2026-11-04): `desktop=0,0 1680x1050 displays=1`, 17 windows,
   a 5,293,518-byte desktop PNG, a 100x60 region PNG at scale 2, a hover pointer
@@ -160,7 +169,8 @@ desktop geometry named.
 
 | Gap | Consequence today | Candidate decision |
 | --- | --- | --- |
-| `[-]` no accessibility tree | observation is pixel-level; a text-only model can list windows and capture pixels but cannot read a control's name, role or value | the only real options are (a) hand-write the UIA subset in this crate (~400-600 lines of `unsafe` COM), or (b) take `minicon-platform` as an optional feature on qualified cells only. Both change a stated invariant; owner decision required |
+| `[v]` typed control observation | a text-only model can now read a Win32 child control's label, class-derived role, text, rect and state, and address it by name | delivered in 0.0.4 as `prd/PRD_01_05_semantic_controls.md` via plain `user32` FFI -- the third route that keeps zero dependencies and one file per cell |
+| `[-]` no UIA accessibility tree | roles are class-derived heuristics; no value patterns, automation peers or text ranges, and self-drawn UIs report zero controls | still open; the 0.0.4 route is deliberately smaller, and the observation names its `win32-class` basis and any empty result |
 | `[-]` Windows only | macOS/Linux cells compile and refuse by name | qualify one journey per OS before claiming it, per PRD 38 |
 | `[-]` no vision input path | a capture is a local artifact; the model reads its path, not its pixels | the wire codec is text-only by design; an image arm is a separate decision |
 | `[v]` capture retention | -- | newest 12 tool-produced PNGs are kept per root; only names the tool composes are considered, other files are never touched |
@@ -175,11 +185,13 @@ tool result, an operation is a tool result, and the same 16-turn / 64-call /
 operates a desktop under one auditable budget is a smaller thing than three
 agents under three budgets.
 
-The pixel-side surface is now as complete as a single-file, std-only tool can
-make it: multi-display geometry, three capture targets with bounded scaling,
-eight actions and readback on every one of them. The versioned host contract
-above it is delivered separately as `PRD_01_04` (`src/cu.rs`), so a later
-dynamic caller binds to the ABI rather than to this file. The ordering that follows from
-the gap table is unchanged: accessibility observation first (it is what makes
-the tool useful to a text model), then per-OS qualification, then an image arm
-in the wire codec. The a11y route still needs the owner's A/B decision.
+The pixel-side surface is as complete as a single-file, std-only tool can make
+it: multi-display geometry, three capture targets with bounded scaling, eight
+actions and readback on every one of them. The versioned host contract above it
+is delivered as `PRD_01_04` (`src/cu.rs`), so a later dynamic caller binds to
+the ABI rather than to this file. 0.0.4 then added the **semantic arm** --
+typed child controls and one named-target action -- as `PRD_01_05`, without
+adding a dependency or a permission layer. The remaining ordering from the gap
+table is: a real UIA tree (still a stated limitation), per-OS qualification,
+then an image arm in the wire codec. The a11y A/B decision is no longer
+blocking: the third route is implemented and qualified on Windows.

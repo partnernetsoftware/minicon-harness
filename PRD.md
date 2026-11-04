@@ -94,7 +94,7 @@ minicon-harness — one-file bounded agent worker
   recompiles the worker against cosmopolitan libc, and cells are never
   rebuilt on a test runner.
 
-## 0.0.4 frontier (in the tree, not yet published)
+## 0.0.4 frontier (in the tree, version bumped; release chain separate)
 
 [v] The `screen` tool is implemented and qualified on Windows in this tree:
 multi-display observe, desktop/window/region capture with scale-down, focus,
@@ -105,13 +105,28 @@ verified by readback -- behind `--allow-screen`, std-only
 [v] Computer use has a **base**, not just verbs: `src/cu.rs` freezes cu-abi 1.0
 -- a discoverable capability manifest, typed inputs/outputs, observation
 generations with pinned `as_of`, six verdicts (including `unknown`) and an
-evidence receipt per call `prd/PRD_01_04_cu_base.md`. `op=disclose` reports
+evidence receipt per call (`prd/PRD_01_04_cu_base.md`). `op=disclose` reports
 the contract even without a grant. This is the host side of the future
 `unisacc`/`ujs` dynamic-logic seam; no engine, WASM, bun or plugin host is
-embedded or claimed. `Cargo.toml`,
-`release-policy.json` and the cell courts still say `0.0.3`: the version is
-bumped when a signed six-cell Candidate is actually cut, not when the source
-grows a third tool. Until then no released artifact carries computer use.
+embedded or claimed.
+
+[v] Observation is **semantic** as well as pixel-level, and one action is
+addressed **by name**: `prd/PRD_01_05_semantic_controls.md`. `op=observe` with
+`controls` scans one window's typed child controls (label, class-derived role,
+text, rect, visibility, enabled), and `action=control` resolves a control from
+the current generation and hovers/clicks its centre with a readback that must
+land inside the control's rectangle. This is Win32 `EnumChildWindows` +
+`WM_GETTEXT`, not a UIA tree; self-drawn UIs report zero controls and say why.
+No new dependency, no new permission layer, cu-abi still 1.0.
+
+Version files (`Cargo.toml`, `Cargo.lock`, `release-policy.json`, the APE
+VERSIONINFO) now say **0.0.4**, following
+`plan/plan-0.0.4-cu-semantic-observation.md`. The rule from the previous
+iteration -- "bump only when a signed six-cell Candidate is cut" -- is
+superseded by the owner's 2026-11-04 instruction to move the version: **source
+version and published Release are now separate facts**. W6 (pack → candidate →
+sign → defender → release) is CI's job; until `v0.0.4` exists as a tag with
+downloadable signed assets, nothing here claims a release.
 
 ## 0.0.1 frontier (shipped)
 

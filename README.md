@@ -10,11 +10,18 @@ are the whole policy.
 geometry, every display (including negative-coordinate secondaries) and all
 top-level windows, and can write one PNG under the task root -- whole desktop,
 one window, or one explicit region, with automatic scale-down on large
-screens. `op=act` performs exactly one operation (focus, move, click, hover,
-drag, type, key, scroll) and reads the desktop back: pointer position, window
-rectangle and foreground window are evidence, not echo. It is granted per
-invocation and refuses by name when not granted or when the platform was never
-qualified. Contract and migration notes:
+screens. With `controls` it also lists one window's typed child controls
+(label, class-derived role, text, rectangle, visibility, enabled state) -- see
+[`prd/PRD_01_05_semantic_controls.md`](prd/PRD_01_05_semantic_controls.md);
+this is Win32 child-window enumeration, **not** a UIA accessibility tree, and
+a self-drawn UI reports zero controls and says why. `op=act` performs exactly
+one operation (focus, move, click, hover, drag, type, key, scroll, control)
+and reads the desktop back: pointer position, window rectangle and foreground
+window are evidence, not echo. `action=control` addresses a control **by name**
+from the last observation instead of by coordinate; the pointer readback must
+land inside that control's rectangle. It is granted per invocation and refuses
+by name when not granted or when the platform was never qualified. Contract
+and migration notes:
 [`prd/PRD_01_03_computer_use.md`](prd/PRD_01_03_computer_use.md).
 
 Above the mechanisms sits a **versioned host capability contract**
@@ -37,10 +44,10 @@ dependency.
   effect.
 - `src/tools.rs` -- `FileTool` (root-confined read/write) and `ExecTool`
   (allow-listed argv execution, no shell).
-- `src/screen.rs` -- `ScreenTool`: display/window observation, store-mode PNG
-  capture with box downsampling (hand-written encoder), and input/window
-  operations through hand-written Windows FFI. No crate: `user32`/`gdi32`
-  bindings only.
+- `src/screen.rs` -- `ScreenTool`: display/window observation, a typed child
+  control inventory, store-mode PNG capture with box downsampling (hand-written
+  encoder), and input/window operations through hand-written Windows FFI. No
+  crate: `user32`/`gdi32` bindings only.
 - `src/wire.rs` -- one `Transport` seam, an OpenAI-compatible
   chat-completions codec, and the bounded turn loop.
 - `src/lib.rs` -- invocation budget and the harness entry point.
@@ -54,8 +61,10 @@ dependency.
   30 s per call, 1 MiB captured output.
 - `screen`: 64 windows per observation, 16 MiB per capture (scale 1..8, chosen
   automatically when 0), 12 retained captures, 8192 px per region side, 4096
-  characters per `type`, 4 px of readback slack before a window move or a
-  pointer action counts as not performed, 32 retained CU receipts.
+  characters per `type`, 128 controls per scan (truncation reported), 256
+  characters per control text, 200 ms per cross-process `WM_GETTEXT`, 4 px of
+  readback slack before a window move or a pointer action counts as not
+  performed, 32 retained CU receipts.
 
 ## Usage
 

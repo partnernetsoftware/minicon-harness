@@ -37,7 +37,7 @@ cu-abi 1.0                        host owns: grant, qualification, native effect
 │   └── receipts[] { generation, capability, verdict, facts_as_of_ms, readback }
 ├── observe [v]                   creates generation N, facts_as_of_ms
 │   └── typed frame { platform, qualified, desktop, displays[], windows[], capture? }
-├── act:<name> [v] ×8             one effect; verdict + structured evidence
+├── act:<name> [v] ×9             one effect; verdict + structured evidence
 └── verdict                       performed | not_performed | unknown
                                   | refused | unsupported | stale
 ```
@@ -136,8 +136,8 @@ activation; in-flight calls keep the generation they were pinned to.
 
 ## Evidence
 
-- `[v]` `cargo test --offline`: 61 passed, 2 ignored (the two real-desktop
-  journeys).
+- `[v]` `cargo test --offline`: 71 passed, 3 ignored (the pixel, contract and
+  semantic real-desktop journeys).
 - `[v]` `cargo test --offline -- --ignored --nocapture` on this Windows
   machine (2026-11-04): `PRD_01_03`'s pixel journey plus the contract journey
   -- disclose at generation 0, observe at 1, a pinned `act:hover` at `as_of=1`,
@@ -146,7 +146,7 @@ activation; in-flight calls keep the generation they were pinned to.
 - `[v]` the contract journey publishes `cu-observe.json` and
   `cu-disclose.json` under the task root; an **independent** Python reader
   confirmed `generation 1 → 2`, `abi {major:1, minor:0}`, `grant=granted`,
-  10 advertised capabilities, a frame with 17 windows / 1 display, and a
+  11 advertised capabilities, a frame with 17 windows / 1 display, and a
   receipt list containing both `performed` and `stale` verdicts. The typed
   output is not merely asserted by the Rust that produced it.
 - `[v]` ABI mismatch, unadvertised capability, mistyped arguments, ungranted
@@ -161,8 +161,11 @@ activation; in-flight calls keep the generation they were pinned to.
 1. Keep the contract stable while actions are added: a new action is one row
    in `CAPABILITIES`, one `CuAction` variant, one `Act` translation and a test
    that the wire enum agrees.
-2. Qualify the remaining native journeys (drag, middle button) and the a11y
-   observation route from `PRD_01_03`.
+2. Qualify the remaining native journeys (drag, middle button, a real
+   `press=true` click on a control). The typed control arm and the named
+   target were added as `PRD_01_05` with **cu-abi still 1.0**: one manifest
+   row, one `CuAction` variant and one wire enum value, exactly the step 1
+   pattern. A real UIA accessibility tree remains a stated limitation.
 3. Only after an immutable `unisacc`/`ujs` revision is inspected, design the
    module envelope (`abi_major`, `module_version`, `facts_as_of`, bounded
    output) against this contract. That is a separate PRD and a separate gate.
