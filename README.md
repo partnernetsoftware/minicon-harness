@@ -17,12 +17,24 @@ invocation and refuses by name when not granted or when the platform was never
 qualified. Contract and migration notes:
 [`prd/PRD_01_03_computer_use.md`](prd/PRD_01_03_computer_use.md).
 
+Above the mechanisms sits a **versioned host capability contract**
+(`src/cu.rs`, `prd/PRD_01_04_cu_base.md`): cu-abi 1.0, a discoverable
+capability manifest, typed inputs/outputs, observation generations with
+pinned `as_of`, six verdicts (`performed` / `not_performed` / `unknown` /
+`refused` / `unsupported` / `stale`) and an evidence receipt per call.
+`op=disclose` reports the ABI, grant, capabilities and receipts -- and works
+even when computer use was not granted. It is the host-side seam for later
+`unisa + ujs` dynamic logic; no script runtime is embedded.
+
 Migrated from the proven prototype in `minicon` (`src/harness.rs` +
 `src/harness_wire.rs`), now a standalone std-first crate with no platform-crate
 dependency.
 
 ## Layout
 
+- `src/cu.rs` -- `CuHost`: cu-abi 1.0, capability manifest, typed requests,
+  generations, verdicts and evidence receipts. The only entrance to a desktop
+  effect.
 - `src/tools.rs` -- `FileTool` (root-confined read/write) and `ExecTool`
   (allow-listed argv execution, no shell).
 - `src/screen.rs` -- `ScreenTool`: display/window observation, store-mode PNG
@@ -43,7 +55,7 @@ dependency.
 - `screen`: 64 windows per observation, 16 MiB per capture (scale 1..8, chosen
   automatically when 0), 12 retained captures, 8192 px per region side, 4096
   characters per `type`, 4 px of readback slack before a window move or a
-  pointer action counts as not performed.
+  pointer action counts as not performed, 32 retained CU receipts.
 
 ## Usage
 

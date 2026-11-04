@@ -100,7 +100,15 @@ minicon-harness — one-file bounded agent worker
 multi-display observe, desktop/window/region capture with scale-down, focus,
 move, click, hover, drag, type, key, scroll -- every pointer and window action
 verified by readback -- behind `--allow-screen`, std-only
-(`prd/PRD_01_03_computer_use.md`). `Cargo.toml`,
+(`prd/PRD_01_03_computer_use.md`).
+
+[v] Computer use has a **base**, not just verbs: `src/cu.rs` freezes cu-abi 1.0
+-- a discoverable capability manifest, typed inputs/outputs, observation
+generations with pinned `as_of`, six verdicts (including `unknown`) and an
+evidence receipt per call `prd/PRD_01_04_cu_base.md`. `op=disclose` reports
+the contract even without a grant. This is the host side of the future
+`unisacc`/`ujs` dynamic-logic seam; no engine, WASM, bun or plugin host is
+embedded or claimed. `Cargo.toml`,
 `release-policy.json` and the cell courts still say `0.0.3`: the version is
 bumped when a signed six-cell Candidate is actually cut, not when the source
 grows a third tool. Until then no released artifact carries computer use.

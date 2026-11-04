@@ -81,6 +81,9 @@ screen
 │   └── [v] `capture`: true → whole virtual desktop, a window title → that window,
 │           or {x,y,width,height} → one region; one PNG under .harness/capture
 │           with path composed by the tool and the resulting size/scale reported
+├── op=disclose [v] — the versioned host contract, generations and receipts
+│   └── [v] ABI, grant, capability manifest and evidence receipts
+│           (owned by prd/PRD_01_04_cu_base.md, `src/cu.rs`)
 └── op=act [v] — exactly one operation per call, `why` required
     ├── [v] focus        window                          (live-handle + foreground readback)
     ├── [v] move         window, x, y, width, height      (rect readback, 4 px tolerance)
@@ -135,7 +138,8 @@ desktop geometry named.
 
 ## Evidence
 
-- `[v]` `cargo test --offline`: 52 passed, 1 ignored (the real-desktop test).
+- `[v]` `cargo test --offline`: 61 passed, 2 ignored (the pixel journey here
+  and the contract journey in `PRD_01_04`).
 - `[v]` `cargo test --offline real_desktop -- --ignored --nocapture` on this
   Windows machine (2026-11-04): `desktop=0,0 1680x1050 displays=1`, 17 windows,
   a 5,293,518-byte desktop PNG, a 100x60 region PNG at scale 2, a hover pointer
@@ -173,7 +177,9 @@ agents under three budgets.
 
 The pixel-side surface is now as complete as a single-file, std-only tool can
 make it: multi-display geometry, three capture targets with bounded scaling,
-eight actions and readback on every one of them. The ordering that follows from
+eight actions and readback on every one of them. The versioned host contract
+above it is delivered separately as `PRD_01_04` (`src/cu.rs`), so a later
+dynamic caller binds to the ABI rather than to this file. The ordering that follows from
 the gap table is unchanged: accessibility observation first (it is what makes
 the tool useful to a text model), then per-OS qualification, then an image arm
 in the wire codec. The a11y route still needs the owner's A/B decision.
