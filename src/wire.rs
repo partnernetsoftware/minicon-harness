@@ -256,10 +256,12 @@ fn tool_definitions() -> serde_json::Value {
             "function": {
                 "name": "screen",
                 "description": "Observe the desktop, or perform exactly one operation on it. \
-                                op=observe lists top-level windows and can write one PNG under \
-                                the task root; op=act performs one named operation and reports \
-                                what the desktop says afterwards. Only granted when the caller \
-                                passed --allow-screen.",
+                                op=observe lists the virtual desktop geometry, every display \
+                                and all top-level windows, and can write one PNG under the task \
+                                root; op=act performs one named operation and reports what the \
+                                desktop says afterwards. Pointer operations are verified by a \
+                                cursor readback. Only granted when the caller passed \
+                                --allow-screen.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -280,24 +282,36 @@ fn tool_definitions() -> serde_json::Value {
                                             accepted only when it matches exactly one window."
                         },
                         "capture": {
-                            "description": "For op=observe: true captures the whole desktop, or \
-                                            give a window title to capture just that window. The \
-                                            PNG path is composed by the tool under \
-                                            .harness/capture and is returned, never supplied."
+                            "description": "For op=observe: true captures the whole virtual \
+                                            desktop, a window title captures just that window, \
+                                            or an object {x, y, width, height} captures one \
+                                            rectangle in virtual-desktop coordinates (which can \
+                                            be negative on a secondary display). The PNG path is \
+                                            composed by the tool under .harness/capture and is \
+                                            returned, never supplied."
+                        },
+                        "scale": {
+                            "type": "integer",
+                            "description": "For op=observe with a capture: integer 1..8 \
+                                            downsample factor; 0 (default) chooses the smallest \
+                                            factor that fits the 16 MiB bound. The chosen factor \
+                                            and the resulting image size are reported back."
                         },
                         "action": {
                             "type": "string",
-                            "enum": ["focus", "move", "click", "type", "key", "scroll"],
+                            "enum": ["focus", "move", "click", "hover", "drag", "type", "key", "scroll"],
                             "description": "For op=act: the one operation to perform."
                         },
                         "x": { "type": "integer", "description": "Screen coordinate or move target." },
                         "y": { "type": "integer", "description": "Screen coordinate or move target." },
-                        "width": { "type": "integer", "description": "For action=move." },
-                        "height": { "type": "integer", "description": "For action=move." },
+                        "to_x": { "type": "integer", "description": "For action=drag: destination x." },
+                        "to_y": { "type": "integer", "description": "For action=drag: destination y." },
+                        "width": { "type": "integer", "description": "For action=move, or a capture region." },
+                        "height": { "type": "integer", "description": "For action=move, or a capture region." },
                         "button": {
                             "type": "string",
-                            "enum": ["left", "right"],
-                            "description": "For action=click; defaults to left."
+                            "enum": ["left", "right", "middle"],
+                            "description": "For action=click or action=drag; defaults to left."
                         },
                         "double": {
                             "type": "boolean",

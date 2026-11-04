@@ -12,10 +12,13 @@
 //! to `user32`/`gdi32` and a store-mode PNG encoder, because the harness ships
 //! as one auditable executable per cell.
 //!
-//! v1 qualification: Windows, pixel-level observation (window inventory plus a
-//! PNG written under the task root). The accessibility tree is an explicit open
-//! gap -- see `prd/PRD_02_01_computer_use.md` -- so nothing here claims a
-//! semantic read of any window.
+//! v1 qualification: Windows, pixel-level observation (virtual-desktop and
+//! display geometry, window inventory, and a PNG written under the task root;
+//! desktop/window/region targets with bounded downsampling). Every action is
+//! verified by readback -- cursor position, window rectangle or foreground
+//! title -- rather than by the API call having returned. The accessibility tree
+//! is an explicit open gap -- see `prd/PRD_01_03_computer_use.md` -- so nothing
+//! here claims a semantic read of any window.
 
 use std::path::{Path, PathBuf};
 
@@ -28,6 +31,19 @@ pub const SCREEN_TOOL_MAX_WINDOWS: usize = 64;
 /// stop a runaway virtual desktop, not to bound a prompt.
 pub const SCREEN_TOOL_MAX_CAPTURE_BYTES: usize = 16 * 1024 * 1024;
 
+/// Largest integer downsample factor one capture may use. Store-mode PNG is
+/// uncompressed, so a 4K desktop is ~25 MiB and would otherwise be refused;
+/// scaling the pixels is honest as long as the factor is reported back.
+pub const SCREEN_TOOL_MAX_CAPTURE_SCALE: u32 = 8;
+
+/// How many capture PNGs one task root keeps. Captures are tool-produced
+/// artifacts, not model output; the oldest ones are pruned after each write.
+pub const SCREEN_TOOL_MAX_CAPTURE_FILES: usize = 12;
+
+/// Largest rectangle any single capture may read, in pixels. A region request
+/// larger than this is refused before a device context is created.
+pub const SCREEN_TOOL_MAX_REGION_PIXELS: i32 = 8192;
+
 /// Most characters one `act:type` may deliver in a single call.
 pub const SCREEN_TOOL_MAX_TYPE_CHARS: usize = 4096;
 
@@ -38,10 +54,40 @@ pub const SCREEN_TOOL_MAX_TYPE_CHARS: usize = 4096;
 /// success would be the exact lie this harness refuses.
 pub const SCREEN_TOOL_MOVE_TOLERANCE_PX: i32 = 4;
 
+/// How far the pointer may end up from the requested position before an input
+/// action counts as not performed. The same rule as the move readback: the
+/// desktop's own coordinates are the evidence, not `SetCursorPos` returning.
+pub const SCREEN_TOOL_POINTER_TOLERANCE_PX: i32 = 4;
+
 /// Directory (relative to the task root) every capture is published into. The
 /// model never names a capture path; the tool composes it, so a capture cannot
 /// become an arbitrary write.
 pub const SCREEN_TOOL_CAPTURE_DIR: &str = ".harness/capture";
+
+/// One display in the virtual desktop, in virtual-screen coordinates. Secondary
+/// monitors can sit at negative x/y; reporting them is what makes a click on a
+/// secondary monitor expressible at all.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisplayInfo {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub primary: bool,
+}
+
+impl DisplayInfo {
+    pub fn to_line(&self, index: usize) -> String {
+        format!(
+            "display={index} rect={},{} {}x{}{}",
+            self.x,
+            self.y,
+            self.width,
+            self.height,
+            if self.primary { " primary" } else { "" }
+        )
+    }
+}
 
 /// One window as `observe` reports it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -136,13 +182,23 @@ impl ScreenTool {
     }
 
     /// Reads the desktop. `title` filters by substring when given; `capture`
-    /// writes one PNG under [`SCREEN_TOOL_CAPTURE_DIR`].
+    /// writes one PNG under [`SCREEN_TOOL_CAPTURE_DIR`]. `scale` 0 means choose
+    /// the smallest factor that keeps a store-mode PNG inside the byte bound.
     pub fn observe(
         &self,
         title: Option<&str>,
         capture: Option<CaptureTarget>,
+        scale: u32,
     ) -> Result<String, String> {
         self.admit()?;
+        if scale > SCREEN_TOOL_MAX_CAPTURE_SCALE {
+            return Err(format!(
+                "screen: refused: capture scale {scale} is over the bound of \
+                 {SCREEN_TOOL_MAX_CAPTURE_SCALE}; use 0 for automatic"
+            ));
+        }
+        let virtual_screen = native::virtual_screen()?;
+        let displays = native::displays()?;
         let mut windows = native::windows()?;
         if let Some(needle) = title {
             let needle = needle.to_lowercase();
@@ -171,14 +227,35 @@ impl ScreenTool {
         if total > listed {
             text.push_str(&format!(" (listed {listed}, bound {SCREEN_TOOL_MAX_WINDOWS})"));
         }
+        // The virtual desktop is not the primary monitor: on a multi-monitor
+        // host its origin can be negative. Reporting the geometry is what makes
+        // a coordinate on a secondary display a well-formed request.
+        text.push_str(&format!(
+            "\ndesktop={},{} {}x{} displays={}",
+            virtual_screen.0,
+            virtual_screen.1,
+            virtual_screen.2,
+            virtual_screen.3,
+            displays.len()
+        ));
+        for (index, display) in displays.iter().enumerate() {
+            text.push('\n');
+            text.push_str(&display.to_line(index));
+        }
         for window in windows.iter().take(listed) {
             text.push('\n');
             text.push_str(&window.to_line());
         }
-        if let Some(capture) = capture {
-            let (window, path, bytes) = self.capture(capture)?;
+        if let Some(target) = capture {
+            let outcome = self.capture(target, scale)?;
             text.push_str(&format!(
-                "\ncapture: {path} bytes={bytes} source={window}"
+                "\ncapture: {} bytes={} image={}x{} scale={} source={}",
+                outcome.path,
+                outcome.bytes,
+                outcome.width,
+                outcome.height,
+                outcome.scale,
+                outcome.source
             ));
         }
         Ok(text)
@@ -191,6 +268,7 @@ impl ScreenTool {
         match act {
             Act::Focus { title } => {
                 let window = native::find(&title)?;
+                native::handle_is_live(window.handle, &window.title)?;
                 native::focus(window.handle)?;
                 let readback = native::windows()?
                     .into_iter()
@@ -211,6 +289,7 @@ impl ScreenTool {
                 height,
             } => {
                 let window = native::find(&title)?;
+                native::handle_is_live(window.handle, &window.title)?;
                 native::move_window(window.handle, x, y, width, height)?;
                 let after = native::find(&title)?;
                 // The desktop's own rectangle is the evidence, not the request
@@ -239,11 +318,33 @@ impl ScreenTool {
                 })
             }
             Act::Click { x, y, button, double } => {
-                native::click(x, y, button, double)?;
+                let (px, py) = native::click(x, y, button, double)?;
                 Ok(ActOutcome {
                     action: "click".to_owned(),
                     window: None,
-                    readback: format!("pointer at {x},{y}"),
+                    readback: format!("pointer at {px},{py}"),
+                })
+            }
+            Act::Hover { x, y } => {
+                let (px, py) = native::place_pointer(x, y)?;
+                Ok(ActOutcome {
+                    action: "hover".to_owned(),
+                    window: None,
+                    readback: format!("pointer at {px},{py}"),
+                })
+            }
+            Act::Drag {
+                x,
+                y,
+                to_x,
+                to_y,
+                button,
+            } => {
+                let (px, py) = native::drag(x, y, to_x, to_y, button)?;
+                Ok(ActOutcome {
+                    action: "drag".to_owned(),
+                    window: None,
+                    readback: format!("pointer at {px},{py}"),
                 })
             }
             Act::Type { text } => {
@@ -254,64 +355,241 @@ impl ScreenTool {
                          {SCREEN_TOOL_MAX_TYPE_CHARS}; split the text"
                     ));
                 }
+                let before = native::foreground_title();
                 native::type_text(text)?;
+                let evidence = foreground_evidence(before, native::foreground_title())?;
                 Ok(ActOutcome {
                     action: "type".to_owned(),
                     window: None,
-                    readback: format!("typed {chars} characters"),
+                    readback: format!("typed {chars} characters {evidence}"),
                 })
             }
             Act::Key { keys } => {
+                let before = native::foreground_title();
                 native::press_key(&keys)?;
+                let evidence = foreground_evidence(before, native::foreground_title())?;
                 Ok(ActOutcome {
                     action: "key".to_owned(),
                     window: None,
-                    readback: format!("pressed {keys}"),
+                    readback: format!("pressed {keys} {evidence}"),
                 })
             }
             Act::Scroll { x, y, delta } => {
-                native::scroll(x, y, delta)?;
+                let (px, py) = native::scroll(x, y, delta)?;
                 Ok(ActOutcome {
                     action: "scroll".to_owned(),
                     window: None,
-                    readback: format!("scrolled {delta} at {x},{y}"),
+                    readback: format!("scrolled {delta} at {px},{py}"),
                 })
             }
         }
     }
 
-    /// Captures the whole desktop or one window, publishes it under the root,
-    /// and returns `(source, relative path, bytes)`. The path is composed here,
-    /// never supplied by the model.
-    fn capture(&self, target: CaptureTarget) -> Result<(String, String, usize), String> {
-        let (source, image) = match &target {
-            CaptureTarget::Desktop => ("desktop".to_owned(), native::capture_desktop()?),
+    /// Captures the desktop, one window, or one explicit region; publishes it
+    /// under the root. The path is composed here, never supplied by the model.
+    fn capture(&self, target: CaptureTarget, scale: u32) -> Result<CaptureOutcome, String> {
+        let (source, image) = match target {
+            CaptureTarget::Desktop => ("desktop".to_owned(), native::capture_desktop(scale)?),
             CaptureTarget::Window(title) => {
-                let window = native::find(title)?;
-                let image = native::capture_window(window.handle)?;
+                let window = native::find(&title)?;
+                native::handle_is_live(window.handle, &window.title)?;
+                let image = native::capture_window(window.handle, scale)?;
                 (format!("{:?}", window.title), image)
+            }
+            CaptureTarget::Region {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                let (vx, vy, vw, vh) = native::virtual_screen()?;
+                if width <= 0
+                    || height <= 0
+                    || width > SCREEN_TOOL_MAX_REGION_PIXELS
+                    || height > SCREEN_TOOL_MAX_REGION_PIXELS
+                {
+                    return Err(format!(
+                        "screen: refused: region {width}x{height} is outside 1..=\
+                         {SCREEN_TOOL_MAX_REGION_PIXELS} on each side"
+                    ));
+                }
+                // Refuse rather than clip: a clipped image would silently show
+                // a different part of the desktop than the model asked for.
+                let right = x as i64 + width as i64;
+                let bottom = y as i64 + height as i64;
+                if (x as i64) < vx as i64
+                    || (y as i64) < vy as i64
+                    || right > vx as i64 + vw as i64
+                    || bottom > vy as i64 + vh as i64
+                {
+                    return Err(format!(
+                        "screen: refused: region {x},{y} {width}x{height} is outside the \
+                         virtual desktop {vx},{vy} {vw}x{vh}; observe without a capture to \
+                         read the display geometry"
+                    ));
+                }
+                (
+                    format!("region {x},{y} {width}x{height}"),
+                    native::capture_region(x, y, width, height, scale)?,
+                )
             }
         };
         if image.bytes.len() > SCREEN_TOOL_MAX_CAPTURE_BYTES {
             return Err(format!(
-                "screen: refused: the capture is {} bytes, over the bound of {}; capture one \
-                 window instead of the desktop",
+                "screen: refused: the capture is {} bytes at scale {}, over the bound of {}; \
+                 capture a region or ask for a larger scale",
                 image.bytes.len(),
+                image.scale,
                 SCREEN_TOOL_MAX_CAPTURE_BYTES
             ));
         }
         let directory = self.root.join(SCREEN_TOOL_CAPTURE_DIR);
         std::fs::create_dir_all(&directory)
             .map_err(|error| format!("screen: capture directory failed: {error}"))?;
-        let name = format!("capture-{}-{}.png", std::process::id(), native::now_millis());
+        // A monotonic tail keeps two captures in the same millisecond from
+        // overwriting each other.
+        let sequence = CAPTURE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let name = format!(
+            "capture-{}-{}-{sequence}.png",
+            std::process::id(),
+            native::now_millis()
+        );
         let path = directory.join(&name);
         std::fs::write(&path, &image.bytes)
             .map_err(|error| format!("screen: capture write failed: {error}"))?;
-        Ok((
+        prune_captures(&directory);
+        Ok(CaptureOutcome {
+            path: format!("{SCREEN_TOOL_CAPTURE_DIR}/{name}"),
+            bytes: image.bytes.len(),
+            width: image.width,
+            height: image.height,
+            scale: image.scale,
             source,
-            format!("{SCREEN_TOOL_CAPTURE_DIR}/{name}"),
-            image.bytes.len(),
-        ))
+        })
+    }
+}
+
+static CAPTURE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// One published capture, fully described so the model knows the pixels are
+/// downsampled when they are.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CaptureOutcome {
+    pub path: String,
+    pub bytes: usize,
+    pub width: u32,
+    pub height: u32,
+    pub scale: u32,
+    pub source: String,
+}
+
+/// Smallest power-of-two downsample factor whose store-mode PNG fits the byte
+/// bound. `requested > 0` is honoured verbatim (the byte check still applies).
+/// Pure arithmetic, so it is testable on every cell.
+pub fn capture_scale(width: u32, height: u32, requested: u32) -> u32 {
+    if requested > 0 {
+        return requested;
+    }
+    let budget = (SCREEN_TOOL_MAX_CAPTURE_BYTES as u64).saturating_sub(4096);
+    let mut scale = 1u32;
+    while scale < SCREEN_TOOL_MAX_CAPTURE_SCALE {
+        let factor = scale as u64;
+        let w = (width as u64 + factor - 1) / factor;
+        let h = (height as u64 + factor - 1) / factor;
+        // 3 bytes per pixel, one filter byte per row, zlib/deflate overhead.
+        if w.saturating_mul(h)
+            .saturating_mul(3)
+            .saturating_add(h)
+            .saturating_add(1024)
+            <= budget
+        {
+            break;
+        }
+        scale *= 2;
+    }
+    scale
+}
+
+/// Box-average downsample in BGRA. Averaging (rather than nearest neighbour)
+/// keeps thin UI text legible when a 4K desktop has to be reduced to fit the
+/// byte bound. Pure arithmetic: testable on every cell, including the ones
+/// where computer use is unqualified.
+pub fn downsample(
+    bgra: &[u8],
+    width: u32,
+    height: u32,
+    scale: u32,
+) -> (Vec<u8>, u32, u32) {
+    if scale <= 1 {
+        return (bgra.to_vec(), width, height);
+    }
+    let step = scale as usize;
+    let out_width = (width as usize + step - 1) / step;
+    let out_height = (height as usize + step - 1) / step;
+    let mut out = vec![0u8; out_width * out_height * 4];
+    for row in 0..out_height {
+        for column in 0..out_width {
+            let mut sum = [0u64; 3];
+            let mut count = 0u64;
+            for dy in 0..step {
+                let source_row = row * step + dy;
+                if source_row >= height as usize {
+                    break;
+                }
+                for dx in 0..step {
+                    let source_column = column * step + dx;
+                    if source_column >= width as usize {
+                        break;
+                    }
+                    let pixel = (source_row * width as usize + source_column) * 4;
+                    for channel in 0..3 {
+                        sum[channel] += bgra[pixel + channel] as u64;
+                    }
+                    count += 1;
+                }
+            }
+            let target = (row * out_width + column) * 4;
+            if count > 0 {
+                for channel in 0..3 {
+                    out[target + channel] = (sum[channel] / count) as u8;
+                }
+            }
+            out[target + 3] = 255;
+        }
+    }
+    (out, out_width as u32, out_height as u32)
+}
+
+/// Best-effort retention: keep the newest tool-produced PNGs. Only names this
+/// tool composes are considered; a failure to prune never fails a capture.
+fn prune_captures(directory: &Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    let mut captures: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !name.starts_with("capture-") || !name.ends_with(".png") {
+                return None;
+            }
+            let time = entry.metadata().and_then(|meta| meta.modified()).ok()?;
+            Some((time, entry.path()))
+        })
+        .collect();
+    if captures.len() <= SCREEN_TOOL_MAX_CAPTURE_FILES {
+        return;
+    }
+    captures.sort_by(|(left_time, left_path), (right_time, right_path)| {
+        right_time
+            .cmp(left_time)
+            .then_with(|| right_path.cmp(left_path))
+    });
+    for (_, path) in captures
+        .into_iter()
+        .skip(SCREEN_TOOL_MAX_CAPTURE_FILES)
+    {
+        let _ = std::fs::remove_file(path);
     }
 }
 
@@ -321,6 +599,14 @@ pub enum CaptureTarget {
     Desktop,
     /// Substring match, resolved through the same admission as `act`.
     Window(String),
+    /// Explicit rectangle in virtual-desktop coordinates; never silently
+    /// clipped to the display.
+    Region {
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    },
 }
 
 /// One operation the model asked for.
@@ -329,6 +615,8 @@ pub enum Act<'a> {
     Focus { title: String },
     Move { title: String, x: i32, y: i32, width: i32, height: i32 },
     Click { x: i32, y: i32, button: ClickButton, double: bool },
+    Hover { x: i32, y: i32 },
+    Drag { x: i32, y: i32, to_x: i32, to_y: i32, button: ClickButton },
     Type { text: &'a str },
     Key { keys: String },
     Scroll { x: i32, y: i32, delta: i32 },
@@ -338,6 +626,7 @@ pub enum Act<'a> {
 pub enum ClickButton {
     Left,
     Right,
+    Middle,
 }
 
 /// One encoded image on its way to disk.
@@ -346,6 +635,28 @@ pub struct Captured {
     pub bytes: Vec<u8>,
     pub width: u32,
     pub height: u32,
+    /// 1 means the original pixels; >1 means a box downsample was applied and
+    /// the reported dimensions are the scaled ones.
+    pub scale: u32,
+}
+
+/// Evidence for a keystroke: which window actually owned the foreground before
+/// and after the input. Losing the foreground entirely is a failure; a window
+/// that changed as a *result* of the key (Enter opening a dialog) is reported,
+/// not refused, because the input did reach the original target.
+fn foreground_evidence(before: Option<String>, after: Option<String>) -> Result<String, String> {
+    match (&before, &after) {
+        (Some(title), None) => Err(format!(
+            "screen: failed: the foreground window {title:?} disappeared during input; nothing \
+             further was delivered"
+        )),
+        (Some(first), Some(second)) if first != second => Ok(format!(
+            "foreground={second:?} (was {first:?}, changed during input)"
+        )),
+        (Some(title), Some(_)) => Ok(format!("foreground={title:?}")),
+        (None, Some(title)) => Ok(format!("foreground={title:?} (no foreground before input)")),
+        (None, None) => Ok("foreground=<none>".to_owned()),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +683,7 @@ mod native {
     type Hbitmap = *mut c_void;
 
     #[repr(C)]
+    #[derive(Clone, Copy)]
     struct Rect {
         left: Int,
         top: Int,
@@ -398,6 +710,20 @@ mod native {
     struct BitmapInfo {
         header: BitmapInfoHeader,
         colors: [Dword; 3],
+    }
+
+    #[repr(C)]
+    struct Point {
+        x: Int,
+        y: Int,
+    }
+
+    #[repr(C)]
+    struct MonitorInfo {
+        size: Dword,
+        monitor: Rect,
+        work: Rect,
+        flags: Dword,
     }
 
     #[repr(C)]
@@ -429,6 +755,11 @@ mod native {
 
     const SM_CXSCREEN: Int = 0;
     const SM_CYSCREEN: Int = 1;
+    const SM_XVIRTUALSCREEN: Int = 76;
+    const SM_YVIRTUALSCREEN: Int = 77;
+    const SM_CXVIRTUALSCREEN: Int = 78;
+    const SM_CYVIRTUALSCREEN: Int = 79;
+    const MONITORINFOF_PRIMARY: Dword = 1;
     const SW_RESTORE: Int = 9;
     const SW_SHOW: Int = 5;
     const SRCCOPY: Dword = 0x00CC_0020;
@@ -439,6 +770,8 @@ mod native {
     const MOUSEEVENTF_RIGHTDOWN: Dword = 0x0008;
     const MOUSEEVENTF_RIGHTUP: Dword = 0x0010;
     const MOUSEEVENTF_WHEEL: Dword = 0x0800;
+    const MOUSEEVENTF_MIDDLEDOWN: Dword = 0x0020;
+    const MOUSEEVENTF_MIDDLEUP: Dword = 0x0040;
 
     #[link(name = "user32")]
     extern "system" {
@@ -469,6 +802,15 @@ mod native {
         fn SendInput(count: Uint, inputs: *mut Input, size: Int) -> Uint;
         fn GetSystemMetrics(index: Int) -> Int;
         fn VkKeyScanW(character: u16) -> i16;
+        fn GetCursorPos(point: *mut Point) -> Bool;
+        fn IsWindow(window: Hwnd) -> Bool;
+        fn EnumDisplayMonitors(
+            dc: Hdc,
+            clip: *mut Rect,
+            callback: extern "system" fn(Hwnd, Hdc, *mut Rect, isize) -> Bool,
+            param: isize,
+        ) -> Bool;
+        fn GetMonitorInfoW(monitor: Hwnd, info: *mut MonitorInfo) -> Bool;
     }
 
     #[link(name = "gdi32")]
@@ -555,6 +897,161 @@ mod native {
         1
     }
 
+    /// The whole virtual desktop. The primary-monitor metrics (SM_CXSCREEN)
+    /// silently drop every secondary display, including ones at negative x.
+    pub fn virtual_screen() -> Result<(i32, i32, i32, i32), String> {
+        let x = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+        let y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+        let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
+        let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
+        if width > 0 && height > 0 {
+            return Ok((x, y, width, height));
+        }
+        // Some remote/headless sessions report only the primary metrics.
+        let width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        if width <= 0 || height <= 0 {
+            return Err("screen: refused: the desktop has no readable dimensions".to_owned());
+        }
+        Ok((0, 0, width, height))
+    }
+
+    struct DisplayCollector {
+        displays: Vec<super::DisplayInfo>,
+    }
+
+    extern "system" fn collect_display(
+        monitor: Hwnd,
+        _dc: Hdc,
+        _clip: *mut Rect,
+        param: isize,
+    ) -> Bool {
+        // SAFETY: `param` is the `&mut DisplayCollector` handed to
+        // EnumDisplayMonitors below; the callback cannot outlive that call.
+        let collector = unsafe { &mut *(param as *mut DisplayCollector) };
+        let empty = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        let mut info = MonitorInfo {
+            size: size_of::<MonitorInfo>() as Dword,
+            monitor: empty,
+            work: empty,
+            flags: 0,
+        };
+        if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+            return 1;
+        }
+        collector.displays.push(super::DisplayInfo {
+            x: info.monitor.left,
+            y: info.monitor.top,
+            width: info.monitor.right - info.monitor.left,
+            height: info.monitor.bottom - info.monitor.top,
+            primary: info.flags & MONITORINFOF_PRIMARY != 0,
+        });
+        1
+    }
+
+    pub fn displays() -> Result<Vec<super::DisplayInfo>, String> {
+        let mut collector = DisplayCollector {
+            displays: Vec::new(),
+        };
+        let ok = unsafe {
+            EnumDisplayMonitors(
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                collect_display,
+                &mut collector as *mut DisplayCollector as isize,
+            )
+        };
+        if ok == 0 {
+            return Err("screen: refused: the displays could not be enumerated".to_owned());
+        }
+        collector
+            .displays
+            .sort_by_key(|display| (display.x, display.y, display.width, display.height));
+        if collector.displays.is_empty() {
+            let (x, y, width, height) = virtual_screen()?;
+            collector.displays.push(super::DisplayInfo {
+                x,
+                y,
+                width,
+                height,
+                primary: true,
+            });
+        }
+        Ok(collector.displays)
+    }
+
+    pub fn foreground_title() -> Option<String> {
+        let window = unsafe { GetForegroundWindow() };
+        if window.is_null() {
+            return None;
+        }
+        let mut title = [0u16; 512];
+        let length = unsafe { GetWindowTextW(window, title.as_mut_ptr(), title.len() as Int) };
+        (length > 0).then(|| wide(&title[..length as usize + 1]))
+    }
+
+    /// A requested pointer position must lie in the virtual desktop. Refusing
+    /// here keeps an off-screen click from becoming a click on whatever the OS
+    /// clamped it to.
+    fn check_point(x: Int, y: Int) -> Result<(), String> {
+        let (vx, vy, vw, vh) = virtual_screen()?;
+        if (x as i64) < vx as i64
+            || (y as i64) < vy as i64
+            || (x as i64) >= vx as i64 + vw as i64
+            || (y as i64) >= vy as i64 + vh as i64
+        {
+            return Err(format!(
+                "screen: refused: pointer {x},{y} is outside the virtual desktop {vx},{vy} \
+                 {vw}x{vh}; observe without a capture to read the display geometry"
+            ));
+        }
+        Ok(())
+    }
+
+    /// The pointer readback every input action uses. `SetCursorPos` succeeding
+    /// is not evidence; the position the desktop reports afterwards is.
+    fn pointer_readback(x: Int, y: Int) -> Result<(Int, Int), String> {
+        let mut point = Point { x: 0, y: 0 };
+        if unsafe { GetCursorPos(&mut point) } == 0 {
+            return Err("screen: refused: the pointer position could not be read back".to_owned());
+        }
+        let off = (point.x - x).abs().max((point.y - y).abs())
+            > super::SCREEN_TOOL_POINTER_TOLERANCE_PX;
+        if off {
+            return Err(format!(
+                "screen: failed: asked for pointer at {x},{y}, the desktop reports {},{}; the \
+                 requested position was not reached (DPI scaling, clipping or a locked session \
+                 can do this). Nothing else was attempted",
+                point.x, point.y
+            ));
+        }
+        Ok((point.x, point.y))
+    }
+
+    pub fn place_pointer(x: Int, y: Int) -> Result<(Int, Int), String> {
+        check_point(x, y)?;
+        if unsafe { SetCursorPos(x, y) } == 0 {
+            return Err(format!(
+                "screen: refused: the pointer could not be placed at {x},{y}"
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        pointer_readback(x, y)
+    }
+
+    fn button_flags(button: ClickButton) -> (Dword, Dword) {
+        match button {
+            ClickButton::Left => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+            ClickButton::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+            ClickButton::Middle => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+        }
+    }
+
     pub fn windows() -> Result<Vec<WindowInfo>, String> {
         let mut collector = Collector {
             windows: Vec::new(),
@@ -603,6 +1100,27 @@ mod native {
         }
     }
 
+    /// A handle is never trusted across calls: the window may have been closed
+    /// (and the handle reused) between the title lookup and the operation.
+    pub fn handle_is_live(handle: u64, title: &str) -> Result<(), String> {
+        let window = handle as usize as Hwnd;
+        if window.is_null() || unsafe { IsWindow(window) } == 0 {
+            return Err(format!(
+                "screen: refused: the window {title:?} no longer exists; observe again before \
+                 operating on it"
+            ));
+        }
+        let mut current = [0u16; 512];
+        let length = unsafe { GetWindowTextW(window, current.as_mut_ptr(), current.len() as Int) };
+        if length <= 0 || wide(&current[..length as usize + 1]) != title {
+            return Err(format!(
+                "screen: refused: the window {title:?} changed identity between lookup and \
+                 operation; observe again"
+            ));
+        }
+        Ok(())
+    }
+
     pub fn focus(handle: u64) -> Result<(), String> {
         let window = handle as usize as Hwnd;
         if unsafe { IsIconic(window) } != 0 {
@@ -646,15 +1164,15 @@ mod native {
         Ok(())
     }
 
-    pub fn click(x: i32, y: i32, button: ClickButton, double: bool) -> Result<(), String> {
-        if unsafe { SetCursorPos(x, y) } == 0 {
-            return Err("screen: refused: the pointer could not be placed".to_owned());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(60));
-        let (down, up) = match button {
-            ClickButton::Left => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
-            ClickButton::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
-        };
+    pub fn click(
+        x: i32,
+        y: i32,
+        button: ClickButton,
+        double: bool,
+    ) -> Result<(i32, i32), String> {
+        let position = place_pointer(x, y)?;
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        let (down, up) = button_flags(button);
         unsafe { mouse_event(down, 0, 0, 0, 0) };
         unsafe { mouse_event(up, 0, 0, 0, 0) };
         if double {
@@ -662,14 +1180,39 @@ mod native {
             unsafe { mouse_event(down, 0, 0, 0, 0) };
             unsafe { mouse_event(up, 0, 0, 0, 0) };
         }
-        Ok(())
+        Ok(position)
     }
 
-    pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(), String> {
-        unsafe { SetCursorPos(x, y) };
-        std::thread::sleep(std::time::Duration::from_millis(60));
+    /// A press, a stepped move and a release. Stepped motion matters: most
+    /// drag-and-drop implementations need intermediate WM_MOUSEMOVE messages,
+    /// and a single jump to the destination is never a drag.
+    pub fn drag(
+        x: i32,
+        y: i32,
+        to_x: i32,
+        to_y: i32,
+        button: ClickButton,
+    ) -> Result<(i32, i32), String> {
+        const STEPS: i64 = 12;
+        check_point(to_x, to_y)?;
+        place_pointer(x, y)?;
+        let (down, up) = button_flags(button);
+        unsafe { mouse_event(down, 0, 0, 0, 0) };
+        for step in 1..=STEPS {
+            let px = x as i64 + (to_x as i64 - x as i64) * step / STEPS;
+            let py = y as i64 + (to_y as i64 - y as i64) * step / STEPS;
+            unsafe { SetCursorPos(px as Int, py as Int) };
+            std::thread::sleep(std::time::Duration::from_millis(12));
+        }
+        unsafe { mouse_event(up, 0, 0, 0, 0) };
+        pointer_readback(to_x, to_y)
+    }
+
+    pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(i32, i32), String> {
+        let position = place_pointer(x, y)?;
+        std::thread::sleep(std::time::Duration::from_millis(40));
         unsafe { mouse_event(MOUSEEVENTF_WHEEL, 0, 0, delta as Dword, 0) };
-        Ok(())
+        Ok(position)
     }
 
     pub fn type_text(text: &str) -> Result<(), String> {
@@ -715,7 +1258,7 @@ mod native {
         ("win", 0x5B),
     ];
 
-    const NAMED_KEYS: [(&str, u16); 22] = [
+    const NAMED_KEYS: [(&str, u16); 32] = [
         ("enter", 0x0D),
         ("return", 0x0D),
         ("tab", 0x09),
@@ -733,9 +1276,19 @@ mod native {
         ("left", 0x25),
         ("right", 0x27),
         ("insert", 0x2D),
+        ("printscreen", 0x2C),
+        ("pause", 0x13),
+        ("capslock", 0x14),
         ("f1", 0x70),
         ("f2", 0x71),
+        ("f3", 0x72),
+        ("f4", 0x73),
         ("f5", 0x74),
+        ("f6", 0x75),
+        ("f7", 0x76),
+        ("f8", 0x77),
+        ("f9", 0x78),
+        ("f10", 0x79),
         ("f11", 0x7A),
         ("f12", 0x7B),
     ];
@@ -770,17 +1323,17 @@ mod native {
             })
             .ok_or_else(|| format!("screen: refused: unknown key {key:?}"))?;
         for modifier in &modifier_codes {
-            key_event(*modifier, false);
+            key_event(*modifier, false)?;
         }
-        key_event(code, false);
-        key_event(code, true);
+        key_event(code, false)?;
+        key_event(code, true)?;
         for modifier in modifier_codes.iter().rev() {
-            key_event(*modifier, true);
+            key_event(*modifier, true)?;
         }
         Ok(())
     }
 
-    fn key_event(code: u16, up: bool) {
+    fn key_event(code: u16, up: bool) -> Result<(), String> {
         let input = Input {
             kind: INPUT_KEYBOARD,
             data: InputUnion {
@@ -793,14 +1346,34 @@ mod native {
                 },
             },
         };
-        unsafe { SendInput(1, &input as *const Input as *mut Input, size_of::<Input>() as Int) };
+        let sent = unsafe {
+            SendInput(1, &input as *const Input as *mut Input, size_of::<Input>() as Int)
+        };
+        if sent != 1 {
+            return Err(format!(
+                "screen: refused: the desktop did not accept key event {code:#x}; nothing \
+                 further was pressed"
+            ));
+        }
+        Ok(())
     }
 
-    /// Reads one rectangular region into 32-bit BGRA, top-down.
-    fn grab(x: i32, y: i32, width: i32, height: i32) -> Result<Captured, String> {
+    /// Reads one rectangular region into 32-bit BGRA, top-down, then downsamples
+    /// and encodes it. `x`/`y` are virtual-desktop coordinates and may be
+    /// negative on a secondary display.
+    fn grab(x: i32, y: i32, width: i32, height: i32, scale: u32) -> Result<Captured, String> {
         if width <= 0 || height <= 0 {
             return Err(format!(
                 "screen: refused: the region is {width}x{height}; nothing to capture"
+            ));
+        }
+        if width > super::SCREEN_TOOL_MAX_REGION_PIXELS
+            || height > super::SCREEN_TOOL_MAX_REGION_PIXELS
+        {
+            return Err(format!(
+                "screen: refused: the region is {width}x{height}, over the \
+                 {bound} pixel bound on each side; capture a smaller region",
+                bound = super::SCREEN_TOOL_MAX_REGION_PIXELS
             ));
         }
         let screen = unsafe { GetDC(std::ptr::null_mut()) };
@@ -852,20 +1425,33 @@ mod native {
         if copied == 0 || lines != height {
             return Err("screen: refused: the capture could not be read back".to_owned());
         }
+        let chosen = super::capture_scale(width as u32, height as u32, scale);
+        let (pixels, out_width, out_height) =
+            super::downsample(&pixels, width as u32, height as u32, chosen);
         Ok(Captured {
-            bytes: png::encode_rgb(&pixels, width as u32, height as u32),
-            width: width as u32,
-            height: height as u32,
+            bytes: png::encode_rgb(&pixels, out_width, out_height),
+            width: out_width,
+            height: out_height,
+            scale: chosen,
         })
     }
 
-    pub fn capture_desktop() -> Result<Captured, String> {
-        let width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-        let height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-        grab(0, 0, width, height)
+    pub fn capture_desktop(scale: u32) -> Result<Captured, String> {
+        let (x, y, width, height) = virtual_screen()?;
+        grab(x, y, width, height, scale)
     }
 
-    pub fn capture_window(handle: u64) -> Result<Captured, String> {
+    pub fn capture_region(
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        scale: u32,
+    ) -> Result<Captured, String> {
+        grab(x, y, width, height, scale)
+    }
+
+    pub fn capture_window(handle: u64, scale: u32) -> Result<Captured, String> {
         let window = handle as usize as Hwnd;
         if unsafe { IsIconic(window) } != 0 {
             unsafe { ShowWindow(window, SW_SHOW) };
@@ -886,6 +1472,7 @@ mod native {
             rect.top,
             rect.right - rect.left,
             rect.bottom - rect.top,
+            scale,
         )
     }
 
@@ -991,13 +1578,43 @@ mod native {
     //! reported as unqualified, never as an empty success -- the CU0 safe
     //! failure the sibling PRDs require.
 
-    use super::{Captured, ClickButton, WindowInfo};
+    use super::{Captured, ClickButton, DisplayInfo, WindowInfo};
     use std::path::PathBuf;
 
     pub const QUALIFIED: bool = false;
     pub const PLATFORM: &str = std::env::consts::OS;
 
     pub fn windows() -> Result<Vec<WindowInfo>, String> {
+        Err(unqualified())
+    }
+
+    pub fn virtual_screen() -> Result<(i32, i32, i32, i32), String> {
+        Err(unqualified())
+    }
+
+    pub fn displays() -> Result<Vec<DisplayInfo>, String> {
+        Err(unqualified())
+    }
+
+    pub fn foreground_title() -> Option<String> {
+        None
+    }
+
+    pub fn handle_is_live(_handle: u64, _title: &str) -> Result<(), String> {
+        Err(unqualified())
+    }
+
+    pub fn place_pointer(_x: i32, _y: i32) -> Result<(i32, i32), String> {
+        Err(unqualified())
+    }
+
+    pub fn drag(
+        _x: i32,
+        _y: i32,
+        _to_x: i32,
+        _to_y: i32,
+        _button: ClickButton,
+    ) -> Result<(i32, i32), String> {
         Err(unqualified())
     }
 
@@ -1013,11 +1630,16 @@ mod native {
         Err(unqualified())
     }
 
-    pub fn click(_x: i32, _y: i32, _b: ClickButton, _d: bool) -> Result<(), String> {
+    pub fn click(
+        _x: i32,
+        _y: i32,
+        _b: ClickButton,
+        _d: bool,
+    ) -> Result<(i32, i32), String> {
         Err(unqualified())
     }
 
-    pub fn scroll(_x: i32, _y: i32, _delta: i32) -> Result<(), String> {
+    pub fn scroll(_x: i32, _y: i32, _delta: i32) -> Result<(i32, i32), String> {
         Err(unqualified())
     }
 
@@ -1029,11 +1651,21 @@ mod native {
         Err(unqualified())
     }
 
-    pub fn capture_desktop() -> Result<Captured, String> {
+    pub fn capture_desktop(_scale: u32) -> Result<Captured, String> {
         Err(unqualified())
     }
 
-    pub fn capture_window(_handle: u64) -> Result<Captured, String> {
+    pub fn capture_window(_handle: u64, _scale: u32) -> Result<Captured, String> {
+        Err(unqualified())
+    }
+
+    pub fn capture_region(
+        _x: i32,
+        _y: i32,
+        _width: i32,
+        _height: i32,
+        _scale: u32,
+    ) -> Result<Captured, String> {
         Err(unqualified())
     }
 
@@ -1074,7 +1706,7 @@ mod tests {
     #[test]
     fn screen_refuses_without_the_flag_and_names_it() {
         let tool = ScreenTool::new(&root("flag"), false);
-        let error = tool.observe(None, None).unwrap_err();
+        let error = tool.observe(None, None, 0).unwrap_err();
         assert!(error.contains("--allow-screen"), "{error}");
         assert!(error.contains("refused"), "{error}");
     }
@@ -1112,6 +1744,95 @@ mod tests {
         );
     }
 
+    #[test]
+    fn display_line_reports_negative_virtual_coordinates() {
+        let display = DisplayInfo {
+            x: -1920,
+            y: -240,
+            width: 1920,
+            height: 1080,
+            primary: false,
+        };
+        assert_eq!(
+            display.to_line(1),
+            "display=1 rect=-1920,-240 1920x1080"
+        );
+    }
+
+    #[test]
+    fn capture_scale_only_grows_when_store_mode_png_would_exceed_the_bound() {
+        assert_eq!(capture_scale(1680, 1050, 0), 1);
+        assert_eq!(capture_scale(3840, 2160, 0), 2);
+        assert_eq!(capture_scale(7680, 4320, 0), 4);
+        assert_eq!(capture_scale(65536, 65536, 0), SCREEN_TOOL_MAX_CAPTURE_SCALE);
+        assert_eq!(capture_scale(3840, 2160, 3), 3);
+        // Absurd dimensions must saturate, not overflow in a debug build.
+        assert_eq!(capture_scale(u32::MAX, u32::MAX, 0), SCREEN_TOOL_MAX_CAPTURE_SCALE);
+    }
+
+    #[test]
+    fn downsample_averages_a_block_and_keeps_alpha() {
+        // 2x2 BGRA, all pure red (B=0, G=0, R=255).
+        let mut red = Vec::new();
+        for _ in 0..4 {
+            red.extend_from_slice(&[0, 0, 255, 255]);
+        }
+        let (pixels, width, height) = downsample(&red, 2, 2, 2);
+        assert_eq!((width, height), (1, 1));
+        assert_eq!(pixels, vec![0, 0, 255, 255]);
+        // Non-divisible dimensions round up, with the partial block averaged
+        // over the samples that exist and alpha always opaque.
+        let mut mixed = Vec::new();
+        for _ in 0..3 {
+            mixed.extend_from_slice(&[10, 20, 30, 0]);
+        }
+        let (pixels, width, height) = downsample(&mixed, 3, 1, 2);
+        assert_eq!((width, height), (2, 1));
+        assert_eq!(&pixels[4..8], &[10, 20, 30, 255]);
+        assert_eq!(pixels[3], 255);
+    }
+
+    #[test]
+    fn foreground_evidence_reports_a_change_and_refuses_a_loss() {
+        assert_eq!(
+            foreground_evidence(Some("Editor".into()), Some("Editor".into())).unwrap(),
+            "foreground=\"Editor\""
+        );
+        let changed =
+            foreground_evidence(Some("Editor".into()), Some("Save dialog".into())).unwrap();
+        assert!(changed.contains("changed during input"), "{changed}");
+        let lost = foreground_evidence(Some("Editor".into()), None).unwrap_err();
+        assert!(lost.contains("disappeared"), "{lost}");
+        assert_eq!(
+            foreground_evidence(None, None).unwrap(),
+            "foreground=<none>"
+        );
+    }
+
+    #[test]
+    fn capture_retention_keeps_only_tool_produced_pngs() {
+        let root = root("retention");
+        let directory = root.join(SCREEN_TOOL_CAPTURE_DIR);
+        std::fs::create_dir_all(&directory).expect("capture directory");
+        for index in 0..(SCREEN_TOOL_MAX_CAPTURE_FILES + 4) {
+            std::fs::write(
+                directory.join(format!("capture-1-{index}.png")),
+                b"png",
+            )
+            .expect("fixture capture");
+        }
+        std::fs::write(directory.join("model-output.txt"), b"keep").expect("foreign file");
+        prune_captures(&directory);
+        let captures = std::fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("capture-"))
+            .count();
+        assert_eq!(captures, SCREEN_TOOL_MAX_CAPTURE_FILES);
+        assert!(directory.join("model-output.txt").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[cfg(windows)]
     #[test]
     fn png_encoder_produces_a_readable_container() {
@@ -1139,11 +1860,19 @@ mod tests {
         let root = root("real");
         let tool = ScreenTool::new(&root, true);
         let observed = tool
-            .observe(None, Some(CaptureTarget::Desktop))
+            .observe(None, Some(CaptureTarget::Desktop), 0)
             .expect("observe a real desktop");
         assert!(observed.starts_with("platform=windows"), "{observed}");
         assert!(observed.contains("windows="), "{observed}");
+        assert!(observed.contains("desktop="), "{observed}");
+        assert!(observed.contains("display=0 rect="), "{observed}");
         assert!(observed.contains("capture: .harness/capture/"), "{observed}");
+        assert!(observed.contains("scale="), "{observed}");
+        // Printed with --nocapture so a qualification run leaves human-readable
+        // evidence of the display topology, not just assertions in code.
+        for line in observed.lines().take_while(|line| !line.starts_with("hwnd=")) {
+            eprintln!("observe: {line}");
+        }
 
         let png = root.join(
             observed
@@ -1157,6 +1886,71 @@ mod tests {
         let width = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
         let height = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
         assert!(width >= 640 && height >= 480, "{width}x{height}");
+
+        // Geometry, region capture, explicit scale, pointer readback and
+        // out-of-bounds refusal: all against the same live desktop.
+        let geometry = observed
+            .lines()
+            .find_map(|line| line.strip_prefix("desktop="))
+            .expect("desktop geometry line")
+            .split_whitespace()
+            .next()
+            .expect("origin");
+        let mut origin = geometry.split(',');
+        let vx: i32 = origin.next().expect("x").parse().expect("x integer");
+        let vy: i32 = origin.next().expect("y").parse().expect("y integer");
+
+        let region = tool
+            .observe(
+                None,
+                Some(CaptureTarget::Region {
+                    x: vx + 10,
+                    y: vy + 10,
+                    width: 200,
+                    height: 120,
+                }),
+                2,
+            )
+            .expect("capture a real region at scale 2");
+        assert!(region.contains("image=100x60 scale=2"), "{region}");
+        let region_path = region
+            .lines()
+            .find_map(|line| line.strip_prefix("capture: ")?.split(' ').next())
+            .expect("region capture path");
+        let region_bytes = std::fs::read(root.join(region_path)).expect("region PNG");
+        assert_eq!(
+            u32::from_be_bytes([
+                region_bytes[16], region_bytes[17], region_bytes[18], region_bytes[19]
+            ]),
+            100
+        );
+        assert_eq!(
+            u32::from_be_bytes([
+                region_bytes[20], region_bytes[21], region_bytes[22], region_bytes[23]
+            ]),
+            60
+        );
+
+        let hover = tool
+            .act(Act::Hover {
+                x: vx + 100,
+                y: vy + 100,
+            })
+            .expect("place the pointer on the real desktop");
+        assert!(hover.readback.starts_with("pointer at "), "{}", hover.readback);
+
+        let outside = tool
+            .act(Act::Click {
+                x: i32::MAX,
+                y: i32::MAX,
+                button: ClickButton::Left,
+                double: false,
+            })
+            .unwrap_err();
+        assert!(outside.contains("outside the virtual desktop"), "{outside}");
+
+        let bad_scale = tool.observe(None, None, 9).unwrap_err();
+        assert!(bad_scale.contains("over the bound"), "{bad_scale}");
 
         // A move is the only operation that can be verified without typing
         // into someone's window: it changes a rectangle and reports it back.

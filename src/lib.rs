@@ -18,8 +18,10 @@ pub mod tools;
 pub mod wire;
 
 pub use screen::{
-    Act, CaptureTarget, ClickButton, ScreenTool, SCREEN_TOOL_CAPTURE_DIR,
-    SCREEN_TOOL_MAX_CAPTURE_BYTES, SCREEN_TOOL_MAX_TYPE_CHARS, SCREEN_TOOL_MAX_WINDOWS,
+    capture_scale, downsample, Act, CaptureTarget, ClickButton, DisplayInfo, ScreenTool,
+    SCREEN_TOOL_CAPTURE_DIR, SCREEN_TOOL_MAX_CAPTURE_BYTES, SCREEN_TOOL_MAX_CAPTURE_FILES,
+    SCREEN_TOOL_MAX_CAPTURE_SCALE, SCREEN_TOOL_MAX_TYPE_CHARS, SCREEN_TOOL_MAX_WINDOWS,
+    SCREEN_TOOL_POINTER_TOLERANCE_PX,
 };
 pub use tools::{ExecOutcome, ExecTool, FileTool};
 pub use wire::{ModelReply, Transport, WireToolCall};
@@ -461,6 +463,16 @@ struct Dispatched {
     change: Option<journal::Record>,
 }
 
+/// Shared by `click` and `drag`: an unrecognised button name falls back to
+/// left, matching the tool description's stated default.
+fn click_button(value: Option<&serde_json::Value>) -> ClickButton {
+    match value.and_then(serde_json::Value::as_str) {
+        Some("right") => ClickButton::Right,
+        Some("middle") => ClickButton::Middle,
+        _ => ClickButton::Left,
+    }
+}
+
 /// Runs one tool call. `Err` is still something to tell the model, not a
 /// reason to abandon the run; it means the call itself failed or was
 /// refused.
@@ -599,17 +611,49 @@ fn dispatch_tool_call(
                         .get("window")
                         .and_then(serde_json::Value::as_str)
                         .filter(|value| !value.trim().is_empty());
-                    // `capture` is either true (the whole desktop) or a window
-                    // title (that window only). Both write under the root.
+                    // `capture` is true (whole virtual desktop), a window title,
+                    // or an explicit rectangle in virtual-desktop coordinates.
                     let capture = match arguments.get("capture") {
                         Some(serde_json::Value::Bool(true)) => Some(CaptureTarget::Desktop),
                         Some(serde_json::Value::String(title)) if !title.trim().is_empty() => {
                             Some(CaptureTarget::Window(title.clone()))
                         }
+                        Some(serde_json::Value::Object(region)) => {
+                            let rect_number = |name: &str| -> Result<i32, String> {
+                                region
+                                    .get(name)
+                                    .and_then(serde_json::Value::as_i64)
+                                    .map(|value| value as i32)
+                                    .ok_or_else(|| {
+                                        format!("screen: refused: a capture region needs an \
+                                                 integer {name}")
+                                    })
+                            };
+                            Some(CaptureTarget::Region {
+                                x: rect_number("x")?,
+                                y: rect_number("y")?,
+                                width: rect_number("width")?,
+                                height: rect_number("height")?,
+                            })
+                        }
                         _ => None,
                     };
+                    let scale = match arguments.get("scale") {
+                        None => 0,
+                        Some(value) => value
+                            .as_u64()
+                            .filter(|scale| *scale <= SCREEN_TOOL_MAX_CAPTURE_SCALE as u64)
+                            .map(|scale| scale as u32)
+                            .ok_or_else(|| {
+                                format!(
+                                    "screen: refused: scale must be an integer 0..={}, \
+                                     0 chooses automatically",
+                                    SCREEN_TOOL_MAX_CAPTURE_SCALE
+                                )
+                            })?,
+                    };
                     screen_tool
-                        .observe(window, capture)
+                        .observe(window, capture, scale)
                         .map(|body| Dispatched {
                             result: tool_result(ToolStatus::Ok, body),
                             change: None,
@@ -629,8 +673,8 @@ fn dispatch_tool_call(
                         .get("action")
                         .and_then(serde_json::Value::as_str)
                         .ok_or_else(|| {
-                            "screen: refused: act needs an `action` (focus, move, click, type, \
-                             key, scroll)"
+                            "screen: refused: act needs an `action` (focus, move, click, hover, \
+                             drag, type, key, scroll)"
                                 .to_owned()
                         })?;
                     let title = || -> Result<String, String> {
@@ -663,14 +707,22 @@ fn dispatch_tool_call(
                         "click" => Act::Click {
                             x: number("x")?,
                             y: number("y")?,
-                            button: match arguments.get("button").and_then(serde_json::Value::as_str) {
-                                Some("right") => ClickButton::Right,
-                                _ => ClickButton::Left,
-                            },
+                            button: click_button(arguments.get("button")),
                             double: arguments
                                 .get("double")
                                 .and_then(serde_json::Value::as_bool)
                                 .unwrap_or(false),
+                        },
+                        "hover" => Act::Hover {
+                            x: number("x")?,
+                            y: number("y")?,
+                        },
+                        "drag" => Act::Drag {
+                            x: number("x")?,
+                            y: number("y")?,
+                            to_x: number("to_x")?,
+                            to_y: number("to_y")?,
+                            button: click_button(arguments.get("button")),
                         },
                         "type" => Act::Type {
                             text: arguments
@@ -700,7 +752,7 @@ fn dispatch_tool_call(
                         other => {
                             return Err(format!(
                                 "screen: refused: unknown action {other:?}; act accepts focus, \
-                                 move, click, type, key, scroll"
+                                 move, click, hover, drag, type, key, scroll"
                             ))
                         }
                     };
@@ -1126,6 +1178,44 @@ mod tests {
             .unwrap()
             .to_owned();
         assert!(content.contains("`why` argument is required"), "{content}");
+    }
+
+    #[test]
+    fn screen_argument_parsing_is_named_before_any_desktop_effect() {
+        let root = fixture_root("screen-parse");
+        let file_tool = FileTool::new(root.to_str().unwrap()).unwrap();
+        let exec_tool = ExecTool::new(file_tool.root_path(), &[]);
+        let screen_tool = ScreenTool::new(file_tool.root_path(), false);
+        let dispatch = |arguments: &str| {
+            dispatch_tool_call(
+                &file_tool,
+                &exec_tool,
+                &screen_tool,
+                &WireToolCall {
+                    id: "s".to_owned(),
+                    name: "screen".to_owned(),
+                    arguments: arguments.to_owned(),
+                },
+            )
+            .map(|_| ())
+        };
+
+        // A region object is parsed field by field; a missing one is named.
+        let region = dispatch(r#"{"op":"observe","capture":{"x":0,"y":0,"width":10}}"#)
+            .unwrap_err();
+        assert!(region.contains("integer height"), "{region}");
+        // Scale is bounded here too, so even an ungranted invocation cannot
+        // smuggle a huge factor past the dispatcher.
+        let scale = dispatch(r#"{"op":"observe","scale":99}"#).unwrap_err();
+        assert!(scale.contains("scale must be an integer"), "{scale}");
+        // drag is wired to the destination coordinates.
+        let drag = dispatch(
+            r#"{"op":"act","why":"move a slider","action":"drag","x":1,"y":2,"to_x":3}"#,
+        )
+        .unwrap_err();
+        assert!(drag.contains("integer to_y"), "{drag}");
+        let ungranted = dispatch(r#"{"op":"observe"}"#).unwrap_err();
+        assert!(ungranted.contains("--allow-screen"), "{ungranted}");
     }
 
     #[test]
