@@ -365,7 +365,7 @@ jobs:
 
   defender:
     name: Defender verdict on the published bytes
-    needs: publish
+    needs: [verify, publish]
     runs-on: windows-2025
     timeout-minutes: 20
     if: inputs.dry_run == false
@@ -378,6 +378,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
+          if (-not $env:TAG) { throw 'TAG was not resolved from verify outputs' }
           # Fresh signature DB; a failed update is a known transient
           # (Update-MpSignature RPC failures on shared images): retry
           # bounded; the job stays rerunnable on frozen context.
@@ -391,6 +392,7 @@ jobs:
           if (-not $ok) { throw 'Update-MpSignature failed after 3 attempts' }
           New-Item -ItemType Directory -Force released | Out-Null
           gh release download "$env:TAG" --dir released --repo "$env:GITHUB_REPOSITORY"
+          if ($LASTEXITCODE -ne 0) { throw "release download failed for $env:TAG" }
           $targets = @(
             'released/minicon-harness.com',
             "released/minicon-harness-$env:VERSION-windows-x86_64.zip",
@@ -400,12 +402,19 @@ jobs:
             if (-not (Test-Path $t)) { throw "missing release asset $t" }
           }
           $mp = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
-          & $mp -Scan -ScanType 3 -Path "$PWD\released" -DisableRemediation
+          if (-not (Test-Path $mp)) { throw "MpCmdRun.exe not found at $mp" }
+          # Custom scans take -File (a file or a directory), never -Path. -Path
+          # is rejected by MpCmdRun with hr=0x80070667 / "Invalid command line
+          # argument" / exit 2, which is a broken court, not a malware verdict.
+          $releaseDir = (Resolve-Path -LiteralPath released).Path
+          Write-Host "Defender scan: $releaseDir"
+          & $mp -Scan -ScanType 3 -File $releaseDir -DisableRemediation
           if ($LASTEXITCODE -ne 0) { throw "Defender verdict not clean on the release dir (exit $LASTEXITCODE)" }
           foreach ($zip in ($targets | Where-Object { $_ -like '*.zip' })) {
             $dir = Join-Path $env:RUNNER_TEMP ('scan-' + (Split-Path $zip -Leaf))
             Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force
-            & $mp -Scan -ScanType 3 -Path $dir -DisableRemediation
+            Write-Host "Defender scan: $dir (from $zip)"
+            & $mp -Scan -ScanType 3 -File $dir -DisableRemediation
             if ($LASTEXITCODE -ne 0) { throw "Defender verdict not clean for $zip (exit $LASTEXITCODE)" }
           }
           Write-Host 'Defender court: clean'
@@ -415,8 +424,7 @@ jobs:
           Write-Host "published APE ok: $out"
 
   post-publish:
-    needs: [publish, defender]
-
+    needs: [verify, publish, defender]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: inputs.dry_run == false
@@ -428,6 +436,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          [[ "$TAG" == "v$VERSION" ]] || { echo "TAG not resolved: '$TAG'" >&2; exit 1; }
           mkdir released
           gh release download "$TAG" --dir released --repo "$GITHUB_REPOSITORY"
           test -f released/minicon-harness.com
