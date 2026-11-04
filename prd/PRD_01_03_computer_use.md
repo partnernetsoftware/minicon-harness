@@ -73,18 +73,23 @@ What was deliberately not migrated, and why:
 ```text
 screen
 ├── op=observe [v]
+│   ├── [v] virtual desktop rect + one line per display (primary flag, negative
+│   │       coordinates allowed), from SM_*VIRTUALSCREEN / EnumDisplayMonitors
 │   ├── [v] lists top-level windows: hwnd, pid, rect, minimized/maximized/focused, class, title
 │   ├── [v] optional `window` filter (substring), refused when it matches nothing
 │   ├── [v] deterministic order: focused first, then top-left to bottom-right
-│   └── [v] `capture`: true → whole desktop, or a window title → that window;
-│           one PNG published under .harness/capture, path composed by the tool
+│   └── [v] `capture`: true → whole virtual desktop, a window title → that window,
+│           or {x,y,width,height} → one region; one PNG under .harness/capture
+│           with path composed by the tool and the resulting size/scale reported
 └── op=act [v] — exactly one operation per call, `why` required
-    ├── [v] focus        window
-    ├── [v] move         window, x, y, width, height   (verified by readback)
-    ├── [v] click        x, y, button?, double?
-    ├── [v] type         text
-    ├── [v] key          keys ("ctrl+s", "win+left")
-    └── [v] scroll       x, y, delta
+    ├── [v] focus        window                          (live-handle + foreground readback)
+    ├── [v] move         window, x, y, width, height      (rect readback, 4 px tolerance)
+    ├── [v] click        x, y, button?, double?           (pointer readback)
+    ├── [v] hover        x, y                             (pointer readback)
+    ├── [v] drag         x, y, to_x, to_y, button?        (12 stepped moves + pointer readback)
+    ├── [v] type         text                             (foreground before/after)
+    ├── [v] key          keys ("ctrl+s", "win+left")     (foreground before/after)
+    └── [v] scroll       x, y, delta                      (pointer readback)
 ```
 
 Bounds, each a named constant beside the code that enforces it:
@@ -93,10 +98,14 @@ Bounds, each a named constant beside the code that enforces it:
 | --- | --- | --- |
 | `SCREEN_TOOL_MAX_WINDOWS` | 64 | windows in one observe result (it becomes a prompt) |
 | `SCREEN_TOOL_MAX_CAPTURE_BYTES` | 16 MiB | one PNG on disk (it never enters the prompt) |
+| `SCREEN_TOOL_MAX_CAPTURE_SCALE` | 8 | largest downsample factor; 0 = choose automatically |
+| `SCREEN_TOOL_MAX_CAPTURE_FILES` | 12 | PNGs retained per task root |
+| `SCREEN_TOOL_MAX_REGION_PIXELS` | 8192 | one side of a capture region |
 | `SCREEN_TOOL_MAX_TYPE_CHARS` | 4096 | characters one `act:type` delivers |
 | `SCREEN_TOOL_MOVE_TOLERANCE_PX` | 4 | readback slack before a move counts as not performed |
+| `SCREEN_TOOL_POINTER_TOLERANCE_PX` | 4 | readback slack before a pointer action counts as not performed |
 
-Three invariants the tool keeps, all inherited from PRD 38's CU0..CU2:
+Four invariants the tool keeps, all inherited from PRD 38's CU0..CU2:
 
 1. **No second permission layer.** `--allow-screen` is the whole grant. There is
    no per-action allow-list, no policy engine, no prompt.
@@ -105,17 +114,43 @@ Three invariants the tool keeps, all inherited from PRD 38's CU0..CU2:
    "tool absent" by probing -- the same rule `exec` already follows with an
    empty `--allow-cmd`.
 3. **A refusal is a tool result.** Nothing here aborts the run.
+4. **A handle is never trusted across calls.** Every operation re-resolves the
+   title, then re-checks `IsWindow` and the live title before touching the
+   handle; a closed or reused window is refused rather than acted on.
+
+Readback covers the whole surface now, not only window moves:
+
+| Operation | Evidence | Failure when |
+| --- | --- | --- |
+| move | `GetWindowRect` after `SetWindowPos` | requested vs reported rect differs by > 4 px |
+| click / hover / drag / scroll | `GetCursorPos` after `SetCursorPos` | requested vs reported pointer differs by > 4 px |
+| type / key | foreground title before and after `SendInput` | foreground disappeared; a changed title is reported, not refused (Enter can open a dialog) |
+| focus | re-enumerated foreground window | window manager refuses the foreground request |
+| capture | IHDR dimensions and scale in the result | PNG over the byte bound at the chosen scale |
+
+Two consequences worth stating: a pointer request outside the virtual desktop
+is refused *before* the OS can clamp it to a different point; and a requested
+capture region is never silently clipped -- outside means refused, with the
+desktop geometry named.
 
 ## Evidence
 
-- `[v]` `cargo test`: 44 passed, 1 ignored (the real-desktop test, below).
-- `[v]` `cargo test -- --ignored` on this Windows machine: observe listed the
-  live desktop, wrote a 5,293,518-byte PNG (1680x1050) and moved a real window.
-- `[v]` the PNG was opened by an **independent** decoder (Pillow): `PNG
-  (1680, 1050) RGB`, and the crop renders real UI text -- so the store-mode
-  encoder is not just structurally valid.
+- `[v]` `cargo test --offline`: 52 passed, 1 ignored (the real-desktop test).
+- `[v]` `cargo test --offline real_desktop -- --ignored --nocapture` on this
+  Windows machine (2026-11-04): `desktop=0,0 1680x1050 displays=1`, 17 windows,
+  a 5,293,518-byte desktop PNG, a 100x60 region PNG at scale 2, a hover pointer
+  readback, an out-of-bounds click refusal and a move readback.
+- `[v]` both PNGs were opened by an **independent** decoder (Pillow): `PNG
+  (1680, 1050) RGB` with 9,386 distinct colours and `PNG (100, 60) RGB` with
+  734 -- so the store-mode encoder and the box downsampler produce real pixels,
+  not just structurally valid files.
 - `[v]` the move readback check fired against a real maximized window
   (`800x600` kept vs `720x520` asked) instead of reporting success.
+- `[v]` pure functions (`capture_scale`, `downsample`, `foreground_evidence`,
+  retention pruning) are unit-tested on every cell, including the ones where
+  computer use is unqualified. The whole production file was additionally
+  type-checked in its non-Windows configuration: the six cells that refuse by
+  name still compile against the same `native` surface.
 
 ## Gaps, stated rather than papered over
 
@@ -124,7 +159,8 @@ Three invariants the tool keeps, all inherited from PRD 38's CU0..CU2:
 | `[-]` no accessibility tree | observation is pixel-level; a text-only model can list windows and capture pixels but cannot read a control's name, role or value | the only real options are (a) hand-write the UIA subset in this crate (~400-600 lines of `unsafe` COM), or (b) take `minicon-platform` as an optional feature on qualified cells only. Both change a stated invariant; owner decision required |
 | `[-]` Windows only | macOS/Linux cells compile and refuse by name | qualify one journey per OS before claiming it, per PRD 38 |
 | `[-]` no vision input path | a capture is a local artifact; the model reads its path, not its pixels | the wire codec is text-only by design; an image arm is a separate decision |
-| `[_]` capture retention | captures accumulate under `.harness/capture` with no pruning | `--diff`/journal adjacency, or a per-invocation cap |
+| `[v]` capture retention | -- | newest 12 tool-produced PNGs are kept per root; only names the tool composes are considered, other files are never touched |
+| `[_]` pointer-path qualification for drag/middle | hover and the shared pointer readback are qualified on a real desktop; drag and middle-button press are not yet exercised against one | add them to the ignored real-desktop journey |
 
 ## Where this goes next
 
@@ -135,6 +171,9 @@ tool result, an operation is a tool result, and the same 16-turn / 64-call /
 operates a desktop under one auditable budget is a smaller thing than three
 agents under three budgets.
 
-The ordering that follows from the gap table is: accessibility observation first
-(it is what makes the tool useful to a text model), then per-OS qualification,
-then an image arm in the wire codec.
+The pixel-side surface is now as complete as a single-file, std-only tool can
+make it: multi-display geometry, three capture targets with bounded scaling,
+eight actions and readback on every one of them. The ordering that follows from
+the gap table is unchanged: accessibility observation first (it is what makes
+the tool useful to a text model), then per-OS qualification, then an image arm
+in the wire codec. The a11y route still needs the owner's A/B decision.

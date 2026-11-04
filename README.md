@@ -6,11 +6,15 @@ agent is a model loop with exactly **three tools** -- `file`, `exec` and
 bounds (the `--root` path, the `--allow-cmd` list, the `--allow-screen` grant)
 are the whole policy.
 
-`screen` is the computer-use half: `op=observe` lists the desktop's windows and
-can write one PNG under the task root; `op=act` performs exactly one operation
-(focus, move, click, type, key, scroll) and reads the desktop back. It is
-granted per invocation and refuses by name when not granted or when the platform
-was never qualified. Contract and migration notes:
+`screen` is the computer-use half: `op=observe` reports the virtual desktop
+geometry, every display (including negative-coordinate secondaries) and all
+top-level windows, and can write one PNG under the task root -- whole desktop,
+one window, or one explicit region, with automatic scale-down on large
+screens. `op=act` performs exactly one operation (focus, move, click, hover,
+drag, type, key, scroll) and reads the desktop back: pointer position, window
+rectangle and foreground window are evidence, not echo. It is granted per
+invocation and refuses by name when not granted or when the platform was never
+qualified. Contract and migration notes:
 [`prd/PRD_01_03_computer_use.md`](prd/PRD_01_03_computer_use.md).
 
 Migrated from the proven prototype in `minicon` (`src/harness.rs` +
@@ -21,9 +25,10 @@ dependency.
 
 - `src/tools.rs` -- `FileTool` (root-confined read/write) and `ExecTool`
   (allow-listed argv execution, no shell).
-- `src/screen.rs` -- `ScreenTool`: window observation, store-mode PNG capture
-  (hand-written encoder), and input/window operations through hand-written
-  Windows FFI. No crate: `user32`/`gdi32` bindings only.
+- `src/screen.rs` -- `ScreenTool`: display/window observation, store-mode PNG
+  capture with box downsampling (hand-written encoder), and input/window
+  operations through hand-written Windows FFI. No crate: `user32`/`gdi32`
+  bindings only.
 - `src/wire.rs` -- one `Transport` seam, an OpenAI-compatible
   chat-completions codec, and the bounded turn loop.
 - `src/lib.rs` -- invocation budget and the harness entry point.
@@ -35,8 +40,10 @@ dependency.
   symlinks refused, never rewritten.
 - `exec`: one allow-listed basename per call, argv vector only, no shell;
   30 s per call, 1 MiB captured output.
-- `screen`: 64 windows per observation, 16 MiB per capture, 4096 characters per
-  `type`, 4 px of readback slack before a move counts as not performed.
+- `screen`: 64 windows per observation, 16 MiB per capture (scale 1..8, chosen
+  automatically when 0), 12 retained captures, 8192 px per region side, 4096
+  characters per `type`, 4 px of readback slack before a window move or a
+  pointer action counts as not performed.
 
 ## Usage
 

@@ -97,8 +97,10 @@ minicon-harness — one-file bounded agent worker
 ## 0.0.4 frontier (in the tree, not yet published)
 
 [v] The `screen` tool is implemented and qualified on Windows in this tree:
-observe, capture, focus, move (with readback), click, type, key, scroll, behind
-`--allow-screen`, std-only (`prd/PRD_01_03_computer_use.md`). `Cargo.toml`,
+multi-display observe, desktop/window/region capture with scale-down, focus,
+move, click, hover, drag, type, key, scroll -- every pointer and window action
+verified by readback -- behind `--allow-screen`, std-only
+(`prd/PRD_01_03_computer_use.md`). `Cargo.toml`,
 `release-policy.json` and the cell courts still say `0.0.3`: the version is
 bumped when a signed six-cell Candidate is actually cut, not when the source
 grows a third tool. Until then no released artifact carries computer use.
