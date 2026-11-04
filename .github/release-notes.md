@@ -35,8 +35,17 @@ loop at any OpenAI-compatible chat-completions endpoint (default:
 DeepSeek's). One invocation runs one bounded task: 16 model turns, 64 tool
 calls, 10 minutes.
 
-Version VERSION: this release is unsigned. Verification is the published
-`minicon-harness.com.sha256` and `build-receipt.json`.
+Version VERSION ships company-signed bytes: `minicon-harness.com` and the two
+Windows cells carry an Authenticode signature (O=PARTNERNET SOFTWARE PTY LTD)
+with an RFC 3161 timestamp. `signing-receipt.json` records the before/after
+SHA-256 of each signed file, while `build-receipt.json` and the `.sha256`
+sidecars bind every other asset to the packed source.
+
+Version VERSION also adds semantic computer use: a versioned capability
+manifest (`disclose`), a typed child-window control inventory on `observe`,
+and `act:control` to hover a named control with a pointer readback. Control
+roles are heuristics derived from Win32 class names, not a UIA accessibility
+tree; self-drawn UIs report zero controls and say why.
 
 If something refuses to start, run the file from a terminal and read the
 error line; every refusal names the bound it hit.
