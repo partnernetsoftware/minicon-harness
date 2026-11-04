@@ -25,6 +25,14 @@ signature with an RFC 3161 timestamp
 │   signing receipt -> six native courts execute the signed bytes. Fails
 │   closed while mode=off; qualification_only defaults true
 ├── [v] candidate.yml: seals one pack run as the Candidate identity
+├── [v] signed-cell archives: `release.yml` stages the signed `win-x86_64` /
+│   `win-aarch64` cells into the two published Windows zips, rewrites their
+│   `.sha256` sidecars, checks the members against the signing receipt's
+│   `after_sha256`/`after_bytes`, and re-checks the downloaded Release assets
+│   in the post-publish court. Before 0.0.4 this was a **gap**: 0.0.3 published
+│   zips containing the *unsigned* cells (member digest ==
+│   receipt `before_sha256`), so only the APE was signed. Verified by
+│   downloading the v0.0.3 assets and hashing the zip member.
 ├── [v] readiness: check-product-signing-readiness.sh reports READY
 │   (qualification) at main f267658
 ├── [v] GitHub side: release-signing environment exists;

@@ -1,7 +1,8 @@
-# Publish the packed minicon-harness.com as the public v0.0.1 Release.
-# Re-verifies the pack receipt and byte identity, creates the tag only if
-# absent, uploads the exact packed bytes, then executes the published asset
-# once more from the release download before making the draft public.
+# Publish the packed minicon-harness.com as a public Release.
+# Re-verifies the pack receipt and byte identity, stages the company-signed
+# APE and the signed Windows cells into the exact promotion assets, creates
+# the tag only if absent, then executes the published asset once more from the
+# release download before making the draft public.
 name: Release
 
 on:
@@ -170,6 +171,45 @@ jobs:
           run-id: ${{ inputs.pack_run_id }}
           github-token: ${{ github.token }}
 
+      - name: Stage signed Windows cells into the native archives
+        if: steps.policy.outputs.mode == 'required'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+          version = os.environ["VERSION"]
+          signing = json.loads(Path("bundle/signing-receipt.json").read_text())
+          assert signing["kind"] == "minicon-harness-trusted-signing"
+          assert signing["product_version"] == version
+          assert signing["publisher_organization"] == "PARTNERNET SOFTWARE PTY LTD"
+          assert signing["release_eligible"] is True
+          pairs = {
+              "win-x86_64": f"minicon-harness-{version}-windows-x86_64.zip",
+              "win-aarch64": f"minicon-harness-{version}-windows-arm64.zip",
+          }
+          for cell, name in pairs.items():
+              asset = signing["assets"][cell]
+              raw = (Path("signed") / asset["path"]).read_bytes()
+              digest = hashlib.sha256(raw).hexdigest()
+              assert digest == asset["after_sha256"], f"{cell}: signed cell digest"
+              assert digest != asset["before_sha256"], f"{cell}: cell was not signed"
+              assert len(raw) == asset["after_bytes"], f"{cell}: signed cell size"
+              archive = Path("native") / name
+              with zipfile.ZipFile(archive) as src:
+                  entries = [(info, src.read(info.filename)) for info in src.infolist()]
+              assert sum(i.filename.endswith("/minicon-harness.exe") for i, _ in entries) == 1, \
+                  f"{name}: expected exactly one exe member"
+              with zipfile.ZipFile(archive, "w") as dst:
+                  for info, data in entries:
+                      dst.writestr(info, raw if info.filename.endswith("/minicon-harness.exe") else data)
+              new_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+              Path(f"native/{name}.sha256").write_text(f"{new_digest}  {name}\n")
+              print(f"staged signed {cell}: {digest[:16]} -> {name} ({new_digest[:16]})")
+          PY
+
       - name: Verify receipt and packed bytes
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
@@ -202,6 +242,8 @@ jobs:
           import hashlib, json, os, tarfile, zipfile
           from pathlib import Path
           rec = json.loads(Path("bundle/build-receipt.json").read_text())
+          signing_path = Path("bundle/signing-receipt.json")
+          signing = json.loads(signing_path.read_text()) if signing_path.is_file() else None
           version = os.environ["VERSION"]
           expected = {
               f"minicon-harness-{version}-windows-x86_64.zip": "win-x86_64",
@@ -225,9 +267,18 @@ jobs:
               else:
                   raw = tarfile.open(path).extractfile(member).read()
               if cell is not None:
-                  identity = rec["payloads"][cell]
-                  assert hashlib.sha256(raw).hexdigest() == identity["sha256"], name
-                  assert len(raw) == identity["bytes"], name
+                  if signing and cell in ("win-x86_64", "win-aarch64"):
+                      # The published Windows archives carry the company-signed
+                      # cell, bound by the signing receipt's after hash rather
+                      # than the unsigned pack payload hash.
+                      asset = signing["assets"][cell]
+                      assert hashlib.sha256(raw).hexdigest() == asset["after_sha256"], name
+                      assert len(raw) == asset["after_bytes"], name
+                      assert asset["after_sha256"] != asset["before_sha256"], name
+                  else:
+                      identity = rec["payloads"][cell]
+                      assert hashlib.sha256(raw).hexdigest() == identity["sha256"], name
+                      assert len(raw) == identity["bytes"], name
               else:
                   assert raw[:4] in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"), name
               print(f"verified {name}: member {member} ({len(raw)} bytes)")
@@ -387,3 +438,36 @@ jobs:
           out=$(released/minicon-harness.com --version)
           test "$out" = "minicon-harness $VERSION"
           echo "post-publish court ok: $out"
+          python3 - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+          version = os.environ["VERSION"]
+          receipt_path = Path("released/signing-receipt.json")
+          if not receipt_path.is_file():
+              # signing.mode == off: the unsigned path publishes no receipt and
+              # no signed cells; the APE checks above are the whole court.
+              print("unsigned release: no signing receipt, skipping signed-cell court")
+              raise SystemExit(0)
+          signing = json.loads(receipt_path.read_text())
+          assert signing["kind"] == "minicon-harness-trusted-signing"
+          assert signing["product_version"] == version
+          assert signing["release_eligible"] is True
+          assert signing["publisher_organization"] == "PARTNERNET SOFTWARE PTY LTD"
+          pairs = {
+              "win-x86_64": f"minicon-harness-{version}-windows-x86_64.zip",
+              "win-aarch64": f"minicon-harness-{version}-windows-arm64.zip",
+          }
+          for cell, name in pairs.items():
+              archive = Path("released") / name
+              sidecar = Path(f"released/{name}.sha256").read_text().split()[0]
+              assert sidecar == hashlib.sha256(archive.read_bytes()).hexdigest(), name
+              with zipfile.ZipFile(archive) as z:
+                  members = [n for n in z.namelist() if n.endswith("/minicon-harness.exe")]
+                  assert len(members) == 1, f"{name}: expected one exe member"
+                  raw = z.read(members[0])
+              asset = signing["assets"][cell]
+              assert hashlib.sha256(raw).hexdigest() == asset["after_sha256"], name
+              assert asset["after_sha256"] != asset["before_sha256"], name
+              assert len(raw) == asset["after_bytes"], name
+              print(f"published signed {cell}: {asset['after_sha256'][:16]} in {name}")
+          PY

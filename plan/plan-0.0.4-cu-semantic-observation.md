@@ -84,7 +84,13 @@ with the same bounds/readback/generation discipline as pixel operations
     invariant: pack → candidate → signing → defender → release is CI's job;
     a source version bump is NOT a published Release. No "released" claim is
     made until `gh release view v0.0.4` shows the tag with downloadable
-    signed assets
+    signed assets. Every published Windows binary is company-signed, not just
+    the APE: the signed cells go into the two Windows zips, with rewritten
+    sidecars, and the post-publish court re-checks the downloaded assets
+    against the signing receipt's `after_sha256`
+    invariant: CI, not a laptop, creates the public Release; the 0.0.3
+    `GITHUB_TOKEN` 403 came from a deleted `environment: release` gate on the
+    publish job, which is restored on main
     evidence: release view + re-hashed download, or an explicit blocker
     dependency: W5, release-signing environment secrets
 ```
