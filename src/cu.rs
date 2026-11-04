@@ -30,8 +30,9 @@
 //! typed contract and refuse by name -- the ABI does not promise a desktop.
 
 use crate::screen::{
-    Act, CaptureTarget, ClickButton, ScreenSnapshot, ScreenTool, WindowInfo,
-    SCREEN_TOOL_MAX_CAPTURE_SCALE, SCREEN_TOOL_MAX_TYPE_CHARS,
+    resolve_control, Act, CaptureTarget, ClickButton, ControlInfo, ControlTarget,
+    ScreenSnapshot, ScreenTool, WindowInfo, SCREEN_TOOL_MAX_CAPTURE_SCALE,
+    SCREEN_TOOL_MAX_TYPE_CHARS,
 };
 use serde_json::{json, Value};
 use std::sync::Mutex;
@@ -72,6 +73,8 @@ pub enum CuType {
     String,
     /// `true`, a window title, or a `{x,y,width,height}` object.
     Capture,
+    /// `true` scans the foreground window, a string names one window.
+    ControlScan,
     Button,
 }
 
@@ -82,6 +85,7 @@ impl CuType {
             Self::Int => "int",
             Self::String => "string",
             Self::Capture => "capture",
+            Self::ControlScan => "control-scan",
             Self::Button => "button",
         }
     }
@@ -104,6 +108,10 @@ pub struct CuCapability {
 
 const P_WINDOW: CuParam = CuParam { name: "window", ty: CuType::String, required: false };
 const P_CAPTURE: CuParam = CuParam { name: "capture", ty: CuType::Capture, required: false };
+const P_CONTROLS: CuParam =
+    CuParam { name: "controls", ty: CuType::ControlScan, required: false };
+const P_CONTROL: CuParam = CuParam { name: "control", ty: CuType::String, required: true };
+const P_PRESS: CuParam = CuParam { name: "press", ty: CuType::Bool, required: false };
 const P_SCALE: CuParam = CuParam { name: "scale", ty: CuType::Int, required: false };
 const P_WHY: CuParam = CuParam { name: "why", ty: CuType::String, required: true };
 const P_X: CuParam = CuParam { name: "x", ty: CuType::Int, required: true };
@@ -126,8 +134,8 @@ pub const CAPABILITIES: &[CuCapability] = &[
     CuCapability {
         name: "observe",
         kind: CuKind::Observe,
-        summary: "Read virtual-desktop geometry, displays and windows; optionally publish one bounded PNG.",
-        params: &[P_WINDOW, P_CAPTURE, P_SCALE],
+        summary: "Read virtual-desktop geometry, displays and windows; optionally publish one bounded PNG or scan one window's typed controls.",
+        params: &[P_WINDOW, P_CAPTURE, P_CONTROLS, P_SCALE],
     },
     CuCapability {
         name: "disclose",
@@ -182,6 +190,12 @@ pub const CAPABILITIES: &[CuCapability] = &[
         kind: CuKind::Act,
         summary: "One wheel turn at a position; readback is the cursor position.",
         params: &[P_WHY, P_X, P_Y, P_DELTA],
+    },
+    CuCapability {
+        name: "act:control",
+        kind: CuKind::Act,
+        summary: "Resolve one control by name from the last observe and place the pointer at its centre; readback must land inside the control's rectangle. press=false by default (no click).",
+        params: &[P_WHY, P_CONTROL, P_PRESS, P_BUTTON, P_DOUBLE],
     },
 ];
 
@@ -247,6 +261,7 @@ impl CuFrame {
             })
             .collect();
         let windows: Vec<Value> = self.snapshot.windows.iter().map(window_json).collect();
+        let controls: Vec<Value> = self.snapshot.controls.iter().map(control_json).collect();
         json!({
             "generation": self.generation,
             "facts_as_of_ms": self.facts_as_of_ms,
@@ -258,6 +273,10 @@ impl CuFrame {
             },
             "displays": displays,
             "windows": windows,
+            "controls": controls,
+            "controls_source": self.snapshot.controls_source,
+            "controls_truncated": self.snapshot.controls_truncated,
+            "controls_role_basis": "win32-class",
             "capture": self.snapshot.capture.as_ref().map(|outcome| json!({
                 "path": outcome.path, "bytes": outcome.bytes,
                 "width": outcome.width, "height": outcome.height,
@@ -265,6 +284,16 @@ impl CuFrame {
             })),
         })
     }
+}
+
+fn control_json(control: &ControlInfo) -> Value {
+    json!({
+        "hwnd": control.handle, "parent": control.parent,
+        "label": control.label, "class": control.class, "role": control.role,
+        "text": control.text,
+        "rect": [control.x, control.y, control.width, control.height],
+        "visible": control.visible, "enabled": control.enabled,
+    })
 }
 
 fn window_json(window: &WindowInfo) -> Value {
@@ -319,6 +348,10 @@ pub enum CuAction {
     Type { text: String },
     Key { keys: String },
     Scroll { x: i32, y: i32, delta: i32 },
+    /// Resolve a control from the current frame **by name**; see
+    /// [`CuHost::act_control`]. `press` is opt-in so a semantic target can be
+    /// qualified on a real desktop without clicking anything.
+    Control { control: String, press: bool, button: ClickButton, double: bool },
 }
 
 impl CuAction {
@@ -332,6 +365,7 @@ impl CuAction {
             Self::Type { .. } => "act:type",
             Self::Key { .. } => "act:key",
             Self::Scroll { .. } => "act:scroll",
+            Self::Control { .. } => "act:control",
         }
     }
 }
@@ -341,6 +375,7 @@ pub enum CuCall {
     Observe {
         window: Option<String>,
         capture: Option<CaptureTarget>,
+        controls: Option<ControlTarget>,
         scale: u32,
     },
     Act {
@@ -572,10 +607,15 @@ impl CuHost {
         //    a display enumeration must never hold host state hostage.
         drop(state);
         match request.call {
-            CuCall::Observe { window, capture, scale } => {
-                self.observe(&capability, window, capture, scale)
+            CuCall::Observe { window, capture, controls, scale } => {
+                self.observe(&capability, window, capture, controls, scale)
             }
-            CuCall::Act { why, action } => self.act(&capability, why, action),
+            CuCall::Act { why, action } => match action {
+                CuAction::Control { control, press, button, double } => {
+                    self.act_control(&capability, why, control, press, button, double)
+                }
+                action => self.act(&capability, why, action),
+            },
             CuCall::Disclose => self.disclose(&capability, request.abi_minor),
         }
     }
@@ -585,9 +625,10 @@ impl CuHost {
         capability: &str,
         window: Option<String>,
         capture: Option<CaptureTarget>,
+        controls: Option<ControlTarget>,
         scale: u32,
     ) -> CuResult {
-        match self.tool.snapshot(window.as_deref(), capture, scale) {
+        match self.tool.snapshot(window.as_deref(), capture, scale, controls) {
             Ok(snapshot) => {
                 let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
                 state.generation += 1;
@@ -605,9 +646,18 @@ impl CuHost {
                      verdict=performed capability={capability}"
                 ));
                 let readback = format!(
-                    "{} windows, {} displays",
+                    "{} windows, {} displays{}",
                     snapshot.windows.len(),
-                    snapshot.displays.len()
+                    snapshot.displays.len(),
+                    snapshot
+                        .controls_source
+                        .as_ref()
+                        .map(|source| format!(
+                            ", {} controls from {source}{}",
+                            snapshot.controls.len(),
+                            if snapshot.controls_truncated { " (truncated)" } else { "" }
+                        ))
+                        .unwrap_or_default()
                 );
                 self.record(
                     &mut state,
@@ -695,6 +745,199 @@ impl CuHost {
         }
     }
 
+    /// The first **semantic** action. A control is addressed by the name the
+    /// current generation disclosed -- never by a hwnd carried across calls,
+    /// never by a coordinate the caller computed from an older frame. Every
+    /// refusal happens before a device context or a pointer move exists.
+    fn act_control(
+        &self,
+        capability: &str,
+        why: String,
+        control: String,
+        press: bool,
+        button: ClickButton,
+        double: bool,
+    ) -> CuResult {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        let generation = state.generation;
+        let frame = match state.frame.clone() {
+            Some(frame) => frame,
+            None => {
+                return self.result_with_state(
+                    &mut state,
+                    CuVerdict::Refused,
+                    capability,
+                    "screen: refused: there is no observation yet; call op=observe with \
+                     `controls` before using act:control"
+                        .to_owned(),
+                    json!({ "reason": "no_frame" }),
+                )
+            }
+        };
+        if frame.generation != generation {
+            return self.result_with_state(
+                &mut state,
+                CuVerdict::Stale,
+                capability,
+                format!(
+                    "cu: stale: the control inventory belongs to generation {}, the host is at \
+                     {generation}; observe again, the operation was not performed",
+                    frame.generation
+                ),
+                json!({ "frame_generation": frame.generation, "current_generation": generation }),
+            );
+        }
+        if frame.snapshot.controls.is_empty() {
+            return self.result_with_state(
+                &mut state,
+                CuVerdict::Refused,
+                capability,
+                "screen: refused: the last observation contains no controls; observe with \
+                 `controls` set to true or a window title. Self-drawn UIs expose no Win32 \
+                 child windows, and an empty inventory is reported, not guessed"
+                    .to_owned(),
+                json!({ "reason": "no_controls", "controls_source": frame.snapshot.controls_source }),
+            );
+        }
+        let resolved = match resolve_control(&frame.snapshot.controls, &control) {
+            Ok(control) => control.clone(),
+            Err(reason) => {
+                return self.result_with_state(&mut state, CuVerdict::Refused, capability, reason, json!({ "control": control }));
+            }
+        };
+        if !resolved.visible || !resolved.enabled {
+            return self.result_with_state(
+                &mut state,
+                CuVerdict::Refused,
+                capability,
+                format!(
+                    "screen: refused: control {:?} is {} and cannot be operated; the operation \
+                     was not performed",
+                    resolved.label,
+                    if !resolved.visible { "hidden" } else { "disabled" }
+                ),
+                json!({ "control": resolved.label, "visible": resolved.visible, "enabled": resolved.enabled }),
+            );
+        }
+        let (x, y) = match resolved.center() {
+            Some(point) => point,
+            None => {
+                return self.result_with_state(
+                    &mut state,
+                    CuVerdict::Refused,
+                    capability,
+                    format!(
+                        "screen: refused: control {:?} has a {}x{} rectangle with no centre; \
+                         nothing was clicked",
+                        resolved.label, resolved.width, resolved.height
+                    ),
+                    json!({ "control": resolved.label }),
+                )
+            }
+        };
+        let (vx, vy, vw, vh) = frame.snapshot.desktop;
+        if x < vx || y < vy || x >= vx + vw || y >= vy + vh {
+            return self.result_with_state(
+                &mut state,
+                CuVerdict::Refused,
+                capability,
+                format!(
+                    "screen: refused: control {:?} centre {x},{y} lies outside the virtual \
+                     desktop {vx},{vy} {vw}x{vh}; the pointer was not moved",
+                    resolved.label
+                ),
+                json!({ "center": [x, y], "desktop": [vx, vy, vw, vh] }),
+            );
+        }
+        drop(state);
+
+        let act = if press {
+            Act::Click { x, y, button, double }
+        } else {
+            Act::Hover { x, y }
+        };
+        let outcome = match self.tool.act(act) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                let (verdict, reason) = classify(error);
+                return self.effect_failure(capability, verdict, reason);
+            }
+        };
+        // The pointer readback must land inside the *control*, not merely near
+        // the requested centre. A control that moved, collapsed or was covered
+        // between observe and act is therefore `not_performed`/`unknown`, never
+        // a success echoed from the request.
+        let (verdict, detail) = match pointer_from_readback(&outcome.readback) {
+            Some((px, py))
+                if px >= resolved.x
+                    && px < resolved.x + resolved.width
+                    && py >= resolved.y
+                    && py < resolved.y + resolved.height =>
+            {
+                (CuVerdict::Performed, "inside control rect")
+            }
+            Some((px, py)) => (
+                CuVerdict::NotPerformed,
+                if px == x && py == y {
+                    "pointer matched the request but the control rect is stale"
+                } else {
+                    "pointer landed outside the control rect"
+                },
+            ),
+            None => (CuVerdict::Unknown, "pointer readback could not be parsed"),
+        };
+        let readback = format!(
+            "{}; control={:?} role={} rect={},{} {}x{} {detail}",
+            outcome.readback,
+            resolved.label,
+            resolved.role,
+            resolved.x,
+            resolved.y,
+            resolved.width,
+            resolved.height
+        );
+        let mut text = format!(
+            "why: {why}\nscreen: act={} control={:?} press={press}\nreadback: {readback}",
+            outcome.action, resolved.label
+        );
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        text.push_str(&format!(
+            "\ncu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} generation={} verdict={} capability={capability}",
+            state.generation,
+            verdict.tag()
+        ));
+        let generation = state.generation;
+        let evidence = json!({
+            "action": outcome.action,
+            "control": resolved.label,
+            "role": resolved.role,
+            "rect": [resolved.x, resolved.y, resolved.width, resolved.height],
+            "center": [x, y],
+            "press": press,
+            "readback": readback,
+            "verdict": verdict.tag(),
+            "generation": generation,
+        });
+        self.record(
+            &mut state,
+            CuReceipt {
+                generation,
+                capability: capability.to_owned(),
+                verdict,
+                facts_as_of_ms: now_ms(),
+                readback: readback.clone(),
+            },
+        );
+        CuResult {
+            verdict,
+            capability: capability.to_owned(),
+            generation,
+            facts_as_of_ms: now_ms(),
+            evidence,
+            text,
+        }
+    }
+
     fn call_act(&self, action: &CuAction) -> Result<crate::screen::ActOutcome, String> {
         let act = match action {
             CuAction::Focus { title } => Act::Focus { title: title.clone() },
@@ -722,6 +965,16 @@ impl CuHost {
             CuAction::Type { text } => Act::Type { text },
             CuAction::Key { keys } => Act::Key { keys: keys.clone() },
             CuAction::Scroll { x, y, delta } => Act::Scroll { x: *x, y: *y, delta: *delta },
+            // `invoke` routes named targets to `act_control`, which resolves
+            // the frame first. Reaching here would mean a caller skipped that
+            // admission step; refuse rather than invent coordinates.
+            CuAction::Control { .. } => {
+                return Err(
+                    "screen: refused: a named control target must be resolved against the \
+                     current observation"
+                        .to_owned(),
+                )
+            }
         };
         self.tool.act(act)
     }
@@ -851,8 +1104,14 @@ impl CuHost {
         verdict: CuVerdict,
         capability: &str,
         reason: String,
-        evidence: Value,
+        mut evidence: Value,
     ) -> CuResult {
+        // Every admission refusal is evidence a typed caller can branch on;
+        // the verdict must be in the JSON as well as in the text, not just
+        // implied by which field happened to be present.
+        if let Value::Object(fields) = &mut evidence {
+            fields.insert("verdict".to_owned(), json!(verdict.tag()));
+        }
         let generation = state.generation;
         let mut text = reason.clone();
         text.push_str(&format!(
@@ -887,6 +1146,15 @@ impl CuHost {
             state.receipts.drain(..excess);
         }
     }
+}
+
+/// `place_pointer`/`click` report `pointer at x,y`. Pure and tested on every
+/// cell: a named target's evidence is the desktop's own coordinates, not the
+/// request that was sent to it.
+fn pointer_from_readback(readback: &str) -> Option<(i32, i32)> {
+    let pair = readback.strip_prefix("pointer at ")?;
+    let (x, y) = pair.split_once(',')?;
+    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
 }
 
 fn classify(error: String) -> (CuVerdict, String) {
@@ -963,6 +1231,19 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                 }
                 _ => None,
             };
+            let controls = match arguments.get("controls") {
+                Some(Value::Bool(true)) => Some(ControlTarget::Foreground),
+                Some(Value::String(title)) if !title.trim().is_empty() => {
+                    Some(ControlTarget::Window(title.clone()))
+                }
+                Some(Value::Bool(false)) | Some(Value::Null) | None => None,
+                Some(other) => {
+                    return Err(format!(
+                        "screen: refused: `controls` must be true (foreground window) or a \
+                         window title, got {other}"
+                    ))
+                }
+            };
             let scale = match arguments.get("scale") {
                 None => 0,
                 Some(value) => value
@@ -977,7 +1258,7 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                         )
                     })?,
             };
-            CuCall::Observe { window, capture, scale }
+            CuCall::Observe { window, capture, controls, scale }
         }
         "act" => {
             let why = arguments
@@ -992,7 +1273,7 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                 .to_owned();
             let action = arguments.get("action").and_then(Value::as_str).ok_or_else(|| {
                 "screen: refused: act needs an `action` (focus, move, click, hover, drag, type, \
-                 key, scroll)"
+                 key, scroll, control)"
                     .to_owned()
             })?;
             let number = |name: &str| -> Result<i32, String> {
@@ -1072,10 +1353,34 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                     y: number("y")?,
                     delta: number("delta")?,
                 },
+                "control" => CuAction::Control {
+                    control: arguments
+                        .get("control")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| {
+                            "screen: refused: action \"control\" needs a `control` name from \
+                             the last observe"
+                                .to_owned()
+                        })?
+                        .to_owned(),
+                    // Hover is the default: resolving a named target must not
+                    // be able to click a button just because a caller omitted
+                    // a flag.
+                    press: arguments
+                        .get("press")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    button: button(),
+                    double: arguments
+                        .get("double")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                },
                 other => {
                     return Err(format!(
                         "screen: refused: unknown action {other:?}; act accepts focus, move, \
-                         click, hover, drag, type, key, scroll"
+                         click, hover, drag, type, key, scroll, control"
                     ))
                 }
             };
@@ -1105,7 +1410,7 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::screen::ScreenTool;
+    use crate::screen::{ControlInfo, ScreenSnapshot, ScreenTool};
 
     fn host(granted: bool) -> CuHost {
         CuHost::new(ScreenTool::new(std::path::Path::new("."), granted))
@@ -1118,6 +1423,224 @@ mod tests {
             as_of: None,
             call,
         }
+    }
+
+    /// A host with a synthetic frame, so every named-target refusal can be
+    /// tested without driving the real pointer. Only the ignored real-desktop
+    /// journey performs the effect.
+    fn host_with_frame(
+        controls: Vec<ControlInfo>,
+        frame_generation: u64,
+        current_generation: u64,
+        desktop: (i32, i32, i32, i32),
+    ) -> CuHost {
+        let host = host(true);
+        let snapshot = ScreenSnapshot {
+            platform: "windows".to_owned(),
+            qualified: true,
+            desktop,
+            displays: Vec::new(),
+            windows: Vec::new(),
+            controls_source: Some("window:synthetic".to_owned()),
+            controls_truncated: false,
+            controls,
+            capture: None,
+        };
+        let mut state = host.state.lock().unwrap();
+        state.generation = current_generation;
+        state.frame = Some(CuFrame {
+            generation: frame_generation,
+            facts_as_of_ms: 0,
+            snapshot,
+        });
+        drop(state);
+        host
+    }
+
+    fn synthetic_control(label: &str, x: i32, y: i32, width: i32, height: i32) -> ControlInfo {
+        ControlInfo {
+            handle: 7,
+            parent: 1,
+            label: label.to_owned(),
+            class: "Button".to_owned(),
+            role: "button",
+            text: label.to_owned(),
+            x,
+            y,
+            width,
+            height,
+            visible: true,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn pointer_readback_is_parsed_as_evidence_not_as_a_request() {
+        assert_eq!(pointer_from_readback("pointer at 12,34"), Some((12, 34)));
+        assert_eq!(pointer_from_readback("pointer at -5, 7"), Some((-5, 7)));
+        assert_eq!(pointer_from_readback("pointer at nope"), None);
+        assert_eq!(pointer_from_readback("clicked"), None);
+    }
+
+    #[test]
+    fn observe_parses_a_control_scan_and_rejects_mistyped_ones() {
+        let foreground = parse_request(&json!({ "op": "observe", "controls": true })).unwrap();
+        assert_eq!(
+            foreground.call,
+            CuCall::Observe {
+                window: None,
+                capture: None,
+                controls: Some(ControlTarget::Foreground),
+                scale: 0,
+            }
+        );
+        let named = parse_request(&json!({ "op": "observe", "controls": "Notepad" })).unwrap();
+        assert!(matches!(
+            named.call,
+            CuCall::Observe { controls: Some(ControlTarget::Window(ref title)), .. }
+                if title == "Notepad"
+        ));
+        let plain = parse_request(&json!({ "op": "observe" })).unwrap();
+        assert!(matches!(plain.call, CuCall::Observe { controls: None, .. }));
+        let mistyped = parse_request(&json!({ "op": "observe", "controls": 42 })).unwrap_err();
+        assert!(mistyped.contains("must be true"), "{mistyped}");
+    }
+
+    #[test]
+    fn a_named_target_is_hover_by_default_and_needs_a_name() {
+        let parsed = parse_request(&json!({
+            "op": "act", "why": "find the button", "action": "control", "control": "OK"
+        }))
+        .unwrap();
+        assert!(matches!(
+            parsed.call,
+            CuCall::Act {
+                action: CuAction::Control { ref control, press: false, .. },
+                ..
+            } if control == "OK"
+        ));
+        let clicked = parse_request(&json!({
+            "op": "act", "why": "press it", "action": "control",
+            "control": "OK", "press": true, "button": "right"
+        }))
+        .unwrap();
+        assert!(matches!(
+            clicked.call,
+            CuCall::Act {
+                action: CuAction::Control {
+                    press: true, button: ClickButton::Right, ..
+                },
+                ..
+            }
+        ));
+        let missing = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control"
+        }))
+        .unwrap_err();
+        assert!(missing.contains("needs a `control` name"), "{missing}");
+    }
+
+    #[test]
+    fn a_named_target_refuses_without_an_observation() {
+        let host = host(true);
+        let result = host.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "OK"
+        }));
+        assert_eq!(result.verdict, CuVerdict::Refused);
+        assert!(result.text.contains("no observation yet"), "{}", result.text);
+        assert_eq!(result.evidence["reason"], "no_frame");
+    }
+
+    #[test]
+    fn a_named_target_never_guesses_ambiguous_stale_or_unusable_controls() {
+        let empty = host_with_frame(Vec::new(), 1, 1, (0, 0, 800, 600));
+        let no_controls = empty.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "OK"
+        }));
+        assert_eq!(no_controls.verdict, CuVerdict::Refused);
+        assert!(no_controls.text.contains("no controls"), "{}", no_controls.text);
+
+        let stale = host_with_frame(
+            vec![synthetic_control("button:OK", 10, 10, 40, 20)],
+            1,
+            2,
+            (0, 0, 800, 600),
+        );
+        let stale_result = stale.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "button:OK"
+        }));
+        assert_eq!(stale_result.verdict, CuVerdict::Stale, "{}", stale_result.text);
+
+        let ambiguous = host_with_frame(
+            vec![
+                synthetic_control("button:OK", 10, 10, 40, 20),
+                synthetic_control("button:OK again", 60, 10, 40, 20),
+            ],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        let ambiguous_result = ambiguous.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "OK"
+        }));
+        assert_eq!(ambiguous_result.verdict, CuVerdict::Refused);
+        assert!(ambiguous_result.text.contains("matches 2 controls"), "{}", ambiguous_result.text);
+
+        let mut hidden = synthetic_control("button:OK", 10, 10, 40, 20);
+        hidden.visible = false;
+        let hidden_host = host_with_frame(vec![hidden], 1, 1, (0, 0, 800, 600));
+        let hidden_result = hidden_host.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "button:OK"
+        }));
+        assert_eq!(hidden_result.verdict, CuVerdict::Refused);
+        assert!(hidden_result.text.contains("hidden"), "{}", hidden_result.text);
+
+        // A control whose centre is outside the virtual desktop is refused
+        // before the OS can clamp the pointer to a different point.
+        let offscreen = host_with_frame(
+            vec![synthetic_control("button:OK", 900, 10, 40, 20)],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        let offscreen_result = offscreen.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "button:OK"
+        }));
+        assert_eq!(offscreen_result.verdict, CuVerdict::Refused);
+        assert!(offscreen_result.text.contains("outside the virtual desktop"), "{}", offscreen_result.text);
+    }
+
+    #[test]
+    fn the_frame_serialises_the_control_inventory_for_typed_callers() {
+        let host = host_with_frame(
+            vec![synthetic_control("button:OK", 10, 10, 40, 20)],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        let disclosed = host.invoke_json(&json!({ "op": "disclose" }));
+        let frame = &disclosed.evidence["frame"];
+        assert_eq!(frame["controls"][0]["label"], "button:OK");
+        assert_eq!(frame["controls"][0]["role"], "button");
+        assert_eq!(frame["controls"][0]["rect"], json!([10, 10, 40, 20]));
+        assert_eq!(frame["controls_role_basis"], "win32-class");
+        assert_eq!(frame["controls_truncated"], false);
+        let observe = disclosed.evidence["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"] == "observe")
+            .unwrap();
+        assert!(observe["params"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|param| param["name"] == "controls"));
+        assert!(disclosed.evidence["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["name"] == "act:control"));
     }
 
     #[test]
@@ -1316,6 +1839,213 @@ mod tests {
         )
         .expect("write disclosure evidence");
         eprintln!("cu evidence: {}", root.display());
+    }
+
+    /// A deterministic Win32 fixture inside the test process: a real parent
+    /// window with a real BUTTON child. No detached GUI process, no message
+    /// pump, no focus steal (SW_SHOWNOACTIVATE + WS_EX_NOACTIVATE). This makes
+    /// the named-target success path verifiable on any signed-in desktop,
+    /// instead of depending on whatever app happens to be in front.
+    #[cfg(windows)]
+    mod fixture {
+        use std::ffi::c_void;
+
+        type Hwnd = *mut c_void;
+        const WS_OVERLAPPEDWINDOW: u32 = 0x00CF_0000;
+        const WS_CHILD: u32 = 0x4000_0000;
+        const WS_VISIBLE: u32 = 0x1000_0000;
+        const WS_EX_NOACTIVATE: u32 = 0x0800_0000;
+        const SW_SHOWNOACTIVATE: i32 = 4;
+
+        #[link(name = "user32")]
+        extern "system" {
+            fn CreateWindowExW(
+                style_ex: u32,
+                class: *const u16,
+                name: *const u16,
+                style: u32,
+                x: i32,
+                y: i32,
+                width: i32,
+                height: i32,
+                parent: Hwnd,
+                menu: Hwnd,
+                instance: Hwnd,
+                param: *mut c_void,
+            ) -> Hwnd;
+            fn DestroyWindow(window: Hwnd) -> i32;
+            fn ShowWindow(window: Hwnd, command: i32) -> i32;
+        }
+
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetModuleHandleW(name: *const u16) -> Hwnd;
+        }
+
+        fn wide_z(text: &str) -> Vec<u16> {
+            text.encode_utf16().chain(std::iter::once(0)).collect()
+        }
+
+        pub const TITLE: &str = "minicon harness control fixture";
+
+        pub struct Window {
+            parent: Hwnd,
+        }
+
+        impl Drop for Window {
+            fn drop(&mut self) {
+                unsafe {
+                    DestroyWindow(self.parent);
+                }
+            }
+        }
+
+        pub fn create() -> Option<Window> {
+            let static_class = wide_z("STATIC");
+            let button_class = wide_z("BUTTON");
+            let title = wide_z(TITLE);
+            let label = wide_z("OK");
+            let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
+            let parent = unsafe {
+                CreateWindowExW(
+                    WS_EX_NOACTIVATE,
+                    static_class.as_ptr(),
+                    title.as_ptr(),
+                    WS_OVERLAPPEDWINDOW,
+                    200,
+                    200,
+                    320,
+                    200,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    instance,
+                    std::ptr::null_mut(),
+                )
+            };
+            if parent.is_null() {
+                return None;
+            }
+            let button = unsafe {
+                CreateWindowExW(
+                    0,
+                    button_class.as_ptr(),
+                    label.as_ptr(),
+                    WS_CHILD | WS_VISIBLE,
+                    20,
+                    20,
+                    90,
+                    26,
+                    parent,
+                    std::ptr::null_mut(),
+                    instance,
+                    std::ptr::null_mut(),
+                )
+            };
+            unsafe {
+                ShowWindow(parent, SW_SHOWNOACTIVATE);
+            }
+            if button.is_null() {
+                None
+            } else {
+                Some(Window { parent })
+            }
+        }
+    }
+
+    /// The semantic journey against a real desktop: a typed control inventory,
+    /// a control addressed **by name**, and a pointer readback that lands
+    /// inside that control's rectangle. Publishes `cu-controls.json` so an
+    /// independent reader can check it.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "needs a signed-in Windows desktop session"]
+    fn real_desktop_semantic_controls_named_target() {
+        let root = std::env::temp_dir().join(format!(
+            "minicon-harness-cu-controls-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("fixture root");
+        let host = CuHost::new(ScreenTool::new(&root, true));
+
+        let disclosed = host.invoke_json(&json!({ "op": "disclose" }));
+        assert_eq!(disclosed.evidence["abi"]["major"], CU_ABI_MAJOR);
+        assert_eq!(disclosed.evidence["grant"], "granted");
+
+        // The foreground window first: this is what a real caller would scan.
+        let foreground = host.invoke_json(&json!({ "op": "observe", "controls": true }));
+        assert_eq!(foreground.verdict, CuVerdict::Performed, "{}", foreground.text);
+        assert!(foreground.text.contains("controls: source="), "{}", foreground.text);
+        assert_eq!(foreground.evidence["controls_role_basis"], "win32-class");
+        assert!(foreground.evidence["controls_truncated"].is_boolean());
+
+        // Then the deterministic fixture, resolved by title rather than by
+        // handle. `find` must discover it through the normal enumeration.
+        let window = fixture::create().expect("create a Win32 control fixture");
+        let observed = host.invoke_json(&json!({
+            "op": "observe", "controls": fixture::TITLE
+        }));
+        assert_eq!(observed.verdict, CuVerdict::Performed, "{}", observed.text);
+        let controls = observed.evidence["controls"].as_array().unwrap();
+        assert!(!controls.is_empty(), "{}", observed.text);
+        let labels: Vec<&str> = controls
+            .iter()
+            .filter_map(|entry| entry["label"].as_str())
+            .collect();
+        assert_eq!(
+            labels.iter().collect::<std::collections::HashSet<_>>().len(),
+            labels.len(),
+            "{labels:?}"
+        );
+        let button = controls
+            .iter()
+            .find(|entry| entry["text"] == "OK" && entry["role"] == "button")
+            .expect("the fixture exposes a Win32 BUTTON child");
+        let label = button["label"].as_str().unwrap().to_owned();
+        let rect = button["rect"].as_array().unwrap();
+
+        // press defaults to false: this journey never clicks anything.
+        let acted = host.invoke_json(&json!({
+            "op": "act", "why": "verify a named control target",
+            "action": "control", "control": label,
+            "as_of": observed.generation
+        }));
+        assert_eq!(acted.verdict, CuVerdict::Performed, "{}", acted.text);
+        assert_eq!(acted.evidence["press"], false);
+        assert_eq!(acted.evidence["control"], label);
+        assert_eq!(acted.evidence["rect"], json!(rect));
+        assert!(acted.evidence["readback"]
+            .as_str()
+            .unwrap()
+            .contains("inside control rect"));
+        assert!(acted.text.contains("press=false"), "{}", acted.text);
+
+        // A stale pinned call must not replay the named target either.
+        let stale = host.invoke_json(&json!({
+            "op": "act", "why": "must not replay",
+            "action": "control", "control": label,
+            "as_of": observed.generation - 1
+        }));
+        assert_eq!(stale.verdict, CuVerdict::Stale, "{}", stale.text);
+
+        std::fs::write(
+            root.join("cu-controls.json"),
+            serde_json::to_string_pretty(&json!({
+                "abi": disclosed.evidence["abi"],
+                "foreground": foreground.evidence,
+                "observe": observed.evidence,
+                "target": {
+                    "label": label, "rect": rect,
+                    "center": acted.evidence["center"],
+                },
+                "acted": acted.evidence,
+                "stale": stale.evidence,
+            }))
+            .unwrap(),
+        )
+        .expect("write control evidence");
+        eprintln!("cu-controls evidence: {}", root.display());
+        drop(window);
     }
 
     #[test]

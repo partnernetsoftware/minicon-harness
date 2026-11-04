@@ -258,8 +258,10 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                 "description": "A versioned host capability contract for computer use. \
                                 op=observe lists the virtual desktop geometry, every display \
                                 and all top-level windows, can write one PNG under the task \
-                                root, and returns a generation number; op=act performs one \
-                                named operation with a cursor/window/foreground readback; \
+                                root, can scan one window's typed child controls, and returns \
+                                a generation number; op=act performs one named operation with \
+                                a cursor/window/foreground readback (action=control resolves a \
+                                control by name from the last observe); \
                                 op=disclose reports the ABI, grant, capability manifest and \
                                 evidence receipts. Pin `as_of` to the generation you reasoned \
                                 from: a stale generation is refused, never replayed. Only \
@@ -308,6 +310,15 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                                             composed by the tool under .harness/capture and is \
                                             returned, never supplied."
                         },
+                        "controls": {
+                            "description": "For op=observe: true scans the foreground window's \
+                                            child controls, or give a window title to scan that \
+                                            window. Each control reports a stable label, a role \
+                                            derived from its Win32 class, its text, rectangle, \
+                                            visibility and enabled state. This is NOT a UIA \
+                                            accessibility tree; self-drawn UIs report zero \
+                                            controls. Omit it to skip the scan entirely."
+                        },
                         "scale": {
                             "type": "integer",
                             "description": "For op=observe with a capture: integer 1..8 \
@@ -317,8 +328,8 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         },
                         "action": {
                             "type": "string",
-                            "enum": ["focus", "move", "click", "hover", "drag", "type", "key", "scroll"],
-                            "description": "For op=act: the one operation to perform."
+                            "enum": ["focus", "move", "click", "hover", "drag", "type", "key", "scroll", "control"],
+                            "description": "For op=act: the one operation to perform. `control` addresses a named control from the last observe instead of raw coordinates."
                         },
                         "x": { "type": "integer", "description": "Screen coordinate or move target." },
                         "y": { "type": "integer", "description": "Screen coordinate or move target." },
@@ -329,7 +340,7 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         "button": {
                             "type": "string",
                             "enum": ["left", "right", "middle"],
-                            "description": "For action=click or action=drag; defaults to left."
+                            "description": "For action=click, action=drag or action=control when press=true; defaults to left."
                         },
                         "double": {
                             "type": "boolean",
@@ -348,6 +359,14 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         "delta": {
                             "type": "integer",
                             "description": "For action=scroll: wheel delta, positive scrolls up."
+                        },
+                        "control": {
+                            "type": "string",
+                            "description": "For action=control: the exact label (or a unique substring) of a control from the last op=observe with `controls`. An ambiguous or unobserved name is refused, never guessed."
+                        },
+                        "press": {
+                            "type": "boolean",
+                            "description": "For action=control: false (default) only hovers at the control's centre; true clicks it. Readback must land inside the control's rectangle."
                         }
                     },
                     "required": ["op"]

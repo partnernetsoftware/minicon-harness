@@ -12,13 +12,17 @@
 //! to `user32`/`gdi32` and a store-mode PNG encoder, because the harness ships
 //! as one auditable executable per cell.
 //!
-//! v1 qualification: Windows, pixel-level observation (virtual-desktop and
-//! display geometry, window inventory, and a PNG written under the task root;
-//! desktop/window/region targets with bounded downsampling). Every action is
-//! verified by readback -- cursor position, window rectangle or foreground
-//! title -- rather than by the API call having returned. The accessibility tree
-//! is an explicit open gap -- see `prd/PRD_01_03_computer_use.md` -- so nothing
-//! here claims a semantic read of any window.
+//! v1 qualification: Windows. Observation has two arms -- the pixel arm
+//! (virtual-desktop/display geometry, window inventory, a PNG written under
+//! the task root) and, since 0.0.4, a **typed control arm** (child windows of
+//! one resolved window, with class-derived roles, text, rectangle and state;
+//! `prd/PRD_01_05_semantic_controls.md`). The control arm is Win32
+//! `EnumChildWindows` + `WM_GETTEXT`, **not** a UIA accessibility tree: it is
+//! deliberately smaller, and a window with no child windows is reported as
+//! such rather than as a successful semantic read.
+//!
+//! Every action is verified by readback -- cursor position, window rectangle
+//! or foreground title -- rather than by the API call having returned.
 
 use std::path::{Path, PathBuf};
 
@@ -64,6 +68,19 @@ pub const SCREEN_TOOL_POINTER_TOLERANCE_PX: i32 = 4;
 /// become an arbitrary write.
 pub const SCREEN_TOOL_CAPTURE_DIR: &str = ".harness/capture";
 
+/// Most child controls one control scan returns. Hitting the bound is
+/// **reported** (`truncated=true`), never silently clipped: a model that sees
+/// 128 controls must know there were more.
+pub const SCREEN_TOOL_MAX_CONTROLS: usize = 128;
+
+/// Most UTF-16 code units retained from one control's text. Long edit buffers
+/// are truncated with an ellipsis marker in the text, not in the frame.
+pub const SCREEN_TOOL_MAX_CONTROL_TEXT: usize = 256;
+
+/// Timeout for one cross-process `WM_GETTEXT`. A hung foreign window must not
+/// be able to stall a harness invocation that only wanted to *observe* it.
+pub const SCREEN_TOOL_CONTROL_TIMEOUT_MS: u32 = 200;
+
 /// One display in the virtual desktop, in virtual-screen coordinates. Secondary
 /// monitors can sit at negative x/y; reporting them is what makes a click on a
 /// secondary monitor expressible at all.
@@ -89,6 +106,148 @@ impl DisplayInfo {
     }
 }
 
+/// One child window, as a typed semantic observation. `role` is a heuristic
+/// derived from the Win32 **class name** -- it is not a UIA role, and a window
+/// that draws its own widgets exposes no children at all.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControlInfo {
+    pub handle: u64,
+    pub parent: u64,
+    /// Stable, unique, human-readable name a caller addresses the control by.
+    pub label: String,
+    pub class: String,
+    pub role: &'static str,
+    pub text: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub visible: bool,
+    pub enabled: bool,
+}
+
+impl ControlInfo {
+    pub fn to_line(&self, index: usize) -> String {
+        format!(
+            "control={index} label={} role={} class={} text={:?} rect={},{} {}x{}{}{} hwnd={}",
+            self.label,
+            self.role,
+            self.class,
+            self.text,
+            self.x,
+            self.y,
+            self.width,
+            self.height,
+            if self.visible { "" } else { " hidden" },
+            if self.enabled { "" } else { " disabled" },
+            self.handle
+        )
+    }
+
+    /// The screen point `act:control` aims at. A zero-sized control has no
+    /// meaningful centre and is refused before any pointer moves.
+    pub fn center(&self) -> Option<(i32, i32)> {
+        if self.width <= 0 || self.height <= 0 {
+            return None;
+        }
+        Some((self.x + self.width / 2, self.y + self.height / 2))
+    }
+}
+
+/// Which window a control scan reads. `Foreground` follows the desktop's own
+/// focus; a title is resolved by the same unique-name rule every act uses.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ControlTarget {
+    Foreground,
+    Window(String),
+}
+
+/// Win32 class name -> a coarse role. Deliberately a fixed table: no UIA, no
+/// provider registry, no guessing about third-party widget toolkits. Pure so
+/// every cell can test it, including cells that never qualify a desktop.
+pub fn control_role(class: &str) -> &'static str {
+    match class {
+        "Button" => "button",
+        "Edit" => "textbox",
+        "Static" => "label",
+        "ComboBox" | "ComboBoxEx32" => "combobox",
+        "ListBox" => "list",
+        "SysListView32" => "list",
+        "SysTreeView32" => "tree",
+        "SysTabControl32" => "tab",
+        "msctls_progress32" => "progress",
+        "msctls_trackbar32" => "slider",
+        "ScrollBar" => "scrollbar",
+        "ToolbarWindow32" => "toolbar",
+        "SysHeader32" => "header",
+        _ => "unknown",
+    }
+}
+
+/// Build stable labels. A control with no text is named by its role and index;
+/// duplicate names gain `#index`, so no two controls in one frame share a
+/// label and an ambiguous `act:control` cannot be caused by the renderer.
+pub fn label_controls(controls: &mut [ControlInfo]) {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (index, control) in controls.iter_mut().enumerate() {
+        let base = if control.text.trim().is_empty() {
+            format!("{}#{}", control.role, index)
+        } else {
+            format!("{}:{}", control.role, control.text.trim())
+        };
+        let count = seen.entry(base.clone()).or_insert(0);
+        *count += 1;
+        control.label = if *count == 1 {
+            base
+        } else {
+            format!("{base}#{}", index)
+        };
+    }
+}
+
+/// Resolve a control **by name** from one generation's frame. Exact label wins;
+/// otherwise a case-insensitive substring must match exactly one control. Any
+/// ambiguity is refused with the candidates named -- a guessed target would be
+/// a click on the wrong button.
+pub fn resolve_control<'a>(
+    controls: &'a [ControlInfo],
+    needle: &str,
+) -> Result<&'a ControlInfo, String> {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return Err("screen: refused: `control` must name a control from the last observe".to_owned());
+    }
+    if let Some(exact) = controls.iter().find(|control| control.label == needle) {
+        return Ok(exact);
+    }
+    let lower = needle.to_lowercase();
+    let matches: Vec<&ControlInfo> = controls
+        .iter()
+        .filter(|control| {
+            control.label.to_lowercase().contains(&lower)
+                || control.text.to_lowercase().contains(&lower)
+        })
+        .collect();
+    match matches.len() {
+        0 => Err(format!(
+            "screen: refused: no control matches {needle:?} in the current frame; call \
+             op=observe with `controls` first"
+        )),
+        1 => Ok(matches[0]),
+        _ => Err(format!(
+            "screen: refused: {needle:?} matches {} controls ({}); name one exactly, the \
+             operation was not performed",
+            matches.len(),
+            matches
+                .iter()
+                .take(6)
+                .map(|control| control.label.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
 /// One observation, as typed state. The CU host binds a generation to this
 /// value; nothing here is a rendered prompt string.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +258,12 @@ pub struct ScreenSnapshot {
     pub desktop: (i32, i32, i32, i32),
     pub displays: Vec<DisplayInfo>,
     pub windows: Vec<WindowInfo>,
+    /// Empty when this observe did not request a control scan.
+    pub controls: Vec<ControlInfo>,
+    /// Which window was scanned, when one was. `None` means no scan happened.
+    pub controls_source: Option<String>,
+    /// True when [`SCREEN_TOOL_MAX_CONTROLS`] stopped the enumeration.
+    pub controls_truncated: bool,
     pub capture: Option<CaptureOutcome>,
 }
 
@@ -125,6 +290,28 @@ impl ScreenSnapshot {
         for window in self.windows.iter().take(listed) {
             text.push('\n');
             text.push_str(&window.to_line());
+        }
+        if let Some(source) = &self.controls_source {
+            text.push_str(&format!(
+                "\ncontrols: source={} count={}{}",
+                source,
+                self.controls.len(),
+                if self.controls_truncated {
+                    format!(" truncated=true bound={SCREEN_TOOL_MAX_CONTROLS}")
+                } else {
+                    String::new()
+                }
+            ));
+            if self.controls.is_empty() {
+                text.push_str(
+                    "\ncontrols: this window exposes no child windows; roles come from Win32 \
+                     class names, not UIA, and self-drawn UIs report none",
+                );
+            }
+            for (index, control) in self.controls.iter().enumerate() {
+                text.push('\n');
+                text.push_str(&control.to_line(index));
+            }
         }
         if let Some(outcome) = &self.capture {
             text.push_str(&format!(
@@ -236,7 +423,9 @@ impl ScreenTool {
     /// Reads the desktop into a structured snapshot. `title` filters by
     /// substring when given; `capture` writes one PNG under
     /// [`SCREEN_TOOL_CAPTURE_DIR`]. `scale` 0 means choose the smallest factor
-    /// that keeps a store-mode PNG inside the byte bound.
+    /// that keeps a store-mode PNG inside the byte bound. `controls` requests a
+    /// **separate** typed scan of one window; without it no child window is
+    /// enumerated, so a plain observe costs the same as before.
     ///
     /// The snapshot is the single source of truth: [`ScreenTool::observe`]
     /// renders it for the model, and the CU host consumes it as typed state.
@@ -245,6 +434,7 @@ impl ScreenTool {
         title: Option<&str>,
         capture: Option<CaptureTarget>,
         scale: u32,
+        controls: Option<ControlTarget>,
     ) -> Result<ScreenSnapshot, String> {
         self.admit()?;
         if scale > SCREEN_TOOL_MAX_CAPTURE_SCALE {
@@ -266,17 +456,6 @@ impl ScreenTool {
                 ));
             }
         }
-        // Deterministic order: focused first, then top-left to bottom-right, so
-        // two calls against an unchanged desktop read the same.
-        windows.sort_by_key(|window| {
-            (
-                !window.focused,
-                window.minimized,
-                window.y,
-                window.x,
-                window.handle,
-            )
-        });
         // Deterministic order for every consumer of the snapshot: focused
         // first, then top-left to bottom-right. Sorting here (not only in the
         // text renderer) keeps the typed frame and the prompt in agreement.
@@ -289,6 +468,28 @@ impl ScreenTool {
                 window.handle,
             )
         });
+        // A control scan is a separate, explicitly requested read. It resolves
+        // its window by the same rules an action would, so a stale handle is
+        // never carried across calls.
+        let (controls, controls_source, controls_truncated) = match controls {
+            None => (Vec::new(), None, false),
+            Some(ControlTarget::Foreground) => {
+                let focused = windows.iter().find(|window| window.focused).ok_or_else(|| {
+                    "screen: refused: the desktop has no foreground window to scan for controls; \
+                     name a window with `controls` instead"
+                        .to_owned()
+                })?;
+                let (mut list, truncated) = native::controls(focused.handle)?;
+                label_controls(&mut list);
+                (list, Some(format!("foreground:{:?}", focused.title)), truncated)
+            }
+            Some(ControlTarget::Window(title)) => {
+                let window = native::find(&title)?;
+                let (mut list, truncated) = native::controls(window.handle)?;
+                label_controls(&mut list);
+                (list, Some(format!("window:{:?}", window.title)), truncated)
+            }
+        };
         let capture = match capture {
             Some(target) => Some(self.capture(target, scale)?),
             None => None,
@@ -299,6 +500,9 @@ impl ScreenTool {
             desktop: virtual_screen,
             displays,
             windows,
+            controls,
+            controls_source,
+            controls_truncated,
             capture,
         })
     }
@@ -310,8 +514,9 @@ impl ScreenTool {
         title: Option<&str>,
         capture: Option<CaptureTarget>,
         scale: u32,
+        controls: Option<ControlTarget>,
     ) -> Result<String, String> {
-        Ok(self.snapshot(title, capture, scale)?.to_text())
+        Ok(self.snapshot(title, capture, scale, controls)?.to_text())
     }
 
     /// Performs exactly one operation. Nothing here retries: an operation is
@@ -732,7 +937,10 @@ mod native {
     //! Hand-written `user32`/`gdi32` bindings. No crate, no COM, no service:
     //! the harness process talks to the desktop and exits.
 
-    use super::{Captured, ClickButton, WindowInfo};
+    use super::{
+        control_role, Captured, ClickButton, ControlInfo, WindowInfo,
+        SCREEN_TOOL_CONTROL_TIMEOUT_MS, SCREEN_TOOL_MAX_CONTROLS, SCREEN_TOOL_MAX_CONTROL_TEXT,
+    };
     use std::ffi::c_void;
 
     pub const QUALIFIED: bool = true;
@@ -836,10 +1044,27 @@ mod native {
     const MOUSEEVENTF_WHEEL: Dword = 0x0800;
     const MOUSEEVENTF_MIDDLEDOWN: Dword = 0x0020;
     const MOUSEEVENTF_MIDDLEUP: Dword = 0x0040;
+    const WM_GETTEXT: Dword = 0x000D;
+    const SMTO_ABORTIFHUNG: Dword = 0x0002;
 
     #[link(name = "user32")]
     extern "system" {
         fn EnumWindows(callback: extern "system" fn(Hwnd, isize) -> Bool, param: isize) -> Bool;
+        fn EnumChildWindows(
+            parent: Hwnd,
+            callback: extern "system" fn(Hwnd, isize) -> Bool,
+            param: isize,
+        ) -> Bool;
+        fn IsWindowEnabled(window: Hwnd) -> Bool;
+        fn SendMessageTimeoutW(
+            window: Hwnd,
+            message: Dword,
+            wparam: usize,
+            lparam: isize,
+            flags: Dword,
+            timeout: Dword,
+            result: *mut usize,
+        ) -> isize;
         fn IsWindowVisible(window: Hwnd) -> Bool;
         fn IsIconic(window: Hwnd) -> Bool;
         fn IsZoomed(window: Hwnd) -> Bool;
@@ -1114,6 +1339,128 @@ mod native {
             ClickButton::Right => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
             ClickButton::Middle => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
         }
+    }
+
+    /// One control's text, bounded and made safe to put in a prompt. A control
+    /// belonging to another process cannot be read with `GetWindowTextW`, so
+    /// `WM_GETTEXT` is used with `SMTO_ABORTIFHUNG`: an unresponsive foreign
+    /// window costs at most [`SCREEN_TOOL_CONTROL_TIMEOUT_MS`] and never stalls
+    /// the invocation.
+    fn control_text(child: Hwnd) -> String {
+        let mut buffer = [0u16; 512];
+        let direct = unsafe { GetWindowTextW(child, buffer.as_mut_ptr(), buffer.len() as Int) };
+        if direct > 0 {
+            return clean_text(wide(&buffer[..direct as usize]));
+        }
+        let mut written: usize = 0;
+        let sent = unsafe {
+            SendMessageTimeoutW(
+                child,
+                WM_GETTEXT,
+                buffer.len(),
+                buffer.as_mut_ptr() as isize,
+                SMTO_ABORTIFHUNG,
+                SCREEN_TOOL_CONTROL_TIMEOUT_MS,
+                &mut written,
+            )
+        };
+        if sent == 0 {
+            return String::new();
+        }
+        let count = written.min(buffer.len());
+        clean_text(wide(&buffer[..count]))
+    }
+
+    fn clean_text(text: String) -> String {
+        let mut short = String::new();
+        for character in text.chars() {
+            if short.chars().count() >= SCREEN_TOOL_MAX_CONTROL_TEXT {
+                short.push_str("...");
+                break;
+            }
+            short.push(if character.is_control() { ' ' } else { character });
+        }
+        short.trim().to_owned()
+    }
+
+    struct ControlCollector {
+        parent: u64,
+        controls: Vec<ControlInfo>,
+        truncated: bool,
+    }
+
+    extern "system" fn collect_control(child: Hwnd, param: isize) -> Bool {
+        // SAFETY: `param` is the `&mut ControlCollector` handed to
+        // EnumChildWindows below; the callback cannot outlive that call.
+        let collector = unsafe { &mut *(param as *mut ControlCollector) };
+        if collector.controls.len() >= SCREEN_TOOL_MAX_CONTROLS {
+            collector.truncated = true;
+            return 0;
+        }
+        let mut class_buffer = [0u16; 128];
+        let class_len =
+            unsafe { GetClassNameW(child, class_buffer.as_mut_ptr(), class_buffer.len() as Int) };
+        let class = if class_len > 0 {
+            wide(&class_buffer[..class_len as usize])
+        } else {
+            String::new()
+        };
+        let mut rect = Rect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        if unsafe { GetWindowRect(child, &mut rect) } == 0 {
+            return 1;
+        }
+        collector.controls.push(ControlInfo {
+            handle: child as usize as u64,
+            parent: collector.parent,
+            label: String::new(),
+            role: control_role(&class),
+            class,
+            text: control_text(child),
+            x: rect.left,
+            y: rect.top,
+            width: rect.right - rect.left,
+            height: rect.bottom - rect.top,
+            visible: unsafe { IsWindowVisible(child) } != 0,
+            enabled: unsafe { IsWindowEnabled(child) } != 0,
+        });
+        1
+    }
+
+    /// The typed control arm of observation. One window only, bounded, and
+    /// deterministic: two scans of an unchanged window read the same. A hit on
+    /// the bound is reported by `truncated`, never hidden.
+    pub fn controls(handle: u64) -> Result<(Vec<ControlInfo>, bool), String> {
+        let window = handle as usize as Hwnd;
+        if unsafe { IsWindow(window) } == 0 {
+            return Err(
+                "screen: refused: the window to scan is gone; observe again before acting"
+                    .to_owned(),
+            );
+        }
+        let mut collector = ControlCollector {
+            parent: handle,
+            controls: Vec::new(),
+            truncated: false,
+        };
+        // A zero return can mean "no children" or "stopped at the bound"; the
+        // collector says which. Neither is an error: an empty inventory is a
+        // fact about a self-drawn UI, not a failed read.
+        unsafe {
+            EnumChildWindows(
+                window,
+                collect_control,
+                &mut collector as *mut ControlCollector as isize,
+            )
+        };
+        collector
+            .controls
+            .sort_by_key(|control| (control.y, control.x, control.handle));
+        Ok((collector.controls, collector.truncated))
     }
 
     pub fn windows() -> Result<Vec<WindowInfo>, String> {
@@ -1642,7 +1989,7 @@ mod native {
     //! reported as unqualified, never as an empty success -- the CU0 safe
     //! failure the sibling PRDs require.
 
-    use super::{Captured, ClickButton, DisplayInfo, WindowInfo};
+    use super::{Captured, ClickButton, ControlInfo, DisplayInfo, WindowInfo};
     use std::path::PathBuf;
 
     pub const QUALIFIED: bool = false;
@@ -1662,6 +2009,10 @@ mod native {
 
     pub fn foreground_title() -> Option<String> {
         None
+    }
+
+    pub fn controls(_handle: u64) -> Result<(Vec<ControlInfo>, bool), String> {
+        Err(unqualified())
     }
 
     pub fn handle_is_live(_handle: u64, _title: &str) -> Result<(), String> {
@@ -1756,6 +2107,85 @@ mod native {
 mod tests {
     use super::*;
 
+    fn control(label: &str, text: &str, x: i32, y: i32) -> ControlInfo {
+        ControlInfo {
+            handle: 0,
+            parent: 1,
+            label: label.to_owned(),
+            class: "Button".to_owned(),
+            role: "button",
+            text: text.to_owned(),
+            x,
+            y,
+            width: 40,
+            height: 20,
+            visible: true,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn control_roles_come_from_a_fixed_win32_class_table() {
+        assert_eq!(control_role("Button"), "button");
+        assert_eq!(control_role("Edit"), "textbox");
+        assert_eq!(control_role("Static"), "label");
+        assert_eq!(control_role("SysListView32"), "list");
+        assert_eq!(control_role("SysTreeView32"), "tree");
+        // Third-party, self-drawn classes are unknown, not guessed.
+        assert_eq!(control_role("Chrome_RenderWidgetHostHWND"), "unknown");
+    }
+
+    #[test]
+    fn labels_are_stable_unique_and_never_blank() {
+        let mut controls = vec![
+            control("", "OK", 0, 0),
+            control("", "OK", 40, 0),
+            control("", "", 0, 20),
+            control("", "Cancel", 40, 20),
+        ];
+        label_controls(&mut controls);
+        let labels: Vec<&str> = controls.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels.len(), 4);
+        assert_eq!(
+            labels.iter().collect::<std::collections::HashSet<_>>().len(),
+            4,
+            "{labels:?}"
+        );
+        assert!(labels.iter().all(|label| !label.is_empty()));
+        assert_eq!(labels[0], "button:OK");
+        // The empty-text control is named by role and index, not by an
+        // ambiguous empty string.
+        assert_eq!(labels[2], "button#2");
+        label_controls(&mut controls);
+        assert_eq!(controls[0].label, "button:OK", "labelling is idempotent");
+    }
+
+    #[test]
+    fn resolving_a_control_never_guesses_an_ambiguous_name() {
+        let controls = vec![
+            control("button:OK", "OK", 0, 0),
+            control("button:Cancel", "Cancel", 40, 0),
+            control("button:OK (2)", "OK too", 80, 0),
+        ];
+        assert_eq!(resolve_control(&controls, "button:OK").unwrap().text, "OK");
+        assert_eq!(resolve_control(&controls, "cancel").unwrap().text, "Cancel");
+        let ambiguous = resolve_control(&controls, "OK").unwrap_err();
+        assert!(ambiguous.contains("matches 2 controls"), "{ambiguous}");
+        assert!(ambiguous.contains("button:OK"), "{ambiguous}");
+        assert!(ambiguous.contains("not performed"), "{ambiguous}");
+        assert!(resolve_control(&controls, "nothing").unwrap_err().contains("no control matches"));
+        assert!(resolve_control(&controls, "  ").unwrap_err().contains("must name"));
+    }
+
+    #[test]
+    fn a_zero_sized_control_has_no_centre_to_target() {
+        let mut empty = control("button:empty", "", 10, 10);
+        empty.width = 0;
+        assert_eq!(empty.center(), None);
+        let normal = control("button:OK", "OK", 10, 20);
+        assert_eq!(normal.center(), Some((30, 30)));
+    }
+
     fn root(tag: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "minicon-harness-screen-{tag}-{}-{:?}",
@@ -1770,7 +2200,7 @@ mod tests {
     #[test]
     fn screen_refuses_without_the_flag_and_names_it() {
         let tool = ScreenTool::new(&root("flag"), false);
-        let error = tool.observe(None, None, 0).unwrap_err();
+        let error = tool.observe(None, None, 0, None).unwrap_err();
         assert!(error.contains("--allow-screen"), "{error}");
         assert!(error.contains("refused"), "{error}");
     }
@@ -1924,7 +2354,7 @@ mod tests {
         let root = root("real");
         let tool = ScreenTool::new(&root, true);
         let observed = tool
-            .observe(None, Some(CaptureTarget::Desktop), 0)
+            .observe(None, Some(CaptureTarget::Desktop), 0, None)
             .expect("observe a real desktop");
         assert!(observed.starts_with("platform=windows"), "{observed}");
         assert!(observed.contains("windows="), "{observed}");
@@ -1974,6 +2404,7 @@ mod tests {
                     height: 120,
                 }),
                 2,
+                None,
             )
             .expect("capture a real region at scale 2");
         assert!(region.contains("image=100x60 scale=2"), "{region}");
@@ -2013,7 +2444,7 @@ mod tests {
             .unwrap_err();
         assert!(outside.contains("outside the virtual desktop"), "{outside}");
 
-        let bad_scale = tool.observe(None, None, 9).unwrap_err();
+        let bad_scale = tool.observe(None, None, 9, None).unwrap_err();
         assert!(bad_scale.contains("over the bound"), "{bad_scale}");
 
         // A move is the only operation that can be verified without typing

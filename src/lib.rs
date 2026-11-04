@@ -24,9 +24,11 @@ pub use cu::{
     CU_ABI_MINOR, CU_MAX_RECEIPTS,
 };
 pub use screen::{
-    capture_scale, downsample, Act, CaptureTarget, ClickButton, DisplayInfo, ScreenTool,
-    SCREEN_TOOL_CAPTURE_DIR, SCREEN_TOOL_MAX_CAPTURE_BYTES, SCREEN_TOOL_MAX_CAPTURE_FILES,
-    SCREEN_TOOL_MAX_CAPTURE_SCALE, SCREEN_TOOL_MAX_TYPE_CHARS, SCREEN_TOOL_MAX_WINDOWS,
+    capture_scale, control_role, downsample, label_controls, resolve_control, Act, CaptureTarget,
+    ClickButton, ControlInfo, ControlTarget, DisplayInfo, ScreenTool, SCREEN_TOOL_CAPTURE_DIR,
+    SCREEN_TOOL_CONTROL_TIMEOUT_MS, SCREEN_TOOL_MAX_CAPTURE_BYTES,
+    SCREEN_TOOL_MAX_CAPTURE_FILES, SCREEN_TOOL_MAX_CAPTURE_SCALE, SCREEN_TOOL_MAX_CONTROLS,
+    SCREEN_TOOL_MAX_CONTROL_TEXT, SCREEN_TOOL_MAX_TYPE_CHARS, SCREEN_TOOL_MAX_WINDOWS,
     SCREEN_TOOL_POINTER_TOLERANCE_PX,
 };
 pub use tools::{ExecOutcome, ExecTool, FileTool};
@@ -276,9 +278,10 @@ pub fn system_prompt(root: &std::path::Path) -> String {
         "You are a bounded harness agent. You have exactly three tools, `file`, `exec` and \
          `screen`, and no others. Every path is relative to the task root {root}; paths outside \
          it are refused, not rewritten. `exec` runs one allow-listed command per call with no \
-         shell. `screen` observes the desktop, performs one operation, or discloses its \
-         versioned capability contract; it is only granted when the caller passed \
-         --allow-screen. A refusal is information: read it, \
+         shell.          `screen` observes the desktop, performs one operation, or discloses its \
+         versioned capability contract; op=observe with `controls` also lists a window's \
+         typed child controls, and action=control addresses one of them by name. It is only \
+         granted when the caller passed --allow-screen. A refusal is information: read it, \
          adjust, and continue. Only after all requested work has succeeded, answer with final \
          plain text and no tool call.",
         root = root.display(),
