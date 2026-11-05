@@ -107,7 +107,7 @@ refusal, and the real-desktop journey covers the performed path.
 | --- | --- | --- |
 | `[-]` no UIA tree | roles are class-derived; no values, patterns or text ranges | this PRD's route is deliberately smaller, not a substitute |
 | `[-]` self-drawn UIs | Chromium/Electron windows usually report 0 controls | named in the observation text; `act:control` then refuses by name |
-| `[-]` Windows only | other cells compile and refuse by name | PRD 38 journey per OS, unchanged |
+| `[-]` controls on macOS/Linux | `disclose` reports `act:control` as unimplemented on those cells and refuses it by name | `prd/PRD_01_06_cross_platform_cu.md`; AX/AT-SPI are a separate design |
 | `[_]` pointer-path qualification | `press=true` (a real click on a control) is not exercised by the ignored journey | the journey is hover-only on purpose; click shares the proven pointer path |
 | `[no]` engine binding | -- | PRD 01.04's gate still applies |
 

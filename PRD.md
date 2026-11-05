@@ -94,6 +94,33 @@ minicon-harness — one-file bounded agent worker
   recompiles the worker against cosmopolitan libc, and cells are never
   rebuilt on a test runner.
 
+## 0.0.5 frontier (cross-platform CU contract, in the tree)
+
+[v] Computer use is no longer a Windows implementation plus one refusal stub.
+`src/screen.rs` compiles exactly one `native` backend per `target_os`
+(Windows, macOS, Linux, fallback), all exporting the same function set, and
+publishes a `PlatformCapabilities` matrix. `CuHost` admits a verb only when
+this compiled cell declares it; `disclose` publishes the matrix, the platform
+and per-verb state, and a missing verb is a named `unsupported` refusal rather
+than "v1 is Windows only". The store-mode PNG encoder, capture bounds and
+readback rules moved above the cfg boundary so all three backends share them.
+`prd/PRD_01_06_cross_platform_cu.md` is the contract;
+`plan/plan-0.0.5-cross-platform-cu.md` is the design and the OS mechanism map.
+
+[-] macOS and Linux backends currently implement **no** desktop effect: they
+are honest refusing backends with a declared matrix. The design deliberately
+uses runtime `dlopen`/`dlsym` instead of link-time platform libraries, because
+all six cells are cross-compiled on one macOS runner (zig for Linux, xwin for
+Windows) and a `#[link(name="X11")]` would break that build. W2 adds the
+CoreGraphics/CoreFoundation and X11/XTest mechanisms; W3 qualifies one
+real-desktop journey per OS. No macOS/Linux capability is claimed from a
+compile check.
+
+[v] `.github/workflows/cu-platforms.yml` builds, tests and release-links the
+host cell on `ubuntu-24.04`, `macos-15` and `windows-2025`, and
+`scripts/cu-cfg-check.py` type-checks all three backend cfg configurations.
+The host suite is 72 passed / 3 ignored.
+
 ## 0.0.4 frontier (shipped as a public signed Release)
 
 [v] The `screen` tool is implemented and qualified on Windows in this tree:

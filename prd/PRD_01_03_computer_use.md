@@ -171,7 +171,7 @@ desktop geometry named.
 | --- | --- | --- |
 | `[v]` typed control observation | a text-only model can now read a Win32 child control's label, class-derived role, text, rect and state, and address it by name | delivered in 0.0.4 as `prd/PRD_01_05_semantic_controls.md` via plain `user32` FFI -- the third route that keeps zero dependencies and one file per cell |
 | `[-]` no UIA accessibility tree | roles are class-derived heuristics; no value patterns, automation peers or text ranges, and self-drawn UIs report zero controls | still open; the 0.0.4 route is deliberately smaller, and the observation names its `win32-class` basis and any empty result |
-| `[-]` Windows only | macOS/Linux cells compile and refuse by name | qualify one journey per OS before claiming it, per PRD 38 |
+| `[_]` macOS/Linux native mechanisms | the two cells each have their own backend module, a declared capability matrix and named per-verb refusals instead of one Windows-only stub; no desktop effect is implemented on them yet | `prd/PRD_01_06_cross_platform_cu.md` W2/W3: runtime-loaded mechanisms, then one journey per OS before any verb is claimed |
 | `[-]` no vision input path | a capture is a local artifact; the model reads its path, not its pixels | the wire codec is text-only by design; an image arm is a separate decision |
 | `[v]` capture retention | -- | newest 12 tool-produced PNGs are kept per root; only names the tool composes are considered, other files are never touched |
 | `[_]` pointer-path qualification for drag/middle | hover and the shared pointer readback are qualified on a real desktop; drag and middle-button press are not yet exercised against one | add them to the ignored real-desktop journey |
