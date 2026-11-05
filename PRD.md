@@ -94,7 +94,7 @@ minicon-harness — one-file bounded agent worker
   recompiles the worker against cosmopolitan libc, and cells are never
   rebuilt on a test runner.
 
-## 0.0.5 frontier (three real CU backends, CI-proven)
+## 0.0.5 frontier (shipped as a public signed Release)
 
 [v] Computer use is no longer a Windows implementation plus one refusal stub.
 `src/screen.rs` compiles exactly one `native` backend per `target_os`
@@ -127,6 +127,15 @@ typing), Windows with a titled window (14 performed, including `act:control`).
 `examples/cu_journey.rs` writes `cu-journey.json`; the independent reader
 `scripts/cu-journey-verify.py` recomputes the matrix, pointer readbacks, PNG
 IHDR and generation order from those records.
+
+[v] `v0.0.5` is a public company-signed Latest Release
+(https://github.com/partnernetsoftware/minicon-harness/releases/tag/v0.0.5),
+packed and signed entirely in CI from source `45b13f1`: pack `41975912899`,
+Candidate `41976776464`, signing `41976848591`, dry-run `41977023867`, publish
+`41977124016`. Defender and the post-publish court are green. An anonymous
+download of all 15 assets was re-hashed locally: the APE and both Windows
+cells match the receipt `after_sha256`, and the downloaded APE prints
+`minicon-harness 0.0.5`.
 
 ## 0.0.4 frontier (shipped as a public signed Release)
 

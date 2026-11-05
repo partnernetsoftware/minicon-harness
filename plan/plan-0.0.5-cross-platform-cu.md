@@ -1,8 +1,8 @@
 # 0.0.5 — cross-platform computer use: three real backends, CI-proven, publicly signed
 
-Status: `[v]` W1/W2/W3 delivered (2026-11-05): three real backends, three-OS
-compile gate **41972347018** and three-OS desktop journeys **41975233858**.
-`[_]` W4 (version bump + public signed Release) in progress. Owner direction
+Status: `[v]` W1-W5 delivered (2026-11-05): three real backends, three-OS
+compile gate **41972347018**, three-OS desktop journeys **41975233858**, and
+`v0.0.5` published as a public company-signed Latest Release. Owner direction
 this plan implements:
 
 1. **the CU design must be cross-platform and computer use must cover linux,
@@ -159,7 +159,7 @@ Outcome: one CU contract, three real backends, CI-proven journeys, public signed
 │   invariant: pack -> candidate -> signing -> defender -> release, no unsigned
 │   Windows cells, post-publish court green, owner-view download verified
 │   evidence: run IDs + anonymous HTTP 200 + local re-hash
-└── [_] W5 — delivery record: plan/PRD/README/evidence updated to the truth
+└── [v] W5 — delivery record: plan/PRD/README/evidence updated to the truth
 ```
 
 ## Non-goals
@@ -217,7 +217,40 @@ No production assertion was relaxed to make a journey pass. The Windows cell
 still runs the full named-target control matrix; the Linux and macOS cells
 declare `controls`/`act:control` false and skip those steps by name.
 
-## W4 delivery record
+## W4/W5 delivery record (2026-11-05)
 
-Filled in after the pack -> candidate -> signing -> defender -> release chain
-and the owner-view anonymous download check.
+Source `45b13f1320d5f76a1c69e7e1c48c6e63dc0ce888` (`45b13f1`) is the single
+`head_sha` shared by the whole chain. Every run was `workflow_dispatch` on
+`main`:
+
+| Step | Run | Result |
+|------|-----|--------|
+| six-cell pack + six courts + aggregate | `41975912899` | success, 9/9 jobs |
+| Candidate seal | `41976776464` | success |
+| company signing (`qualification_only=false`) | `41976848591` | success, 8/8 jobs, first attempt |
+| release dry-run | `41977023867` | success; staged signed APE `79996dcb41b54dd5`, signed win-x86_64 `dcf94fb879cce24f` |
+| public release + Defender + post-publish | `41977124016` | success, 5/5 jobs |
+
+Version sources moved together: `Cargo.toml`, `Cargo.lock`,
+`release-policy.json`, `loader/ape-version.rc` (including the numeric
+FILEVERSION/PRODUCTVERSION fields, which had lagged at 0.0.3). Release notes
+describe the three backends and the CI journeys; no `VERSION` placeholder and
+no `unsigned` wording remains after substitution.
+
+Owner-view acceptance (independent of the CI exit code):
+
+- `gh release view v0.0.5`: `isDraft=false`, `isPrerelease=false`,
+  `publishedAt=2026-11-05T05:58:02Z`, 15 assets. `gh release list` shows
+  `v0.0.5` as **Latest** above 0.0.4 and 0.0.3.
+- Unauthenticated `curl` of the Release page and a `browser_download_url`
+  asset both returned **HTTP 200**.
+- A fresh download of all 15 assets was re-hashed locally: APE
+  `79996dcb41b54dd5`, win-x86_64 cell `dcf94fb879cce24f`, win-aarch64 cell
+  `5630fb26b4b9ac72` -- each equals `signing-receipt.json` `after_sha256`,
+  differs from `before_sha256`, and matches every `.sha256` sidecar. The
+  downloaded `minicon-harness.com --version` prints `minicon-harness 0.0.5`.
+- Defender court scanned the release dir and both extracted Windows zips
+  (`found no threats`, `Defender court: clean`). The post-publish court
+  re-hashed the **downloaded** assets and printed both signed-cell digests.
+
+No v0.0.4 asset was overwritten. The release tag is new.

@@ -1,7 +1,8 @@
 # PRD 01.06 — cross-platform computer use contract
 
-Status: `[v]` W1-W3 (contract, three real backends, three-OS compile gate and
-real-desktop journeys). `[_]` W4 (public signed 0.0.5 Release).
+Status: `[v]` W1-W4 (contract, three real backends, three-OS compile gate,
+real-desktop journeys, and `v0.0.5` shipped as a public company-signed Latest
+Release).
 Owner direction: `computer-use 要满足 lnx, osx, win`. This PRD specifies the
 contract; `plan/plan-0.0.5-cross-platform-cu.md` carries the design, the OS
 mechanism map and the rejected alternatives.
