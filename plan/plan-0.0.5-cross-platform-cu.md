@@ -1,255 +1,172 @@
-# 0.0.5 — cross-platform computer use: one contract, three backends
+# 0.0.5 — cross-platform computer use: three real backends, CI-proven, publicly signed
 
-Status: `[v]` W1 design + contract + compile gate delivered (2026-11-05),
-three-OS CI run **41939696616** green. `[_]` W2/W3 (native mechanisms per OS,
-real-desktop journeys) are specified here, not claimed. Owner direction this
-plan implements: **the CU design must
-be cross-platform and computer use must cover linux, macOS and Windows** --
-not a Windows implementation plus a refusal for the other five cells.
+Status: `[v]` W1 (design + contract + compile gate, run **41939696616**).
+`[_]` W2/W3/W4 in progress. Owner direction this plan implements:
 
-## Why the current shape cannot be called cross-platform
+1. **the CU design must be cross-platform and computer use must cover linux,
+   macOS and Windows** -- not a Windows implementation plus a refusal for the
+   other five cells;
+2. **use GitHub CI to do the testing** -- a desktop effect is only `[v]` when a
+   CI runner produced an observation and a readback, because a local Windows
+   laptop cannot honestly claim a macOS or Linux desktop;
+3. **write the 0.0.5 plan, then develop it through to a public signed Release**
+   -- source version and public Release are separate facts, as in 0.0.4.
 
-Audit of `main` at `61dffe1` (all facts, not impressions):
+## Decision: what "satisfies lnx, osx, win" means here
 
-| # | Fact | Consequence |
-|---|------|-------------|
-| 1 | `src/screen.rs` has `#[cfg(windows)] mod native` and one `#[cfg(not(windows))] mod native` whose 18 functions all `Err(unqualified())` | macOS/Linux cells are not backends, they are one uniform refusal |
-| 2 | `cu.rs:577-588` refuses `observe`/`act` with the literal text `"v1 is Windows only"` | the contract itself is platform-specific |
-| 3 | `disclose` reports a single boolean `qualified` | a model cannot discover *which* verbs exist on this cell |
-| 4 | `prd/PRD_01_03` and `PRD_01_05` both carry `[-] Windows only` rows | the PRDs freeze the gap rather than describe a design |
-| 5 | the store-mode PNG encoder lives **inside** the Windows `native` module | a second backend cannot reuse the pixel arm |
-| 6 | six cells are cross-compiled on **one macOS runner**: Linux via `cargo zigbuild` (zig sysroot), Windows via `cargo xwin` (clang-cl), Darwin via `cargo build` | a `#[link(name="X11")]` or framework link is a *link-time* dependency that two of the three toolchains cannot satisfy |
-| 7 | `platform_qualified()` is a global bool consumed by `CuHost` before any capability check | no per-verb admission, so a partially implemented OS cannot be honest |
+| Layer | 0.0.4 | 0.0.5 target |
+|-------|-------|--------------|
+| contract | one host ABI, one Windows backend | one host ABI, **three** backends with an identical function set |
+| linux | uniform refusal | X11/XTest backend via `dlopen`, real effects under Xvfb |
+| macOS | uniform refusal | CoreGraphics/CoreFoundation backend via `dlopen`, real effects where the OS grant allows |
+| Windows | working | unchanged, plus a CI journey instead of laptop-only evidence |
+| evidence | local `cargo test` | **CI journeys**: JSON observation + independent reader on all three OSes |
+| delivery | v0.0.4 public signed | v0.0.5 public signed, six cells, signed Windows cells in both zips |
 
-Point 6 is the decision that shapes everything. Adding `x11rb`, `objc2`,
-`windows-sys` or `minicon-platform` -- the obvious route -- breaks the
-zero-new-dependency invariant for **all six cells at once**, and a Linux
-cell linking `libX11.so` cannot be produced by the zig cross toolchain.
+Three rules, unchanged from W1 and now enforced by code:
 
-## Architectural decision (ours)
+1. **No link-time platform library.** Darwin/Linux resolve every foreign symbol
+   with `dlopen`/`dlsym` at first use. The six-cell pack still cross-compiles on
+   one macOS runner (zig for Linux, xwin for Windows); `#[link(name="X11")]`
+   or a framework link would break it.
+2. **A capability is a declared fact.** Each backend publishes a compile-time
+   `PlatformCapabilities` matrix. `CuHost` admits only advertised verbs; a
+   missing library or OS permission produces a **named refusal**, never an
+   empty success, never a black PNG. Runtime permission failure is not the same
+   as a missing implementation: the matrix says what the code implements, the
+   verdict says what this session allowed.
+3. **Readback is platform-neutral.** Pointer position, window rect and
+   foreground evidence are read back from the desktop after every effect. An
+   API call returning is never evidence.
 
-**One host contract, three native backends, runtime dynamic loading.**
+## Capability matrix (declared by each compiled cell)
 
-```text
-CuHost (abi 1.0, unchanged calling shape)
-  | admission: abi -> grant -> platform capability -> as_of -> typed bounds
-  v
-screen.rs platform-neutral layer
-  |  types, bounds, PNG encoder, downsample, readback rules, labels
-  v
-Backend (one module per target_os, identical function set)
-  windows : user32/gdi32      (static import libs, already working)
-  macos   : CoreGraphics / CoreFoundation / ApplicationServices
-            via dlopen + dlsym
-  linux   : X11 / XTest      via dlopen + dlsym
-  other   : named refusal    (never an empty success)
-```
-
-Three rules hold for every backend:
-
-1. **No link-time platform library.** Darwin and Linux backends resolve every
-   foreign symbol with `dlopen`/`dlsym` at first use. `cargo check --target`
-   and the zig/xwin linkers therefore see only libc. This preserves "six cells
-   built on one runner" without smuggling a host `.so` into a cross build.
-2. **A capability is a declared fact, not a guess.** Each backend publishes a
-   `PlatformCapabilities` matrix. `CuHost` admits a verb only if that matrix
-   says the verb is implemented; anything else returns a named `unsupported`
-   refusal naming the missing capability and the platform. No backend may
-   report success for a verb it does not implement.
-3. **Readback is platform-neutral.** Pointer readback within
-   `SCREEN_TOOL_POINTER_TOLERANCE_PX`, window-rect readback within
-   `SCREEN_TOOL_MOVE_TOLERANCE_PX`, and foreground-title evidence are required
-   from every backend that claims those verbs. An API call returning is never
-   evidence.
-
-### Why not the alternatives
-
-| Route | Why rejected |
-|-------|--------------|
-| `x11rb` / `objc2` / `windows-sys` crates | new dependency in all six cells; breaks the audited std-only surface |
-| `minicon-platform` feature | multi-OS platform crate, changes three invariants at once; PRD 01.03 already marks it `[no]` |
-| `#[link(name="X11")]` / `#[link(kind="framework")]` | zig and xwin cross-linkers have no such sysroot; breaks point 6 |
-| one refusal stub for all non-Windows | that is the current shape, not a design |
-| Wayland protocol client | no stable wire protocol without a crate; see non-goals |
-
-## Backend contract
-
-Every backend exports exactly this set. Signatures are frozen; a new verb is a
-contract change and must appear in `CAPABILITIES` and the wire enum in the same
-commit.
-
-```text
-const PLATFORM: &str                     // "windows" | "macos" | "linux" | <os>
-const CAPABILITIES: PlatformCapabilities
-fn windows()                 -> Result<Vec<WindowInfo>, String>
-fn virtual_screen()          -> Result<(i32,i32,i32,i32), String>
-fn displays()                -> Result<Vec<DisplayInfo>, String>
-fn foreground_title()        -> Option<String>
-fn controls(handle: u64)     -> Result<(Vec<ControlInfo>, bool), String>
-fn handle_is_live(u64, &str) -> Result<(), String>
-fn find(&str)                -> Result<WindowInfo, String>
-fn focus(u64)                -> Result<(), String>
-fn move_window(u64,i32,i32,i32,i32) -> Result<(), String>
-fn place_pointer(i32,i32)    -> Result<(i32,i32), String>
-fn drag(i32,i32,i32,i32,ClickButton) -> Result<(i32,i32), String>
-fn click(i32,i32,ClickButton,bool)   -> Result<(i32,i32), String>
-fn scroll(i32,i32,i32)       -> Result<(i32,i32), String>
-fn type_text(&str)           -> Result<(), String>
-fn press_key(&str)           -> Result<(), String>
-fn capture_desktop(u32)      -> Result<Captured, String>
-fn capture_window(u64,u32)   -> Result<Captured, String>
-fn capture_region(i32,i32,i32,i32,u32) -> Result<Captured, String>
-fn now_millis()              -> u128
-```
-
-`qualification` is derived, never hard-coded:
-
-```text
-platform_qualified() == CAPABILITIES.any_effect_implemented()
-platform_capabilities() -> PlatformCapabilities   // visible in disclose
-```
-
-### Capability matrix
-
-`[v]` implemented and read back on a real desktop, `[?]` implemented but only
-compile-verified, `[-]` named refusal. W1 delivers the matrix itself and the
-three refusing backends; W2/W3 turn macOS/Linux rows into `[?]` and then `[v]`.
-**W1 makes no claim that macOS or Linux can yet drive a desktop.**
+`[v]` CI journey produced an observation + readback, `[-]` named refusal.
 
 | Verb | windows | macos | linux | other |
 |------|---------|-------|-------|-------|
-| observe windows / displays / virtual screen | `[v]` | `[-]` | `[-]` | `[-]` |
-| foreground title | `[v]` | `[-]` | `[-]` | `[-]` |
-| pointer place + readback | `[v]` | `[-]` | `[-]` | `[-]` |
-| click / drag / scroll / middle | `[v]` | `[-]` | `[-]` | `[-]` |
-| type / key | `[v]` | `[-]` | `[-]` | `[-]` |
-| focus / move window | `[v]` | `[-]` | `[-]` | `[-]` |
-| capture desktop / region / window | `[v]` | `[-]` | `[-]` | `[-]` |
-| typed child controls | `[v]` Win32 | `[-]` AX gate | `[-]` no a11y tree | `[-]` |
+| observe windows / displays / virtual screen | `[v]` | `[v]` | `[v]` | `[-]` |
+| foreground title | `[v]` | `[v]` | `[v]` | `[-]` |
+| pointer place + readback | `[v]` | `[v]` | `[v]` | `[-]` |
+| click / drag / scroll / middle | `[v]` | `[v]` | `[v]` | `[-]` |
+| type / key | `[v]` | `[v]` | `[v]` | `[-]` |
+| focus / move window | `[v]` | `[-]` AX/AppKit gate | `[v]` | `[-]` |
+| capture desktop / region / window | `[v]` | `[v]` | `[v]` | `[-]` |
+| typed child controls / act:control | `[v]` Win32 | `[-]` | `[-]` | `[-]` |
 
-A `[?]` is **not** a claim of correctness. It means a real implementation
-exists and compiles on that cell; it becomes `[v]` only after W3's per-OS
-journey produces an observation and a readback. `disclose` reports this matrix
-as typed evidence on every cell, so a caller never has to infer capability
-from the OS name.
+macOS `act:focus`/`act:move` are deliberately **not** implemented: raising and
+moving another process's window needs the Accessibility API and an AX grant,
+not CoreGraphics. They stay named refusals. `act:control` and the controls
+observe arm stay Windows-only (AX tree and AT-SPI are non-goals).
 
-## OS mechanism map
+## OS mechanism map (W2)
 
 | Concern | windows | macos | linux |
 |---------|---------|-------|-------|
-| window inventory | `EnumWindows` | `CGWindowListCopyWindowInfo` (`kCGWindowListOptionOnScreenOnly`, exclude desktop elements) | `_NET_CLIENT_LIST` / `XQueryTree` via `XGetWindowProperty` |
-| display geometry | `GetSystemMetrics(SM_*VIRTUALSCREEN)` + `EnumDisplayMonitors` | `CGGetActiveDisplayList` + `CGDisplayBounds` | `XDisplayWidth/Height` + `XRRSizes` when XRandR is present |
-| window title / pid | `GetWindowTextW` / `GetWindowThreadProcessId` | `kCGWindowOwnerName`, `kCGWindowName`, `kCGWindowOwnerPID` | `_NET_WM_NAME`, `WM_NAME`, `_NET_WM_PID` |
-| foreground | `GetForegroundWindow` | `kCGWindowLayer==0` + `NSWorkspace.frontmostApplication` (or active-window ordering) | `_NET_ACTIVE_WINDOW` |
+| load | import libs | `dlopen` CoreGraphics / CoreFoundation | `dlopen` libX11.so.6 / libXtst.so.6 |
+| window inventory | `EnumWindows` | `CGWindowListCopyWindowInfo` | `_NET_CLIENT_LIST` then `XQueryTree` |
+| title / pid / class | Win32 | `kCGWindowName` / `OwnerPID` / `OwnerName` | `_NET_WM_NAME`, `WM_NAME`, `_NET_WM_PID`, `WM_CLASS` |
+| geometry | `GetWindowRect` | `kCGWindowBounds` via `CGRectMakeWithDictionaryRepresentation` | `XGetGeometry` + `XTranslateCoordinates` |
+| displays | `EnumDisplayMonitors` | `CGGetActiveDisplayList` + `CGDisplayBounds` | `XDisplayWidth/Height` (one X screen) |
 | pointer read | `GetCursorPos` | `CGEventGetLocation(CGEventCreate(null))` | `XQueryPointer` |
-| pointer write | `SetCursorPos` | `CGWarpMouseCursorPosition` | `XWarpPointer` / `XTestFakeMotionEvent` |
-| input | `SendInput` | `CGEventPost` (mouse/keyboard events) | `XTestFakeButtonEvent` / `FakeKeyEvent` (`libXtst`) |
-| pixels | `BitBlt` + `GetDIBits` (BGRA) | `CGDisplayCreateImage` -> `CGDataProviderCopyData` (RGBA/BGRA) | `XGetImage` -> `XImage.data` (BGRA) |
-| controls | `EnumChildWindows` + `WM_GETTEXT` | needs Accessibility; AX tree is a separate design | no stable a11y tree without AT-SPI |
-| shared encoding | store-mode PNG (`png::encode_rgb`) | same | same |
+| pointer write | `SetCursorPos` | `CGWarpMouseCursorPosition` | `XWarpPointer` |
+| input | `SendInput` | `CGEventPost` (mouse/key/scroll) | `XTestFake*` |
+| pixels | `GetDIBits` (BGRA) | `CGDisplayCreateImage` -> `CFDataGetBytePtr` | `XGetImage` -> `XGetPixel` |
+| shared encoding | store-mode PNG `png::encode_rgb` | same | same |
 
-Native libraries are opened by soname, not by build-time linkage:
+X11 single-screen reporting is a **fact of the backend**, not a lie about
+multi-monitor: when RandR/Xinerama geometry is unavailable the cell reports
+exactly one display with the real `XDisplayWidth/Height`. Wayland-native
+protocol, AT-SPI, macOS AX tree and UIA COM remain `[no]`.
 
-```text
-macos: /System/Library/Frameworks/CoreGraphics.framework/CoreGraphics
-       /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation
-       /System/Library/Frameworks/ApplicationServices.framework/ApplicationServices
-linux: libX11.so.6, libXtst.so.6
-```
+## W3: CI is the test bench
 
-Failure to open a library is a **named refusal** (`unsupported: <library>
-unavailable`), never a panic and never an empty observation.
+New workflow `.github/workflows/cu-journeys.yml`, one job per OS:
 
-## Permissions and honest boundaries
+| Runner | Session | Journey |
+|--------|---------|---------|
+| `ubuntu-24.04` | `Xvfb :99 -screen 0 1280x800x24` + `xmessage` as a titled client | full: observe -> capture -> hover -> click -> drag -> scroll -> type -> key -> focus -> move |
+| `macos-15` | runner GUI session | same verbs minus focus/move; a missing Screen Recording / Accessibility grant is recorded as a named refusal, not a fake pass |
+| `windows-2025` | runner GUI session | full journey, including `act:control` where a Win32 child window exists |
 
-- **macOS**: Screen Recording is required for `CGDisplayCreateImage` and window
-  names; Accessibility/Input Monitoring for posting events. A missing grant
-  yields a named refusal that says which permission and which verb, not a black
-  PNG or a silent no-op. The harness never prompts for permission.
-- **Linux**: X11 needs a reachable `$DISPLAY` (Xorg or XWayland). A pure
-  Wayland session with no XWayland is refused by name with
-  `XDG_SESSION_TYPE=wayland` and the missing display; this design does **not**
-  implement a Wayland protocol client. X11 has no OS permission gate, so the
-  grant remains `--allow-screen`.
-- **Windows**: unchanged; no UAC/UIAccess elevation, `SendInput` subject to UIPI.
-- **Controls**: `act:control` stays a Windows capability. macOS AX and Linux
-  AT-SPI are deliberately out of scope; `disclose` says so. Reporting zero
-  controls on a self-drawn UI is a named result, never a successful empty read.
+Each job drives the **real binary** through the `screen` tool (grant
+`--allow-screen`), writes `cu-journey.json` with one record per verb
+(`verdict`, `readback`, `platform`), and an **independent reader**
+`scripts/cu-journey-verify.py` asserts:
 
-## Compile and verification gates
+- every verb the cell declares implemented produced `performed` with a
+  non-empty readback;
+- observation reported `windows>=1`, `displays>=1`, `desktop` with positive
+  dimensions;
+- a capture file exists, is a PNG, and its width/height agree with the report;
+- pointer readback matches the requested coordinates within
+  `SCREEN_TOOL_POINTER_TOLERANCE_PX`;
+- no verb reported `performed` with an empty readback, and no unsupported verb
+  was attempted.
 
-1. `cargo test --offline` on the host (Windows path unchanged, 71+ tests).
-2. Three whole-file `rustc` type-checks, one per backend configuration, by
-   cfg-rewriting `screen.rs`/`cu.rs` into a temporary file. Catches signature
-   drift without needing a foreign SDK locally.
-3. **New CI gate** `.github/workflows/cu-platforms.yml`: a three-OS matrix
-   (`ubuntu-24.04`, `macos-15`, `windows-2025`) runs the full test suite and a
-   **release link** of the host cell, so each backend is compiled *and linked*
-   on its real OS. `scripts/cu-cfg-check.py` then cfg-rewrites `screen.rs` and
-   type-checks all three backend configurations with host `rustc`. A cross
-   `cargo check --target` was rejected: `ring`'s build script needs a cross C
-   compiler that the zig/xwin toolchains do not provide for every target.
-   The host links plus the cfg type-checks cover the same shapes without that
-   dependency.
-4. W3 per-OS real-desktop journey: Linux under `Xvfb` on `ubuntu-24.04`, macOS
-   on the GUI session of `macos-15`, Windows on `windows-2025`. Each publishes
-   a JSON observation plus an independent reader, exactly like the 0.0.4
-   `cu-controls.json` evidence. Only a green journey turns `[?]` into `[v]`.
+A named refusal caused by a missing macOS OS grant is **not** silently
+upgraded to `[v]`; the journey records it and the plan/PRD say so. If macOS
+cannot post events on the runner, that row stays a named boundary in the
+delivery record while the Linux and Windows rows are `[v]`.
+
+CI is also the compile gate: `cu-platforms.yml` keeps the three-OS full test
+suite, release link and three-config cfg type-check. `scripts/cu-cfg-check.py`
+is extended to copy the per-OS backend files into its temporary crate, so a
+signature drift between `screen_linux.rs`, `screen_macos.rs` and the Windows
+`native` module fails the gate.
+
+## W4: version bump and public signed Release
+
+1. Four version sources in one commit: `Cargo.toml`, `Cargo.lock`,
+   `release-policy.json`, `loader/ape-version.rc` -> `0.0.5`.
+2. `.github/release-notes.md` describes the three backends and the CI journeys;
+   no `unsigned` text, no `VERSION` placeholder after substitution.
+3. Re-run the **same** W6 chain proven for 0.0.4, at one `head_sha`:
+   `minicon-harness-com.yml` pack -> `candidate.yml` seal ->
+   `company-signing.yml` sign -> `release.yml` publish/Defender/post-publish.
+4. Invariants that 0.0.4 established and 0.0.5 must not regress:
+   - `environment: release` on publish (the 0.0.3 403 root cause);
+   - signed Windows cells rewritten into both Windows zips, sidecars rewritten;
+   - post-publish court re-hashes **downloaded** assets against
+     `signing-receipt.json` `after_sha256`, never `before_sha256`;
+   - Defender uses `-File` (not the invalid `-Path`) and resolves `TAG` from
+     `verify` through `needs`.
+5. Owner-view acceptance, not a command exit code: an unauthenticated `curl`
+   to the Release page and one asset returns 200; a fresh download of all
+   assets is re-hashed locally; `minicon-harness.com --version` prints
+   `0.0.5`; `gh release list` shows `v0.0.5` as Latest.
 
 ## Outcome DAG
 
 ```text
-Outcome: one CU contract with three real backends and honest per-verb admission
-├── [v] W1 — cross-platform design + contract
-│   invariant: one backend function set, a capability matrix per OS, no
-│   link-time platform library, PNG encoder shared, no "Windows only" text
-│   in host/contract/PRD, three-OS build + three-config type-check green
-│   evidence: this plan, PRD_01_06, `cu-platforms.yml` run, host test suite
+Outcome: one CU contract, three real backends, CI-proven journeys, public signed v0.0.5
+├── [v] W1 — cross-platform design + contract + compile gate
+│   evidence: run 41939696616, PRD_01_06, cu-platforms.yml
 ├── [_] W2 — native mechanisms for macOS and Linux
-│   invariant: dlopen/dlsym only, named refusal on missing library or
-│   permission, every claimed verb has a readback, no new dependency
-│   dependency: W1
-├── [_] W3 — per-OS real-desktop journeys
-│   invariant: one observation + one readback per OS, published JSON read by
-│   an independent script, `[?]` -> `[v]` only here
-│   dependency: W2, CI GUI sessions
-└── [_] W4 — version bump and signed release of the cross-platform cells
-    invariant: same W6 chain as 0.0.4, no unsigned Windows cells
-    dependency: W3
+│   invariant: dlopen/dlsym only, named refusal on missing library or grant,
+│   every claimed verb has a readback, zero new dependencies, six-cell pack green
+│   evidence: screen_linux.rs, screen_macos.rs, three-config cfg check,
+│   three-OS build + link
+├── [_] W3 — per-OS real-desktop journeys in CI
+│   invariant: JSON observation + independent reader, all three OS jobs green
+│   evidence: cu-journeys.yml run, cu-journey.json artifacts
+├── [_] W4 — 0.0.5 version bump and signed public Release
+│   invariant: pack -> candidate -> signing -> defender -> release, no unsigned
+│   Windows cells, post-publish court green, owner-view download verified
+│   evidence: run IDs + anonymous HTTP 200 + local re-hash
+└── [_] W5 — delivery record: plan/PRD/README/evidence updated to the truth
 ```
-
-## W1 delivery record (2026-11-05)
-
-Commits `2b1c865` (one backend per `target_os`, capability matrix, PNG encoder
-promotion, CI gate), `3c8c38a` (this plan, PRD 01.06, PRD/README sync),
-`684c2a5` (tests branch on the compiled capability). `cu-platforms.yml` run
-**41939696616** is green on all three OSes: full test suite, release link and
-the three-config cfg type-check (9/9 steps on each job). The matrix test prints
-what each cell actually compiled:
-
-| OS | qualified | declared matrix |
-|----|-----------|-----------------|
-| windows | `true` | 12/12 verbs implemented |
-| macos | `false` | 12/12 named refusals |
-| linux | `false` | 12/12 named refusals |
-
-First gate run **41939188579** failed on linux/macOS: two pre-existing
-named-target tests drive `CuHost` with a synthetic frame and were intercepted
-by the new platform admission step. Fixed by branching those tests on
-`platform_capabilities().supports("act:control")` instead of adding a
-test-only capability backdoor to production code. No production assertion was
-relaxed; the Windows path still runs the full named-target matrix.
-
-Host verification: `cargo test --offline` 72 passed / 3 ignored,
-`scripts/cu-cfg-check.py` green in macOS, Linux and fallback configurations,
-`yaml.safe_load` on the new workflow, `git diff --check` clean.
 
 ## Non-goals
 
 - `[no]` Wayland-native protocol, AT-SPI, macOS AX tree, UIA COM.
 - `[no]` any new crate, runtime, plugin host, bun/WASM/ujs embedding
-  (PRD 31's readiness gate stays BLOCKED).
-- `[no]` runtime backend selection or a second file per cell. One cell, one
-  backend, chosen at compile time.
-- `[no]` claiming `[v]` for a verb that only compiled. A `cargo check` green is
-  evidence of shape, not of a working desktop.
+  (PRD 31 readiness gate stays BLOCKED).
+- `[no]` runtime backend selection. One cell, one backend, chosen at compile time.
+- `[no]` claiming `[v]` for a verb that only compiled or only returned from an
+  API call. CI evidence is a readback, not a log line.
+- `[no]` re-publishing/overwriting v0.0.4 assets. 0.0.5 is a new tag.
+
+## Delivery record
+
+Filled in as each W closes, with run IDs and the owner-view acceptance result.

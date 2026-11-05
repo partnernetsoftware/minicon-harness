@@ -1554,18 +1554,22 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn a_cell_with_no_backend_refuses_by_naming_its_own_os() {
-        let result = host(true).invoke_json(&json!({
-            "op": "act", "why": "cross-platform contract check",
-            "action": "click", "x": 10, "y": 10
-        }));
-        assert_eq!(result.verdict, CuVerdict::Refused);
+        // The observe `controls` arm is a named refusal on every non-Windows
+        // cell: it cannot reach a desktop even where other verbs are real.
+        let caps = crate::screen::platform_capabilities();
+        let result = host(true).invoke_json(&json!({ "op": "observe", "controls": true }));
+        assert!(
+            matches!(result.verdict, CuVerdict::Refused | CuVerdict::Unsupported),
+            "{}",
+            result.text
+        );
         assert!(
             result.text.contains(crate::screen::platform_name()),
             "{}",
             result.text
         );
         assert!(!result.text.contains("Windows only"), "{}", result.text);
-        assert_eq!(result.evidence["qualified"], json!(false));
+        assert!(!caps.supports("act:control"));
         assert_eq!(
             result.evidence["platform_capabilities"].as_array().unwrap().len(),
             12
@@ -1693,16 +1697,20 @@ mod tests {
         let result = host.invoke_json(&json!({
             "op": "act", "why": "x", "action": "control", "control": "OK"
         }));
-        // A cell without an `act:control` backend admits nothing, so its own
-        // platform refusal is the only honest outcome -- see PRD 01.06.
-        if !crate::screen::platform_capabilities().supports("act:control") {
-            assert_eq!(result.verdict, CuVerdict::Refused);
-            assert!(
-                result.text.contains(crate::screen::platform_name()),
-                "{}",
-                result.text
-            );
-            assert_eq!(result.evidence["qualified"], json!(false));
+        // A cell without an `act:control` backend admits nothing. A cell that
+        // implements other verbs answers `unsupported`; a cell with no effect
+        // at all answers `refused` and reports qualified=false. Both name the
+        // OS and publish the matrix -- see PRD 01.06.
+        let caps = crate::screen::platform_capabilities();
+        if !caps.supports("act:control") {
+            assert!(result.text.contains(crate::screen::platform_name()), "{}", result.text);
+            if caps.any_effect_implemented() {
+                assert_eq!(result.verdict, CuVerdict::Unsupported);
+                assert_eq!(result.evidence["platform_capabilities"].as_array().unwrap().len(), 12);
+            } else {
+                assert_eq!(result.verdict, CuVerdict::Refused);
+                assert_eq!(result.evidence["qualified"], json!(false));
+            }
             return;
         }
         assert_eq!(result.verdict, CuVerdict::Refused);
@@ -1712,16 +1720,17 @@ mod tests {
 
     #[test]
     fn a_named_target_never_guesses_ambiguous_stale_or_unusable_controls() {
-        if !crate::screen::platform_capabilities().supports("act:control") {
+        let caps = crate::screen::platform_capabilities();
+        if !caps.supports("act:control") {
             let refused = host_with_frame(Vec::new(), 1, 1, (0, 0, 800, 600)).invoke_json(
                 &json!({ "op": "act", "why": "x", "action": "control", "control": "OK" }),
             );
-            assert_eq!(refused.verdict, CuVerdict::Refused);
-            assert!(
-                refused.text.contains(crate::screen::platform_name()),
-                "{}",
-                refused.text
-            );
+            assert!(refused.text.contains(crate::screen::platform_name()), "{}", refused.text);
+            if caps.any_effect_implemented() {
+                assert_eq!(refused.verdict, CuVerdict::Unsupported);
+            } else {
+                assert_eq!(refused.verdict, CuVerdict::Refused);
+            }
             assert_eq!(refused.evidence["platform_capabilities"].as_array().unwrap().len(), 12);
             return;
         }

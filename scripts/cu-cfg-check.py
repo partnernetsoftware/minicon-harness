@@ -19,6 +19,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src" / "screen.rs"
 CU = REPO / "src" / "cu.rs"
+# The macOS/Linux backends are separate files included with `#[path]`. Copy
+# them next to the rewritten screen.rs so every cfg configuration type-checks
+# the real backend source, not a stub.
+EXTRA = sorted((REPO / "src").glob("screen_*.rs"))
 DEPS = REPO / "target" / "debug" / "deps"
 
 # cfg(any()) disables, cfg(all()) enables. Exactly one `native` module must
@@ -68,6 +72,8 @@ def main() -> int:
             d.mkdir()
             (d / "screen.rs").write_text(text)
             (d / "cu.rs").write_text(cu)
+            for extra in EXTRA:
+                (d / extra.name).write_text(extra.read_text())
             (d / "lib.rs").write_text("pub mod screen;\npub mod cu;\n")
             proc = subprocess.run(
                 [

@@ -11,15 +11,19 @@
 //!
 //! Deliberately **no third-party crate and no link-time platform library**.
 //! Each `target_os` compiles exactly one `native` backend -- hand-written
-//! `user32`/`gdi32` FFI on Windows, and a declared capability matrix on macOS
-//! and Linux until their native mechanisms land
+//! `user32`/`gdi32` FFI on Windows, `CoreGraphics`/`CoreFoundation` via
+//! `dlopen` on macOS, and `X11`/`XTest` via `dlopen` on Linux
 //! (`plan/plan-0.0.5-cross-platform-cu.md`). The store-mode PNG encoder,
 //! bounds, downsample and readback rules are shared by all three: the harness
 //! ships as one auditable executable per cell, and the six cells are
 //! cross-compiled on a single runner with no foreign SDK to link against.
 //!
-//! Windows is the only backend that implements every verb today. Observation
-//! has two arms -- the pixel arm
+//! Windows implements every verb. Linux implements all verbs except the
+//! control arm; macOS deliberately leaves `act:focus` / `act:move` to the
+//! Accessibility API and reports them as named refusals. A missing library or
+//! a missing OS grant (Screen Recording / Input Monitoring) is a *named
+//! refusal*, never a black PNG or a silent no-op. Observation has two arms --
+//! the pixel arm
 //! (virtual-desktop/display geometry, window inventory, a PNG written under
 //! the task root) and, since 0.0.4, a **typed control arm** (child windows of
 //! one resolved window, with class-derived roles, text, rectangle and state;
@@ -2072,10 +2076,17 @@ mod native {
     pub use super::png;
 }
 
-/// One refusing backend per non-Windows target OS. W1 freezes the contract and
-/// the capability matrix; W2 replaces each `unsupported` with the real native
-/// mechanism. A backend that has not implemented a verb must never report an
-/// empty success, and must never be described as a different OS.
+/// Runtime `dlopen`/`dlsym` shared by the Darwin and Linux backends. Windows
+/// uses its import libraries and never compiles this module.
+#[cfg(not(windows))]
+#[path = "screen_dynlib.rs"]
+mod dynlib;
+
+/// One refusing backend per non-Windows target OS. W1 froze the contract and
+/// the capability matrix; W2 replaced macOS and Linux with real backends.
+/// This macro now serves only an OS outside the six-cell matrix. A backend
+/// that has not implemented a verb must never report an empty success, and
+/// must never be described as a different OS.
 #[cfg(not(windows))]
 macro_rules! refusing_backend {
     ($platform:expr, $hint:expr) => {
@@ -2164,22 +2175,12 @@ macro_rules! refusing_backend {
 }
 
 #[cfg(target_os = "macos")]
-mod native {
-    refusing_backend!(
-        "macos",
-        "CoreGraphics/CoreFoundation via runtime dynamic loading is the W2 mechanism; \
-         Screen Recording and Accessibility grants are named when missing"
-    );
-}
+#[path = "screen_macos.rs"]
+mod native;
 
 #[cfg(target_os = "linux")]
-mod native {
-    refusing_backend!(
-        "linux",
-        "X11/XTest via runtime dynamic loading is the W2 mechanism; a pure Wayland \
-         session with no XWayland has no supported backend"
-    );
-}
+#[path = "screen_linux.rs"]
+mod native;
 
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 mod native {
