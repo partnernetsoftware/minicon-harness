@@ -158,7 +158,8 @@ prd/
 ├── PRD_01_05_semantic_controls.md   [v] typed Win32 controls, named target
 ├── PRD_01_06_cross_platform_cu.md   [v] three real backends, capability matrix
 ├── PRD_01_07_interaction_closure.md [_] 0.0.6 actuation receipt contract
-├── PRD_01_08_computer_use_scope.md  this document: domain model + boundary
+├── PRD_01_08_computer_use_scope.md  domain model + resource boundary
+├── PRD_01_09_richer_actuation.md    [_] 0.0.7 path drag + two-axis scroll
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 

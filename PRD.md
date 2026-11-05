@@ -153,10 +153,10 @@ minicon-harness computer use
 │   ├── [v] B4 named semantic control: resolve + hover/press (Windows only)
 │   ├── [v] B5 actuation receipt: button, downs/ups, double, target, plus
 │   │        post-observe live session                 shipped in 0.0.6
-│   ├── [_] B6 multi-point drag path + held-key modifiers
-│   │        target 0.0.7 (OpenAI `drag.path[]`, `keys`)
-│   ├── [_] B7 two-axis scroll, explicit bounded wait
-│   │        target 0.0.7 (OpenAI `scroll_x/scroll_y`, `wait`)
+│   ├── [_] B6 multi-point drag path (0.0.7) + held-key modifiers (0.0.8+)
+│   │        OpenAI `drag.path[]`, `keys`; owner PRD 01.09
+│   ├── [_] B7 two-axis scroll (0.0.7) + explicit bounded wait (0.0.8+)
+│   │        OpenAI `scroll_x/scroll_y`, `wait`; owner PRD 01.09
 │   ├── [_] B8 batched `actions[]` with ordered receipts
 │   │        target 0.0.7+; needs its own admission/stale design
 │   └── [no] B9 browser-navigation buttons (`back`/`forward`/`wheel` as a
@@ -215,28 +215,33 @@ Two directions of the gap, kept separate on purpose:
   human-confirmation/safety-check policy. These are candidates, not debts:
   each needs its own PRD, gate and owner decision before it enters a version.
 
-## 0.0.7 frontier (chapter stub, not planned)
+## 0.0.7 frontier (planned, not started)
 
-Opened 2026-11-05 so the tree above has somewhere to put new work. **No plan,
-no version bump, no code and no `[v]` claim exists here.** A `[_]` is a
-chapter, **not** a lifted non-goal: anything marked `[no]` in an earlier
-frontier stays `[no]` until an owner decision lifts it and a version plan
-carries the gate. Candidate chapters, all `[_]`, with their unlock conditions:
+Planned 2026-11-05 **after `v0.0.6` was published**, per the owner's
+"plan the next version after each public release" loop. **No version bump,
+no code and no `[v]` claim exists here.** Direction: keep concentrating on
+computer use; harness-side capability work stays deferred. The plan is
+`plan/plan-0.0.7-richer-actuation.md`, the contract is
+`prd/PRD_01_09_richer_actuation.md`. A `[_]` is a chapter, **not** a lifted
+non-goal: anything marked `[no]` in an earlier frontier stays `[no]` until an
+owner decision lifts it and a version plan carries the gate.
 
 ```text
-0.0.7 — TBD (chapters only)
-├── [_] 0.7.1 image arm in the wire codec (A5, D2)
-│        unlock: budget, retention and model-visible PNG format decision
-├── [_] 0.7.2 safety checks and human confirmation (C5, C6)
-│        unlock: a policy PRD defining risk classes, who acknowledges,
-│        and how a refusal is recorded in evidence
-├── [_] 0.7.3 richer actuation (B6, B7, B8)
-│        unlock: 0.0.6 interaction closure green on three OSes
-├── [_] 0.7.4 accessibility trees (A4)
-│        unlock: OS grants and CI fixtures that can be accepted first-hand
-├── [_] 0.7.5 environment and grant disclosure (E3, E4)
-└── [_] 0.7.6 app-level effect evidence (F3)
-         unlock: side-effect-free echo-window fixtures on three OSes
+0.0.7 — richer actuation (planned)
+├── [_] 0.7.3 path drag + two-axis scroll (B6 half, B7 half)
+│        unlock MET: 0.0.6 interaction closure green on three OSes
+│        matrix stays 12/10/8/0; cu-abi 1.0; additive wire params only
+├── [_] held-key modifiers (B6 half)                deferred to 0.0.8+
+│        unlock: three-backend keyboard state machine + guaranteed release
+├── [_] explicit bounded wait (B7 half)             deferred to 0.0.8+
+│        unlock: a loop/budget decision (D4), not a desktop verb
+├── [_] batched actions[] (B8)                      deferred to 0.0.8+
+│        unlock: its own admission/stale design
+├── [_] 0.7.1 image arm (A5, D2)                    unlock: PNG budget/retention
+├── [_] 0.7.2 safety checks (C5, C6)                unlock: a policy PRD first
+├── [_] 0.7.4 accessibility trees (A4)               unlock: OS grants + fixtures
+├── [_] 0.7.5 environment/grant disclosure (E3, E4) unlock: disclose design
+└── [_] 0.7.6 app-level effect evidence (F3)        unlock: echo-window fixtures
 ```
 
 `[no]` carried forward from every earlier frontier: plugin host, permission
