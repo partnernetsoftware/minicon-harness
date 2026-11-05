@@ -203,6 +203,20 @@ pub fn capability(name: &str) -> Option<&'static CuCapability> {
     CAPABILITIES.iter().find(|entry| entry.name == name)
 }
 
+/// The compiled backend's capability matrix as typed evidence. It travels with
+/// every platform refusal and with `disclose`, so a caller can see exactly
+/// which verbs this cell implements instead of inferring it from the OS name.
+pub fn capability_matrix(caps: &crate::screen::PlatformCapabilities) -> Value {
+    Value::Array(
+        caps.rows()
+            .into_iter()
+            .map(|(name, implemented)| {
+                json!({ "capability": name, "implemented": implemented })
+            })
+            .collect(),
+    )
+}
+
 /// Action names without the `act:` prefix, in manifest order.
 pub fn act_names() -> Vec<&'static str> {
     CAPABILITIES
@@ -572,20 +586,75 @@ impl CuHost {
                 json!({ "grant": "denied" }),
             );
         }
-        // Platform qualification is a host fact, not a native surprise: an
-        // unqualified cell refuses by name before a device context exists.
-        if kind != CuKind::Disclose && !crate::screen::platform_qualified() {
+        // 3b. Platform capability is a host fact, not a native surprise. A
+        //     cell with no implemented effect refuses by naming its OS; a cell
+        //     that implements some verbs refuses only the missing ones by name.
+        let caps = crate::screen::platform_capabilities();
+        if kind != CuKind::Disclose && !caps.any_effect_implemented() {
             return self.result_with_state(
                 &mut state,
                 CuVerdict::Refused,
                 &capability,
                 format!(
-                    "screen: refused: computer use is not qualified on {} (v1 is Windows only); \
-                     a refusal is the honest answer, an empty observation would not be",
+                    "screen: refused: no computer-use capability is implemented on {}; disclose \
+                     reports this cell's capability matrix, and a refusal is the honest answer",
                     crate::screen::platform_name()
                 ),
-                json!({ "qualified": false, "platform": crate::screen::platform_name() }),
+                json!({
+                    "qualified": false,
+                    "platform": crate::screen::platform_name(),
+                    "platform_capabilities": capability_matrix(&caps),
+                }),
             );
+        }
+        if kind != CuKind::Disclose && !caps.supports(&capability) {
+            return self.result_with_state(
+                &mut state,
+                CuVerdict::Unsupported,
+                &capability,
+                format!(
+                    "cu: unsupported: capability {capability:?} is not implemented by the {} \
+                     backend; disclose reports the matrix; no effect was performed",
+                    crate::screen::platform_name()
+                ),
+                json!({
+                    "capability": capability,
+                    "platform": crate::screen::platform_name(),
+                    "platform_capabilities": capability_matrix(&caps),
+                }),
+            );
+        }
+        // `observe` has two optional arms that are separate capabilities: a
+        // backend may read geometry but have no pixel or control mechanism.
+        for (arm, implemented, requested) in [
+            (
+                "capture",
+                caps.capture,
+                matches!(&request.call, CuCall::Observe { capture: Some(_), .. }),
+            ),
+            (
+                "controls",
+                caps.controls,
+                matches!(&request.call, CuCall::Observe { controls: Some(_), .. }),
+            ),
+        ] {
+            if requested && !implemented {
+                return self.result_with_state(
+                    &mut state,
+                    CuVerdict::Unsupported,
+                    &capability,
+                    format!(
+                        "cu: unsupported: observe arm {arm:?} is not implemented by the {} \
+                         backend; no image or control scan was produced",
+                        crate::screen::platform_name()
+                    ),
+                    json!({
+                        "observe_arm": arm,
+                        "platform": crate::screen::platform_name(),
+                        "platform_capabilities": capability_matrix(&caps),
+                    }),
+                );
+            }
         }
         // 4. Age: a call reasoned from a superseded observation is never
         //    replayed against the desktop.
@@ -1014,6 +1083,9 @@ impl CuHost {
                 params.join(",")
             ));
         }
+        for (name, implemented) in crate::screen::platform_capabilities().rows() {
+            text.push_str(&format!("\nplatform_verb={name} implemented={implemented}"));
+        }
         for receipt in state.receipts.iter().rev().take(CU_MAX_RECEIPTS) {
             text.push('\n');
             text.push_str(&receipt.to_line());
@@ -1059,6 +1131,8 @@ impl CuHost {
             "caller_minor": abi_minor,
             "minor_degraded": abi_minor > CU_ABI_MINOR,
             "qualified": crate::screen::platform_qualified(),
+            "platform": crate::screen::platform_name(),
+            "platform_capabilities": capability_matrix(&crate::screen::platform_capabilities()),
             "grant": if self.tool.enabled() { "granted" } else { "denied" },
             "generation": state.generation,
             "frame": state.frame.as_ref().map(CuFrame::to_json),
@@ -1423,6 +1497,79 @@ mod tests {
             as_of: None,
             call,
         }
+    }
+
+    #[test]
+    fn platform_capability_matrix_is_disclosed_and_admits_by_name() {
+        let caps = crate::screen::platform_capabilities();
+        let rows = caps.rows();
+        // CI runs this test on linux, macOS and Windows; the printed matrix is
+        // the per-OS evidence that the compiled backend declared its own verbs.
+        eprintln!(
+            "cu platform={} qualified={} matrix={:?}",
+            crate::screen::platform_name(),
+            caps.any_effect_implemented(),
+            rows
+        );
+        assert_eq!(rows.len(), 12, "one row per implemented-or-not verb");
+        for entry in CAPABILITIES {
+            if entry.kind == CuKind::Disclose {
+                continue;
+            }
+            let row = rows
+                .iter()
+                .find(|(name, _)| *name == entry.name)
+                .unwrap_or_else(|| panic!("{} has no platform matrix row", entry.name));
+            assert_eq!(
+                caps.supports(entry.name),
+                row.1,
+                "{} admission disagrees with the disclosed matrix",
+                entry.name
+            );
+        }
+        assert!(caps.supports("disclose"), "disclosure is always available");
+        assert!(!caps.supports("act:invented"));
+
+        let disclosed = host(false).invoke_json(&json!({ "op": "disclose" }));
+        assert_eq!(disclosed.verdict, CuVerdict::Performed);
+        assert_eq!(
+            disclosed.evidence["platform"],
+            json!(crate::screen::platform_name())
+        );
+        assert_eq!(
+            disclosed.evidence["qualified"],
+            json!(caps.any_effect_implemented())
+        );
+        assert_eq!(
+            disclosed.evidence["platform_capabilities"].as_array().unwrap().len(),
+            rows.len()
+        );
+        assert!(
+            disclosed.text.contains("platform_verb=observe implemented="),
+            "{}",
+            disclosed.text
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn a_cell_with_no_backend_refuses_by_naming_its_own_os() {
+        let result = host(true).invoke_json(&json!({
+            "op": "act", "why": "cross-platform contract check",
+            "action": "click", "x": 10, "y": 10
+        }));
+        assert_eq!(result.verdict, CuVerdict::Refused);
+        assert!(
+            result.text.contains(crate::screen::platform_name()),
+            "{}",
+            result.text
+        );
+        assert!(!result.text.contains("Windows only"), "{}", result.text);
+        assert_eq!(result.evidence["qualified"], json!(false));
+        assert_eq!(
+            result.evidence["platform_capabilities"].as_array().unwrap().len(),
+            12
+        );
     }
 
     /// A host with a synthetic frame, so every named-target refusal can be

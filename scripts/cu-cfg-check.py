@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Whole-file rustc type-check of every computer-use backend configuration.
+
+Six cells are cross-compiled on one macOS runner (zig for Linux, xwin for
+Windows). A foreign SDK is not available on every runner, so this gate
+cfg-rewrites `src/screen.rs` into a temporary crate and type-checks it with
+the host rustc, once per backend. It proves the backend contract cannot drift
+between macOS, Linux, an unlisted OS and the Windows implementation, without
+pretending a compile check qualifies a desktop journey.
+
+Run after `cargo test --locked` (the serde_json rlib must exist).
+"""
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+SRC = REPO / "src" / "screen.rs"
+CU = REPO / "src" / "cu.rs"
+DEPS = REPO / "target" / "debug" / "deps"
+
+# cfg(any()) disables, cfg(all()) enables. Exactly one `native` module must
+# survive each rewrite; the macro is enabled only for non-Windows configs.
+CONFIGS = {
+    "macos": {
+        '#[cfg(windows)]': '#[cfg(any())]',
+        '#[cfg(not(windows))]': '#[cfg(all())]',
+        '#[cfg(target_os = "macos")]': '#[cfg(all())]',
+        '#[cfg(target_os = "linux")]': '#[cfg(any())]',
+        '#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]': '#[cfg(any())]',
+    },
+    "linux": {
+        '#[cfg(windows)]': '#[cfg(any())]',
+        '#[cfg(not(windows))]': '#[cfg(all())]',
+        '#[cfg(target_os = "macos")]': '#[cfg(any())]',
+        '#[cfg(target_os = "linux")]': '#[cfg(all())]',
+        '#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]': '#[cfg(any())]',
+    },
+    "other": {
+        '#[cfg(windows)]': '#[cfg(any())]',
+        '#[cfg(not(windows))]': '#[cfg(all())]',
+        '#[cfg(target_os = "macos")]': '#[cfg(any())]',
+        '#[cfg(target_os = "linux")]': '#[cfg(any())]',
+        '#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]': '#[cfg(all())]',
+    },
+}
+
+
+def main() -> int:
+    screen = SRC.read_text()
+    cu = CU.read_text()
+    rlibs = sorted(DEPS.glob("libserde_json-*.rlib"))
+    if not rlibs:
+        print("no serde_json rlib; run cargo test --locked first", file=sys.stderr)
+        return 2
+    root = Path(tempfile.mkdtemp(prefix="mh-cfgcheck-"))
+    try:
+        for name, rewrites in CONFIGS.items():
+            text = screen
+            for old, new in rewrites.items():
+                if old not in text:
+                    print(f"{name}: missing cfg marker {old}", file=sys.stderr)
+                    return 2
+                text = text.replace(old, new)
+            d = root / name
+            d.mkdir()
+            (d / "screen.rs").write_text(text)
+            (d / "cu.rs").write_text(cu)
+            (d / "lib.rs").write_text("pub mod screen;\npub mod cu;\n")
+            proc = subprocess.run(
+                [
+                    "rustc", "--crate-type", "lib", "--edition", "2021",
+                    "--emit", "metadata", "-o", str(d / "out.rmeta"),
+                    "--cap-lints", "allow",
+                    "--extern", f"serde_json={rlibs[0]}",
+                    "-L", f"dependency={DEPS}",
+                    str(d / "lib.rs"),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode:
+                print(f"{name}: backend type-check FAILED\n{proc.stderr[:4000]}", file=sys.stderr)
+                return 1
+            print(f"{name}: backend type-check ok")
+        print("three computer-use backend configurations type-check")
+        return 0
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

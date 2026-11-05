@@ -262,10 +262,13 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                                 a generation number; op=act performs one named operation with \
                                 a cursor/window/foreground readback (action=control resolves a \
                                 control by name from the last observe); \
-                                op=disclose reports the ABI, grant, capability manifest and \
-                                evidence receipts. Pin `as_of` to the generation you reasoned \
-                                from: a stale generation is refused, never replayed. Only \
-                                granted when the caller passed --allow-screen.",
+                                op=disclose reports the ABI, the compiled platform backend, \
+                                its per-verb capability matrix, grant, capability manifest and \
+                                evidence receipts. A verb this cell has not implemented is \
+                                refused by name, never as an empty success. Pin `as_of` to the \
+                                generation you reasoned from: a stale generation is refused, \
+                                never replayed. Only granted when the caller passed \
+                                --allow-screen.",
                 "parameters": {
                     "type": "object",
                     "properties": {

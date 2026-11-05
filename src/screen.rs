@@ -6,13 +6,20 @@
 //! (`minicon/prd/PRD_02_38_computer_use.md` CU0..CU2 and
 //! `agenterm/docs/cu-gaps-analysis.md`): observation and actuation are
 //! separate target-bound choices, an operation names its target explicitly, and
-//! an unqualified platform refuses by name instead of pretending to work.
+//! a platform that has not implemented a verb refuses it by name instead of
+//! pretending to work.
 //!
-//! Deliberately **no third-party crate**. The Windows path is hand-written FFI
-//! to `user32`/`gdi32` and a store-mode PNG encoder, because the harness ships
-//! as one auditable executable per cell.
+//! Deliberately **no third-party crate and no link-time platform library**.
+//! Each `target_os` compiles exactly one `native` backend -- hand-written
+//! `user32`/`gdi32` FFI on Windows, and a declared capability matrix on macOS
+//! and Linux until their native mechanisms land
+//! (`plan/plan-0.0.5-cross-platform-cu.md`). The store-mode PNG encoder,
+//! bounds, downsample and readback rules are shared by all three: the harness
+//! ships as one auditable executable per cell, and the six cells are
+//! cross-compiled on a single runner with no foreign SDK to link against.
 //!
-//! v1 qualification: Windows. Observation has two arms -- the pixel arm
+//! Windows is the only backend that implements every verb today. Observation
+//! has two arms -- the pixel arm
 //! (virtual-desktop/display geometry, window inventory, a PNG written under
 //! the task root) and, since 0.0.4, a **typed control arm** (child windows of
 //! one resolved window, with class-derived roles, text, rectangle and state;
@@ -410,10 +417,11 @@ impl ScreenTool {
                     .to_owned(),
             );
         }
-        if !native::QUALIFIED {
+        if !platform_qualified() {
             return Err(format!(
-                "screen: refused: computer use is not qualified on this platform ({}); the tool \
-                 refuses instead of reporting an empty success",
+                "screen: refused: the {} backend implements no computer-use capability; disclose \
+                 reports its capability matrix, and the tool refuses instead of reporting an \
+                 empty success",
                 native::PLATFORM
             ));
         }
@@ -496,7 +504,7 @@ impl ScreenTool {
         };
         Ok(ScreenSnapshot {
             platform: native::PLATFORM.to_owned(),
-            qualified: native::QUALIFIED,
+            qualified: platform_qualified(),
             desktop: virtual_screen,
             displays,
             windows,
@@ -917,15 +925,180 @@ fn foreground_evidence(before: Option<String>, after: Option<String>) -> Result<
     }
 }
 
+/// What this compiled cell actually implements. A capability is a declared
+/// fact of the backend, never a guess: the CU host admits a verb only when the
+/// matching flag is set, and every other verb is a named refusal. That is what
+/// makes a partially implemented OS honest instead of "Windows only".
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PlatformCapabilities {
+    pub observe: bool,
+    pub controls: bool,
+    pub capture: bool,
+    pub act_focus: bool,
+    pub act_move: bool,
+    pub act_click: bool,
+    pub act_hover: bool,
+    pub act_drag: bool,
+    pub act_type: bool,
+    pub act_key: bool,
+    pub act_scroll: bool,
+    pub act_control: bool,
+}
+
+impl PlatformCapabilities {
+    pub const NONE: Self = Self {
+        observe: false, controls: false, capture: false,
+        act_focus: false, act_move: false, act_click: false, act_hover: false,
+        act_drag: false, act_type: false, act_key: false, act_scroll: false,
+        act_control: false,
+    };
+    pub const ALL: Self = Self {
+        observe: true, controls: true, capture: true,
+        act_focus: true, act_move: true, act_click: true, act_hover: true,
+        act_drag: true, act_type: true, act_key: true, act_scroll: true,
+        act_control: true,
+    };
+
+    /// Stable matrix for `disclose` evidence and tests.
+    pub fn rows(&self) -> Vec<(&'static str, bool)> {
+        vec![
+            ("observe", self.observe),
+            ("controls", self.controls),
+            ("capture", self.capture),
+            ("act:focus", self.act_focus),
+            ("act:move", self.act_move),
+            ("act:click", self.act_click),
+            ("act:hover", self.act_hover),
+            ("act:drag", self.act_drag),
+            ("act:type", self.act_type),
+            ("act:key", self.act_key),
+            ("act:scroll", self.act_scroll),
+            ("act:control", self.act_control),
+        ]
+    }
+
+    /// Admission by the exact names in `cu::CAPABILITIES`.
+    pub fn supports(&self, capability: &str) -> bool {
+        match capability {
+            "disclose" => true,
+            "observe" => self.observe,
+            "act:focus" => self.act_focus,
+            "act:move" => self.act_move,
+            "act:click" => self.act_click,
+            "act:hover" => self.act_hover,
+            "act:drag" => self.act_drag,
+            "act:type" => self.act_type,
+            "act:key" => self.act_key,
+            "act:scroll" => self.act_scroll,
+            "act:control" => self.act_control,
+            _ => false,
+        }
+    }
+
+    pub fn any_effect_implemented(&self) -> bool {
+        self.rows().iter().any(|(_, implemented)| *implemented)
+    }
+}
+
 /// Contract-level platform facts, readable by the CU host without going
-/// through a native effect. An unqualified cell reports `false` here rather
-/// than being described as Windows.
+/// through a native effect. Qualification is derived from the matrix, so an OS
+/// with no implemented effect reports `false` instead of being called Windows.
 pub fn platform_qualified() -> bool {
-    native::QUALIFIED
+    native::CAPABILITIES.any_effect_implemented()
+}
+
+pub fn platform_capabilities() -> PlatformCapabilities {
+    native::CAPABILITIES
 }
 
 pub fn platform_name() -> &'static str {
     native::PLATFORM
+}
+
+pub mod png {
+    use super::Captured;
+
+    pub fn encode_rgb(bgra: &[u8], width: u32, height: u32) -> Vec<u8> {
+        // Filter byte 0 (None) plus RGB triples, which is what the raw
+        // deflate payload below carries.
+        let stride = width as usize * 3 + 1;
+        let mut raw = Vec::with_capacity(stride * height as usize);
+        for row in 0..height as usize {
+            raw.push(0);
+            let base = row * width as usize * 4;
+            for column in 0..width as usize {
+                let pixel = base + column * 4;
+                raw.push(bgra[pixel + 2]);
+                raw.push(bgra[pixel + 1]);
+                raw.push(bgra[pixel]);
+            }
+        }
+        let mut out = Vec::with_capacity(raw.len() + raw.len() / 65535 * 5 + 64);
+        out.extend_from_slice(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
+        let mut header = Vec::with_capacity(13);
+        header.extend_from_slice(&width.to_be_bytes());
+        header.extend_from_slice(&height.to_be_bytes());
+        header.extend_from_slice(&[8, 2, 0, 0, 0]);
+        chunk(&mut out, b"IHDR", &header);
+        chunk(&mut out, b"IDAT", &zlib_store(&raw));
+        chunk(&mut out, b"IEND", &[]);
+        out
+    }
+
+    fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], payload: &[u8]) {
+        out.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        out.extend_from_slice(kind);
+        out.extend_from_slice(payload);
+        let mut crc_input = Vec::with_capacity(4 + payload.len());
+        crc_input.extend_from_slice(kind);
+        crc_input.extend_from_slice(payload);
+        out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
+    }
+
+    /// zlib wrapper around stored (uncompressed) deflate blocks.
+    fn zlib_store(raw: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(raw.len() + raw.len() / 65535 * 5 + 16);
+        out.extend_from_slice(&[0x78, 0x01]);
+        let mut offset = 0usize;
+        if raw.is_empty() {
+            out.extend_from_slice(&[0x01, 0x00, 0x00, 0xFF, 0xFF]);
+        }
+        while offset < raw.len() {
+            let length = (raw.len() - offset).min(65535);
+            let final_block = offset + length == raw.len();
+            out.push(if final_block { 0x01 } else { 0x00 });
+            out.extend_from_slice(&(length as u16).to_le_bytes());
+            out.extend_from_slice(&(!(length as u16)).to_le_bytes());
+            out.extend_from_slice(&raw[offset..offset + length]);
+            offset += length;
+        }
+        out.extend_from_slice(&adler32(raw).to_be_bytes());
+        out
+    }
+
+    fn adler32(data: &[u8]) -> u32 {
+        let (mut a, mut b) = (1u32, 0u32);
+        for byte in data {
+            a = (a + *byte as u32) % 65521;
+            b = (b + a) % 65521;
+        }
+        (b << 16) | a
+    }
+
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for byte in data {
+            crc ^= *byte as u32;
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+
+    #[allow(dead_code)]
+    fn _type_check(_: Captured) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -938,12 +1111,12 @@ mod native {
     //! the harness process talks to the desktop and exits.
 
     use super::{
-        control_role, Captured, ClickButton, ControlInfo, WindowInfo,
+        control_role, Captured, ClickButton, ControlInfo, PlatformCapabilities, WindowInfo,
         SCREEN_TOOL_CONTROL_TIMEOUT_MS, SCREEN_TOOL_MAX_CONTROLS, SCREEN_TOOL_MAX_CONTROL_TEXT,
     };
     use std::ffi::c_void;
 
-    pub const QUALIFIED: bool = true;
+    pub const CAPABILITIES: PlatformCapabilities = PlatformCapabilities::ALL;
     pub const PLATFORM: &str = "windows";
 
     type Hwnd = *mut c_void;
@@ -1896,211 +2069,124 @@ mod native {
 
     /// Store-mode PNG: no compression, so no compressor has to be audited or
     /// linked. A capture is a local artifact; its size is bounded elsewhere.
-    pub mod png {
-        use super::Captured;
-
-        pub fn encode_rgb(bgra: &[u8], width: u32, height: u32) -> Vec<u8> {
-            // Filter byte 0 (None) plus RGB triples, which is what the raw
-            // deflate payload below carries.
-            let stride = width as usize * 3 + 1;
-            let mut raw = Vec::with_capacity(stride * height as usize);
-            for row in 0..height as usize {
-                raw.push(0);
-                let base = row * width as usize * 4;
-                for column in 0..width as usize {
-                    let pixel = base + column * 4;
-                    raw.push(bgra[pixel + 2]);
-                    raw.push(bgra[pixel + 1]);
-                    raw.push(bgra[pixel]);
-                }
-            }
-            let mut out = Vec::with_capacity(raw.len() + raw.len() / 65535 * 5 + 64);
-            out.extend_from_slice(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
-            let mut header = Vec::with_capacity(13);
-            header.extend_from_slice(&width.to_be_bytes());
-            header.extend_from_slice(&height.to_be_bytes());
-            header.extend_from_slice(&[8, 2, 0, 0, 0]);
-            chunk(&mut out, b"IHDR", &header);
-            chunk(&mut out, b"IDAT", &zlib_store(&raw));
-            chunk(&mut out, b"IEND", &[]);
-            out
-        }
-
-        fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], payload: &[u8]) {
-            out.extend_from_slice(&(payload.len() as u32).to_be_bytes());
-            out.extend_from_slice(kind);
-            out.extend_from_slice(payload);
-            let mut crc_input = Vec::with_capacity(4 + payload.len());
-            crc_input.extend_from_slice(kind);
-            crc_input.extend_from_slice(payload);
-            out.extend_from_slice(&crc32(&crc_input).to_be_bytes());
-        }
-
-        /// zlib wrapper around stored (uncompressed) deflate blocks.
-        fn zlib_store(raw: &[u8]) -> Vec<u8> {
-            let mut out = Vec::with_capacity(raw.len() + raw.len() / 65535 * 5 + 16);
-            out.extend_from_slice(&[0x78, 0x01]);
-            let mut offset = 0usize;
-            if raw.is_empty() {
-                out.extend_from_slice(&[0x01, 0x00, 0x00, 0xFF, 0xFF]);
-            }
-            while offset < raw.len() {
-                let length = (raw.len() - offset).min(65535);
-                let final_block = offset + length == raw.len();
-                out.push(if final_block { 0x01 } else { 0x00 });
-                out.extend_from_slice(&(length as u16).to_le_bytes());
-                out.extend_from_slice(&(!(length as u16)).to_le_bytes());
-                out.extend_from_slice(&raw[offset..offset + length]);
-                offset += length;
-            }
-            out.extend_from_slice(&adler32(raw).to_be_bytes());
-            out
-        }
-
-        fn adler32(data: &[u8]) -> u32 {
-            let (mut a, mut b) = (1u32, 0u32);
-            for byte in data {
-                a = (a + *byte as u32) % 65521;
-                b = (b + a) % 65521;
-            }
-            (b << 16) | a
-        }
-
-        fn crc32(data: &[u8]) -> u32 {
-            let mut crc = 0xFFFF_FFFFu32;
-            for byte in data {
-                crc ^= *byte as u32;
-                for _ in 0..8 {
-                    let mask = (crc & 1).wrapping_neg();
-                    crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
-                }
-            }
-            !crc
-        }
-
-        #[allow(dead_code)]
-        fn _type_check(_: Captured) {}
-    }
+    pub use super::png;
 }
 
+/// One refusing backend per non-Windows target OS. W1 freezes the contract and
+/// the capability matrix; W2 replaces each `unsupported` with the real native
+/// mechanism. A backend that has not implemented a verb must never report an
+/// empty success, and must never be described as a different OS.
 #[cfg(not(windows))]
+macro_rules! refusing_backend {
+    ($platform:expr, $hint:expr) => {
+        use super::{
+            Captured, ClickButton, ControlInfo, DisplayInfo, PlatformCapabilities, WindowInfo,
+        };
+
+        pub const PLATFORM: &str = $platform;
+        pub const CAPABILITIES: PlatformCapabilities = PlatformCapabilities::NONE;
+
+        fn unsupported(verb: &str) -> String {
+            format!(
+                "cu: unsupported: {verb} is not implemented by the {PLATFORM} backend; \
+                 disclose reports this cell's capability matrix. {}. No effect was performed.",
+                $hint
+            )
+        }
+
+        pub fn windows() -> Result<Vec<WindowInfo>, String> {
+            Err(unsupported("observe windows"))
+        }
+        pub fn virtual_screen() -> Result<(i32, i32, i32, i32), String> {
+            Err(unsupported("observe virtual screen"))
+        }
+        pub fn displays() -> Result<Vec<DisplayInfo>, String> {
+            Err(unsupported("observe displays"))
+        }
+        pub fn foreground_title() -> Option<String> {
+            None
+        }
+        pub fn controls(_handle: u64) -> Result<(Vec<ControlInfo>, bool), String> {
+            Err(unsupported("observe controls"))
+        }
+        pub fn handle_is_live(_handle: u64, _title: &str) -> Result<(), String> {
+            Err(unsupported("window liveness"))
+        }
+        pub fn place_pointer(_x: i32, _y: i32) -> Result<(i32, i32), String> {
+            Err(unsupported("act:hover"))
+        }
+        pub fn drag(
+            _x: i32, _y: i32, _to_x: i32, _to_y: i32, _button: ClickButton,
+        ) -> Result<(i32, i32), String> {
+            Err(unsupported("act:drag"))
+        }
+        pub fn find(_title: &str) -> Result<WindowInfo, String> {
+            Err(unsupported("act:focus"))
+        }
+        pub fn focus(_handle: u64) -> Result<(), String> {
+            Err(unsupported("act:focus"))
+        }
+        pub fn move_window(_h: u64, _x: i32, _y: i32, _w: i32, _h2: i32) -> Result<(), String> {
+            Err(unsupported("act:move"))
+        }
+        pub fn click(
+            _x: i32, _y: i32, _b: ClickButton, _d: bool,
+        ) -> Result<(i32, i32), String> {
+            Err(unsupported("act:click"))
+        }
+        pub fn scroll(_x: i32, _y: i32, _delta: i32) -> Result<(i32, i32), String> {
+            Err(unsupported("act:scroll"))
+        }
+        pub fn type_text(_text: &str) -> Result<(), String> {
+            Err(unsupported("act:type"))
+        }
+        pub fn press_key(_combo: &str) -> Result<(), String> {
+            Err(unsupported("act:key"))
+        }
+        pub fn capture_desktop(_scale: u32) -> Result<Captured, String> {
+            Err(unsupported("capture desktop"))
+        }
+        pub fn capture_window(_handle: u64, _scale: u32) -> Result<Captured, String> {
+            Err(unsupported("capture window"))
+        }
+        pub fn capture_region(
+            _x: i32, _y: i32, _width: i32, _height: i32, _scale: u32,
+        ) -> Result<Captured, String> {
+            Err(unsupported("capture region"))
+        }
+        pub fn now_millis() -> u128 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis())
+                .unwrap_or(0)
+        }
+    };
+}
+
+#[cfg(target_os = "macos")]
 mod native {
-    //! Every other platform refuses by name. A path that was never qualified is
-    //! reported as unqualified, never as an empty success -- the CU0 safe
-    //! failure the sibling PRDs require.
+    refusing_backend!(
+        "macos",
+        "CoreGraphics/CoreFoundation via runtime dynamic loading is the W2 mechanism; \
+         Screen Recording and Accessibility grants are named when missing"
+    );
+}
 
-    use super::{Captured, ClickButton, ControlInfo, DisplayInfo, WindowInfo};
-    use std::path::PathBuf;
+#[cfg(target_os = "linux")]
+mod native {
+    refusing_backend!(
+        "linux",
+        "X11/XTest via runtime dynamic loading is the W2 mechanism; a pure Wayland \
+         session with no XWayland has no supported backend"
+    );
+}
 
-    pub const QUALIFIED: bool = false;
-    pub const PLATFORM: &str = std::env::consts::OS;
-
-    pub fn windows() -> Result<Vec<WindowInfo>, String> {
-        Err(unqualified())
-    }
-
-    pub fn virtual_screen() -> Result<(i32, i32, i32, i32), String> {
-        Err(unqualified())
-    }
-
-    pub fn displays() -> Result<Vec<DisplayInfo>, String> {
-        Err(unqualified())
-    }
-
-    pub fn foreground_title() -> Option<String> {
-        None
-    }
-
-    pub fn controls(_handle: u64) -> Result<(Vec<ControlInfo>, bool), String> {
-        Err(unqualified())
-    }
-
-    pub fn handle_is_live(_handle: u64, _title: &str) -> Result<(), String> {
-        Err(unqualified())
-    }
-
-    pub fn place_pointer(_x: i32, _y: i32) -> Result<(i32, i32), String> {
-        Err(unqualified())
-    }
-
-    pub fn drag(
-        _x: i32,
-        _y: i32,
-        _to_x: i32,
-        _to_y: i32,
-        _button: ClickButton,
-    ) -> Result<(i32, i32), String> {
-        Err(unqualified())
-    }
-
-    pub fn find(_title: &str) -> Result<WindowInfo, String> {
-        Err(unqualified())
-    }
-
-    pub fn focus(_handle: u64) -> Result<(), String> {
-        Err(unqualified())
-    }
-
-    pub fn move_window(_h: u64, _x: i32, _y: i32, _w: i32, _h2: i32) -> Result<(), String> {
-        Err(unqualified())
-    }
-
-    pub fn click(
-        _x: i32,
-        _y: i32,
-        _b: ClickButton,
-        _d: bool,
-    ) -> Result<(i32, i32), String> {
-        Err(unqualified())
-    }
-
-    pub fn scroll(_x: i32, _y: i32, _delta: i32) -> Result<(i32, i32), String> {
-        Err(unqualified())
-    }
-
-    pub fn type_text(_text: &str) -> Result<(), String> {
-        Err(unqualified())
-    }
-
-    pub fn press_key(_combo: &str) -> Result<(), String> {
-        Err(unqualified())
-    }
-
-    pub fn capture_desktop(_scale: u32) -> Result<Captured, String> {
-        Err(unqualified())
-    }
-
-    pub fn capture_window(_handle: u64, _scale: u32) -> Result<Captured, String> {
-        Err(unqualified())
-    }
-
-    pub fn capture_region(
-        _x: i32,
-        _y: i32,
-        _width: i32,
-        _height: i32,
-        _scale: u32,
-    ) -> Result<Captured, String> {
-        Err(unqualified())
-    }
-
-    pub fn now_millis() -> u128 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_millis())
-            .unwrap_or(0)
-    }
-
-    #[allow(dead_code)]
-    fn _type_check(_: PathBuf) {}
-
-    fn unqualified() -> String {
-        format!(
-            "screen: refused: computer use is not qualified on {} (v1 is Windows only); a \
-             refusal is the honest answer, an empty observation would not be",
-            PLATFORM
-        )
-    }
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+mod native {
+    refusing_backend!(
+        std::env::consts::OS,
+        "this target has no computer-use backend in the six-cell matrix"
+    );
 }
 
 #[cfg(test)]
@@ -2211,7 +2297,7 @@ mod tests {
         let text = "x".repeat(SCREEN_TOOL_MAX_TYPE_CHARS + 1);
         // Reaches the bound check before the platform is consulted, so the
         // refusal is the same on every host.
-        if native::QUALIFIED {
+        if platform_qualified() {
             let error = tool.act(Act::Type { text: &text }).unwrap_err();
             assert!(error.contains("over the type bound"), "{error}");
         }
