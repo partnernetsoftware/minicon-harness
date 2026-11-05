@@ -94,6 +94,29 @@ minicon-harness — one-file bounded agent worker
   recompiles the worker against cosmopolitan libc, and cells are never
   rebuilt on a test runner.
 
+## 0.0.6 frontier (planned, not started)
+
+[_] Interaction closure. 0.0.5 made observation and pointer movement real on
+three OSes; it never drove `press=true`, `button=middle`, `button=right` or
+`double=true` in a CI journey, and a successful click is currently evidenced
+only by a pointer coordinate. `plan/plan-0.0.6-interaction-closure.md` is the
+plan and `prd/PRD_01_07_interaction_closure.md` is the contract: a typed
+**actuation receipt** (`button`, `downs`, `ups`, `double`, `target`) in
+`evidence`, three-OS CI journeys for the side-effecting variants, a live
+follow-up `observe` with a newer generation, and a public signed v0.0.6 built
+by the same chain. The receipt proves a real button event was dispatched, not
+that the target application's business action ran. `cu-abi 1.0`, the wire
+inputs and the capability matrix (windows 12/12, linux 10/12, macos 8/12) are
+unchanged.
+
+[no] AX / AT-SPI / UIA trees and app-level state-change evidence stay out of
+0.0.6: a GitHub hosted runner cannot self-grant macOS Accessibility, and the
+Xvfb fixture has no AT-SPI bus or ATK bridge, so neither could be accepted
+under the "walk the last step yourself" rule. Their unlock conditions, the
+PRD 31 readiness gate (still BLOCKED), and the 0.0.5 release invariants that
+must not regress are recorded in the plan. No source, version or Release
+change accompanies this plan; the tree is still `0.0.5`.
+
 ## 0.0.5 frontier (shipped as a public signed Release)
 
 [v] Computer use is no longer a Windows implementation plus one refusal stub.
