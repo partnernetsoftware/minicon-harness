@@ -171,7 +171,7 @@ desktop geometry named.
 | --- | --- | --- |
 | `[v]` typed control observation | a text-only model can now read a Win32 child control's label, class-derived role, text, rect and state, and address it by name | delivered in 0.0.4 as `prd/PRD_01_05_semantic_controls.md` via plain `user32` FFI -- the third route that keeps zero dependencies and one file per cell |
 | `[-]` no UIA accessibility tree | roles are class-derived heuristics; no value patterns, automation peers or text ranges, and self-drawn UIs report zero controls | still open; the 0.0.4 route is deliberately smaller, and the observation names its `win32-class` basis and any empty result |
-| `[_]` macOS/Linux native mechanisms | the two cells each have their own backend module, a declared capability matrix and named per-verb refusals instead of one Windows-only stub; no desktop effect is implemented on them yet | `prd/PRD_01_06_cross_platform_cu.md` W2/W3: runtime-loaded mechanisms, then one journey per OS before any verb is claimed |
+| `[v]` macOS/Linux native mechanisms | 0.0.5 shipped real CG/CF and X11/XTest backends with runtime symbol resolution; three-OS CI journeys drove real observation and actuation. The remaining false matrix cells are named refusals | `prd/PRD_01_06_cross_platform_cu.md` owns the per-cell unlock conditions |
 | `[-]` no vision input path | a capture is a local artifact; the model reads its path, not its pixels | the wire codec is text-only by design; an image arm is a separate decision |
 | `[v]` capture retention | -- | newest 12 tool-produced PNGs are kept per root; only names the tool composes are considered, other files are never touched |
 | `[_]` pointer-path qualification for drag/middle | hover and the shared pointer readback are qualified on a real desktop; drag and middle-button press are not yet exercised against one | add them to the ignored real-desktop journey |
@@ -192,6 +192,8 @@ is delivered as `PRD_01_04` (`src/cu.rs`), so a later dynamic caller binds to
 the ABI rather than to this file. 0.0.4 then added the **semantic arm** --
 typed child controls and one named-target action -- as `PRD_01_05`, without
 adding a dependency or a permission layer. The remaining ordering from the gap
-table is: a real UIA tree (still a stated limitation), per-OS qualification,
-then an image arm in the wire codec. The a11y A/B decision is no longer
-blocking: the third route is implemented and qualified on Windows.
+table is: a real a11y tree (UIA / AX / AT-SPI, still a stated limitation with
+per-cell unlock conditions in `PRD_01_06`), then an image arm in the wire
+codec. Per-OS qualification shipped in 0.0.5; the a11y A/B decision is no
+longer blocking, because the third route is implemented and qualified on
+Windows.

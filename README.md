@@ -54,8 +54,13 @@ dependency.
   (allow-listed argv execution, no shell).
 - `src/screen.rs` -- `ScreenTool`: display/window observation, a typed child
   control inventory, store-mode PNG capture with box downsampling (hand-written
-  encoder), and input/window operations through hand-written Windows FFI. No
-  crate: `user32`/`gdi32` bindings only.
+  encoder), the shared bounds/readback/actuation-receipt layer, and the
+  compiled-cell backend selection. No crate.
+- `src/screen_linux.rs`, `src/screen_macos.rs`, `src/screen_dynlib.rs` -- the
+  three native backends: Win32 `user32`/`gdi32` in `screen.rs`, macOS
+  `CoreGraphics`/`CoreFoundation` and Linux `X11`/`XTest` resolved at runtime
+  with `dlopen`/`dlsym`; no link-time platform library. Each compiled cell
+  declares its own capability matrix and refuses missing verbs by name.
 - `src/wire.rs` -- one `Transport` seam, an OpenAI-compatible
   chat-completions codec, and the bounded turn loop.
 - `src/lib.rs` -- invocation budget and the harness entry point.

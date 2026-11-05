@@ -41,23 +41,39 @@ with an RFC 3161 timestamp. `signing-receipt.json` records the before/after
 SHA-256 of each signed file, while `build-receipt.json` and the `.sha256`
 sidecars bind every other asset to the packed source.
 
-Version VERSION makes computer use cross-platform. One `cu-abi 1.0` contract
-now compiles into three native backends: Win32 `user32`/`gdi32`, macOS
-`CoreGraphics`/`CoreFoundation` and Linux `X11`/`XTest`. The two Unix backends
-resolve foreign symbols at runtime with `dlopen`/`dlsym`, so the six release
-cells still cross-compile on one runner without an X11 or framework link-time
-dependency. `disclose` publishes a per-verb capability matrix; `CuHost` admits
-only what the compiled cell declares and answers everything else with a named
-refusal. Missing OS grants (Screen Recording, Input Monitoring, `$DISPLAY`)
-are named boundaries, never a black screenshot or a silent no-op.
+Version VERSION closes the interaction loop. 0.0.5 made observation and
+pointer movement real on three OSes, but a successful click still proved only
+that the pointer ended up in the right place. Every button event now carries a
+typed actuation receipt (`button`, `downs`, `ups`, `double`, `target`) counted
+by the native backend at dispatch time and published in
+`evidence["actuation"]`. `CuHost` compares it with the request: a missing
+receipt is `unknown`, a mismatched one is `not_performed`, and neither is ever
+upgraded to a success. The receipt proves a real button event was dispatched;
+it does not claim the target application's business action ran.
+
+CI now drives the variants that were in the wire schema but never exercised:
+`middle`, `right`, `double`, middle-button drag, and a real `press=true` click
+on a named Win32 control (Windows only). `cu-abi 1.0`, the wire inputs and the
+capability matrix (windows 12/12, linux 10/12, macos 8/12) are unchanged. The
+final observation must have a strictly newer generation and still report a
+live window and display, so a cached frame cannot pass as a session that
+survived the side-effecting clicks.
+
+The three native backends from 0.0.5 are unchanged: Win32 `user32`/`gdi32`,
+macOS `CoreGraphics`/`CoreFoundation` and Linux `X11`/`XTest`, resolved at
+runtime with `dlopen`/`dlsym` so the six cells still cross-compile on one
+runner without a link-time platform library. Missing OS grants (Screen
+Recording, Input Monitoring, `$DISPLAY`) remain named boundaries.
 
 Verification is CI, not a laptop: `.github/workflows/cu-platforms.yml` builds,
 tests and release-links all three OSes, and `.github/workflows/cu-journeys.yml`
 drives a real desktop on each (Linux under Xvfb, macOS in the runner GUI
-session, Windows with a titled window). Every effect is read back and an
-independent reader recomputes the verdict from `cu-journey.json`. `act:control`
-and the typed Win32 child-control arm stay Windows-only; macOS AX and Linux
-AT-SPI trees are explicit non-goals.
+session, Windows with a titled window). Every effect is read back, every
+performed button event carries a receipt, and an independent reader recomputes
+the verdicts, pointer positions, receipts, PNG bytes and generation order from
+`cu-journey.json`. `act:control` and the typed Win32 child-control arm stay
+Windows-only; macOS AX and Linux AT-SPI trees are explicit non-goals with
+per-cell unlock conditions.
 
 If something refuses to start, run the file from a terminal and read the
 error line; every refusal names the bound it hit.

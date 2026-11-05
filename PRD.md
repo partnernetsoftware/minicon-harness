@@ -30,8 +30,9 @@ minicon-harness — one-file bounded agent worker
 │   │   30 s kill, 1 MiB bounded combined capture with marker
 │   ├── [v] screen tool: observe (window inventory + one PNG under the root)
 │   │   or act (focus/move/click/type/key/scroll, one per call, `why`
-│   │   required), granted per invocation by --allow-screen, Windows
-│   │   qualified, other platforms refuse by name
+│   │   required), granted per invocation by --allow-screen, three native
+│   │   backends (Win32 / CG-CF / X11-XTest) with a declared 12/10/8/0
+│   │   per-OS capability matrix
 │   ├── [v] bounded loop: 16 model turns, 64 tool calls, 10-minute deadline;
 │   │   refusals are tool results, never aborts
 │   └── [v] OpenAI-compatible codec over ureq; no redirects, 4 MiB bounded body
@@ -57,22 +58,21 @@ minicon-harness — one-file bounded agent worker
 ├── Computer use: the `screen` tool → prd/PRD_01_03_computer_use.md
 │   └── domain model (KVM + window target) and resource boundary
 │       → prd/PRD_01_08_computer_use_scope.md
-├── 0.0.3 frontier (signed releases)
-│   ├── [-] S1 signing qualification on this repository (owner fills 3
-│   │   secrets, one qualification_only run, receipt read back)
-│   ├── [-] S2 release-policy signing.mode → required (owner flip)
-│   ├── [-] S3 release.yml consumes the signed chain: mode=required
+├── 0.0.3 frontier (signed releases) — closed by 0.0.4 and 0.0.5
+│   ├── [v] S1 signing qualification: three owner secrets, one
+│   │   qualification_only run, receipt read back (plan-0.0.3)
+│   ├── [v] S2 release-policy.json signing.mode = required
+│   ├── [v] S3 release.yml consumes the signed chain: mode=required
 │   │   publishes only receipt-verified signed bytes; mode=off keeps the
 │   │   unsigned path
-│   ├── [-] S4 Defender court scans the exact published bytes, clean
-│   │   verdict or the release blocks
-│   ├── [-] S5 release automation repaired: v0.0.3 published by CI alone
-│   │   (403 diagnosed or routed via a PAT secret)
+│   ├── [v] S4 Defender court scans the exact published bytes with
+│   │   `MpCmdRun -File`; a dirty verdict or an empty TAG blocks the release
+│   ├── [v] S5 release automation repaired: the 403 root cause was a deleted
+│   │   `environment: release` gate, not an org policy; v0.0.4 and v0.0.5
+│   │   were published by CI alone
 │   └── [_] S6 docs court: README/README.zh cover 0.0.2 flags + signing
-│   ├── [v] six native cells (win/osx/lnx × x86_64/aarch64), release profile
-│   ├── [v] cosmocc APE trampoline + ZipOS /zip/cells overlay (5.62 MB packed)
-│   ├── [v] Authenticode signability padding (unsigned 0.0.1; slot reserved)
-│   └── [v] GitHub CI pack + six-cell execute court + public Release v0.0.1
+        (the four 0.0.1 delivery rows below are recorded in the 0.0.1
+        frontier and `plan/plan-0.0.1-com-release.md`)
 └── [no] plugin host, permission policy, streaming, MCP, a scripting surface
     over the desktop, a second model loop
     (sessions enter 0.0.2 as plain journals; the takeover/owner-lock

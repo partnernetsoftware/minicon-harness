@@ -73,8 +73,23 @@ carries `verdict`, `platform`, `observe_arm` and the full matrix in evidence.
 | linux | `screen_linux.rs` | X11 / XTest via `dlopen` | needs `$DISPLAY` (Xorg or XWayland); pure Wayland is refused by name |
 | other | one refusing module | none | not in the six-cell matrix |
 
-`act:control` stays Windows-only: macOS AX trees and Linux AT-SPI are a
-separate design, and a self-drawn UI reports zero controls as a named result.
+`act:control` stays Windows-only. A self-drawn UI reports zero controls as a
+named result, never an empty success. The six `false` cells of the 12-row
+matrix are not a vague "separate design": each has a concrete unlock condition
+that must be proven on real CI before the cell is flipped.
+
+| Cell (OS / verb) | Missing mechanism | Unlock condition |
+|---|---|---|
+| macos / `controls` | AX element tree | a self-hosted macOS runner with an Accessibility TCC grant (`AXIsProcessTrusted()`); a hosted runner cannot self-grant it. Then an owner-visible real-desktop observation with published evidence, and its own PRD |
+| macos / `act:control` | AX named-target resolution and press | same grant as above, plus a side-effect-free AX fixture; 0.0.6 deliberately does not claim it |
+| macos / `act:focus` | `AXUIElementSetAttributeValue` on the focused/position attributes | same Accessibility grant; a three-OS journey proving focus and geometry readback |
+| macos / `act:move` | AX position/size attributes | same Accessibility grant; a rect readback journey like the Windows/Linux one |
+| linux / `controls` | AT-SPI tree over D-Bus | a dedicated fixture job with `at-spi2-core`, a running bus and an ATK-enabled window; bare Xvfb `xmessage` has no a11y tree |
+| linux / `act:control` | AT-SPI named action | the same bus + ATK fixture, proven green before the verb is declared |
+
+Windows UIA COM is a separate PRD and is not one of these six cells. None of
+them is unlocked by a compile check: each needs a real journey and an
+independent reader, per the qualification states below.
 
 ## Qualification states
 
