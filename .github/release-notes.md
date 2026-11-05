@@ -41,11 +41,23 @@ with an RFC 3161 timestamp. `signing-receipt.json` records the before/after
 SHA-256 of each signed file, while `build-receipt.json` and the `.sha256`
 sidecars bind every other asset to the packed source.
 
-Version VERSION also adds semantic computer use: a versioned capability
-manifest (`disclose`), a typed child-window control inventory on `observe`,
-and `act:control` to hover a named control with a pointer readback. Control
-roles are heuristics derived from Win32 class names, not a UIA accessibility
-tree; self-drawn UIs report zero controls and say why.
+Version VERSION makes computer use cross-platform. One `cu-abi 1.0` contract
+now compiles into three native backends: Win32 `user32`/`gdi32`, macOS
+`CoreGraphics`/`CoreFoundation` and Linux `X11`/`XTest`. The two Unix backends
+resolve foreign symbols at runtime with `dlopen`/`dlsym`, so the six release
+cells still cross-compile on one runner without an X11 or framework link-time
+dependency. `disclose` publishes a per-verb capability matrix; `CuHost` admits
+only what the compiled cell declares and answers everything else with a named
+refusal. Missing OS grants (Screen Recording, Input Monitoring, `$DISPLAY`)
+are named boundaries, never a black screenshot or a silent no-op.
+
+Verification is CI, not a laptop: `.github/workflows/cu-platforms.yml` builds,
+tests and release-links all three OSes, and `.github/workflows/cu-journeys.yml`
+drives a real desktop on each (Linux under Xvfb, macOS in the runner GUI
+session, Windows with a titled window). Every effect is read back and an
+independent reader recomputes the verdict from `cu-journey.json`. `act:control`
+and the typed Win32 child-control arm stay Windows-only; macOS AX and Linux
+AT-SPI trees are explicit non-goals.
 
 If something refuses to start, run the file from a terminal and read the
 error line; every refusal names the bound it hit.

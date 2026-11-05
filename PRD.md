@@ -94,7 +94,7 @@ minicon-harness — one-file bounded agent worker
   recompiles the worker against cosmopolitan libc, and cells are never
   rebuilt on a test runner.
 
-## 0.0.5 frontier (cross-platform CU contract, in the tree)
+## 0.0.5 frontier (three real CU backends, CI-proven)
 
 [v] Computer use is no longer a Windows implementation plus one refusal stub.
 `src/screen.rs` compiles exactly one `native` backend per `target_os`
@@ -107,19 +107,26 @@ readback rules moved above the cfg boundary so all three backends share them.
 `prd/PRD_01_06_cross_platform_cu.md` is the contract;
 `plan/plan-0.0.5-cross-platform-cu.md` is the design and the OS mechanism map.
 
-[-] macOS and Linux backends currently implement **no** desktop effect: they
-are honest refusing backends with a declared matrix. The design deliberately
-uses runtime `dlopen`/`dlsym` instead of link-time platform libraries, because
-all six cells are cross-compiled on one macOS runner (zig for Linux, xwin for
-Windows) and a `#[link(name="X11")]` would break that build. W2 adds the
-CoreGraphics/CoreFoundation and X11/XTest mechanisms; W3 qualifies one
-real-desktop journey per OS. No macOS/Linux capability is claimed from a
-compile check.
+[v] macOS and Linux now have real desktop backends, not refusals:
+`CoreGraphics`/`CoreFoundation` (macOS) and `X11`/`XTest` (Linux), both
+resolved at runtime with `dlopen`/`dlsym`. No link-time platform library was
+added, because the six cells are cross-compiled on one macOS runner (zig for
+Linux, xwin for Windows) and a `#[link(name="X11")]` would break that build.
+Linux declares every verb except the control arm; macOS deliberately leaves
+`act:focus` / `act:move` to the Accessibility API and the control arm to an AX
+tree. Missing libraries, `$DISPLAY` and OS grants are named refusals, never a
+black PNG or a silent no-op.
 
-[v] `.github/workflows/cu-platforms.yml` builds, tests and release-links the
-host cell on `ubuntu-24.04`, `macos-15` and `windows-2025`, and
-`scripts/cu-cfg-check.py` type-checks all three backend cfg configurations.
-The host suite is 72 passed / 3 ignored.
+[v] CI is the test bench. `cu-platforms.yml` builds, tests and release-links
+all three OSes (run 41972347018 green) and `scripts/cu-cfg-check.py`
+type-checks the macOS, Linux and fallback configurations. `cu-journeys.yml`
+run **41975233858** drove a real desktop on all three: Linux under Xvfb with a
+titled X client (12 performed, including focus/move rect readback), macOS in
+the runner GUI session (10 performed, including a PNG capture and Unicode
+typing), Windows with a titled window (14 performed, including `act:control`).
+`examples/cu_journey.rs` writes `cu-journey.json`; the independent reader
+`scripts/cu-journey-verify.py` recomputes the matrix, pointer readbacks, PNG
+IHDR and generation order from those records.
 
 ## 0.0.4 frontier (shipped as a public signed Release)
 

@@ -1,7 +1,9 @@
 # 0.0.5 — cross-platform computer use: three real backends, CI-proven, publicly signed
 
-Status: `[v]` W1 (design + contract + compile gate, run **41939696616**).
-`[_]` W2/W3/W4 in progress. Owner direction this plan implements:
+Status: `[v]` W1/W2/W3 delivered (2026-11-05): three real backends, three-OS
+compile gate **41972347018** and three-OS desktop journeys **41975233858**.
+`[_]` W4 (version bump + public signed Release) in progress. Owner direction
+this plan implements:
 
 1. **the CU design must be cross-platform and computer use must cover linux,
    macOS and Windows** -- not a Windows implementation plus a refusal for the
@@ -42,6 +44,9 @@ Three rules, unchanged from W1 and now enforced by code:
 ## Capability matrix (declared by each compiled cell)
 
 `[v]` CI journey produced an observation + readback, `[-]` named refusal.
+All three columns are backed by `cu-journeys.yml` run 41975233858; the macOS
+runner had Screen Recording and Input Monitoring available, so no permission
+boundary was needed to reach `[v]` on its declared verbs.
 
 | Verb | windows | macos | linux | other |
 |------|---------|-------|-------|-------|
@@ -142,12 +147,12 @@ signature drift between `screen_linux.rs`, `screen_macos.rs` and the Windows
 Outcome: one CU contract, three real backends, CI-proven journeys, public signed v0.0.5
 ├── [v] W1 — cross-platform design + contract + compile gate
 │   evidence: run 41939696616, PRD_01_06, cu-platforms.yml
-├── [_] W2 — native mechanisms for macOS and Linux
+├── [v] W2 — native mechanisms for macOS and Linux
 │   invariant: dlopen/dlsym only, named refusal on missing library or grant,
 │   every claimed verb has a readback, zero new dependencies, six-cell pack green
 │   evidence: screen_linux.rs, screen_macos.rs, three-config cfg check,
 │   three-OS build + link
-├── [_] W3 — per-OS real-desktop journeys in CI
+├── [v] W3 — per-OS real-desktop journeys in CI
 │   invariant: JSON observation + independent reader, all three OS jobs green
 │   evidence: cu-journeys.yml run, cu-journey.json artifacts
 ├── [_] W4 — 0.0.5 version bump and signed public Release
@@ -170,3 +175,49 @@ Outcome: one CU contract, three real backends, CI-proven journeys, public signed
 ## Delivery record
 
 Filled in as each W closes, with run IDs and the owner-view acceptance result.
+
+## W2/W3 delivery record (2026-11-05)
+
+Commits `54ce6c5` (Linux `screen_linux.rs`, macOS `screen_macos.rs`, shared
+`screen_dynlib.rs`, capability matrices, cfg gate copies the per-OS files),
+`af4cfa4` (journey driver, independent reader, `cu-journeys.yml`),
+`09538dc` (scroll readback parsing, macOS FFI hardening), `c654836` /
+`eed9e28` (crash diagnosis and CoreFoundation type guards).
+
+`.github/workflows/cu-platforms.yml` run **41972347018**: 9/9 steps green on
+each of linux/macos/windows, including a release link of each cell. Printed
+matrices: windows 12/12 true, linux 10/12 true, macos 8/12 true.
+
+`.github/workflows/cu-journeys.yml` run **41975233858**: all three jobs green.
+
+| OS | session | performed | evidence |
+|----|---------|-----------|----------|
+| linux | Xvfb `:99` 1280x800x24 + `xmessage` (no WM, so rect readback is exact) | 12/12 | pointer `200,150` -> `280,210`, `rect=41,41 520x360`, PNG `640x400` scale 2, 768523 bytes |
+| windows | `notepad.exe` titled `Untitled - Notepad` | 14/14 | `rect=40,40 520x360`, PNG `512x384` scale 2, `act:control` hit `textbox:cu` with pointer readback inside the control rect |
+| macos | runner GUI session + TextEdit | 10/10 | PNG `512x384` scale 2, Unicode typing, no permission boundaries |
+
+Three real defects were found and fixed by CI, not by a laptop claim:
+
+1. First journey run `41973717269` failed Linux/Windows only because the
+   independent reader insisted on `pointer at X,Y` while `scroll` reports
+   `scrolled N at X,Y`. Reader now accepts either form.
+2. macOS segfaulted in `type_text`. Diagnosis (per-step logging in the
+   journey driver) showed the crash happened **before** any keyboard event was
+   created: `CFStringGetCString` / `CFNumberGetValue` were called on
+   dictionary values of the wrong CoreFoundation type. The backend now checks
+   `CFGetTypeID` against `CFStringGetTypeID` / `CFNumberGetTypeID`, guards all
+   null dictionary keys/values, creates CFString keys with
+   `CFStringCreateWithCString` instead of dereferencing dlsym data symbols,
+   and uses the non-variadic `CGEventCreateScrollWheelEvent2` (a fixed Rust fn
+   pointer cannot safely call a C variadic on arm64).
+3. `classify()` now maps `cu: unsupported:` to `CuVerdict::Unsupported`, so a
+   missing library or OS grant is a typed named refusal rather than `unknown`.
+
+No production assertion was relaxed to make a journey pass. The Windows cell
+still runs the full named-target control matrix; the Linux and macOS cells
+declare `controls`/`act:control` false and skip those steps by name.
+
+## W4 delivery record
+
+Filled in after the pack -> candidate -> signing -> defender -> release chain
+and the owner-view anonymous download check.

@@ -162,21 +162,22 @@ fn cf_type_is(value: *const c_void, expected: &str) -> bool {
     if value.is_null() {
         return false;
     }
-    let (get, wanted): (usize, usize) = match sym::<FnCFGetTypeID>(CF, "CFGetTypeID") {
-        Ok(_) => match expected {
-            "CFString" => (
-                unsafe { sym::<FnCFGetTypeID>(CF, "CFGetTypeID").ok().map(|f| f(value)).unwrap_or(0) },
-                unsafe { sym::<FnCFStringGetTypeID>(CF, "CFStringGetTypeID").ok().map(|f| f()).unwrap_or(0) },
-            ),
-            "CFNumber" => (
-                unsafe { sym::<FnCFGetTypeID>(CF, "CFGetTypeID").ok().map(|f| f(value)).unwrap_or(0) },
-                unsafe { sym::<FnCFNumberGetTypeID>(CF, "CFNumberGetTypeID").ok().map(|f| f()).unwrap_or(0) },
-            ),
-            _ => return false,
-        },
-        Err(_) => return true, // older SDK: fall through to the guarded call
+    let get: FnCFGetTypeID = match sym(CF, "CFGetTypeID") {
+        Ok(f) => f,
+        Err(_) => return true,
     };
-    wanted != 0 && get == wanted
+    let wanted: usize = match expected {
+        "CFString" => match sym::<FnCFStringGetTypeID>(CF, "CFStringGetTypeID") {
+            Ok(f) => unsafe { f() },
+            Err(_) => return true,
+        },
+        "CFNumber" => match sym::<FnCFNumberGetTypeID>(CF, "CFNumberGetTypeID") {
+            Ok(f) => unsafe { f() },
+            Err(_) => return true,
+        },
+        _ => return false,
+    };
+    wanted != 0 && unsafe { get(value) } == wanted
 }
 
 fn cf_string(value: *const c_void) -> Option<String> {
@@ -273,7 +274,6 @@ fn input_grant() -> Result<(), String> {
 }
 
 fn display_ids() -> Result<Vec<u32>, String> {
-    eprintln!("cu-macos: display_ids");
     let list: FnCGGetActiveDisplayList = sym(CG, "CGGetActiveDisplayList")?;
     let mut ids = [0u32; 16];
     let mut count: u32 = 0;
@@ -341,7 +341,6 @@ struct Entry {
 }
 
 fn window_entries() -> Result<Vec<Entry>, String> {
-    eprintln!("cu-macos: window_entries");
     let copy: FnCGWindowListCopyWindowInfo = sym(CG, "CGWindowListCopyWindowInfo")?;
     let array = unsafe {
         copy(
@@ -450,7 +449,6 @@ pub fn windows() -> Result<Vec<WindowInfo>, String> {
 }
 
 pub fn foreground_title() -> Option<String> {
-    eprintln!("cu-macos: foreground_title");
     window_entries()
         .ok()?
         .into_iter()
@@ -702,15 +700,12 @@ pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(i32, i32), String> {
 }
 
 fn post_key(code: u16, down: bool, flags: u64, units: &[u16]) -> Result<(), String> {
-    eprintln!("cu-macos post_key: begin");
     input_grant()?;
-    eprintln!("cu-macos post_key: grant ok");
     let create: FnCGEventCreateKeyboardEvent = sym(CG, "CGEventCreateKeyboardEvent")?;
     let set_flags: FnCGEventSetFlags = sym(CG, "CGEventSetFlags")?;
     let set_unicode: FnCGEventKeyboardSetUnicodeString =
         sym(CG, "CGEventKeyboardSetUnicodeString")?;
     let post: FnCGEventPost = sym(CG, "CGEventPost")?;
-    eprintln!("cu-macos post_key: creating keyboard event");
     let event = unsafe {
         create(
             std::ptr::null(),
@@ -718,13 +713,11 @@ fn post_key(code: u16, down: bool, flags: u64, units: &[u16]) -> Result<(), Stri
             if down { 1 } else { 0 },
         )
     };
-    eprintln!("cu-macos post_key: keyboard event created");
     if event.is_null() {
         return Err(
             "cu: unsupported: CGEventCreateKeyboardEvent failed; no key was delivered".to_owned(),
         );
     }
-    eprintln!("cu-macos post_key: setting fields");
     unsafe {
         set_flags(event, flags);
         if !units.is_empty() {
@@ -732,18 +725,15 @@ fn post_key(code: u16, down: bool, flags: u64, units: &[u16]) -> Result<(), Stri
         }
         post(K_CG_HID_EVENT_TAP, event);
     }
-    eprintln!("cu-macos post_key: posted");
     release(event);
     Ok(())
 }
 
 pub fn type_text(text: &str) -> Result<(), String> {
-    eprintln!("cu-macos: type_text");
     // CGEventKeyboardSetUnicodeString delivers any Unicode scalar without a
     // keyboard-layout keycode map. That is why `act:type` is not ASCII-only on
     // this backend.
     for character in text.chars() {
-        eprintln!("cu-macos: type_text char={character:?}");
         let mut buffer = [0u16; 2];
         let units = character.encode_utf16(&mut buffer);
         post_key(0, true, 0, units)?;

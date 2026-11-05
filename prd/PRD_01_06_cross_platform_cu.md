@@ -1,7 +1,7 @@
 # PRD 01.06 — cross-platform computer use contract
 
-Status: `[v]` W1 (contract, capability matrix, per-OS backends, three-OS
-compile gate). `[_]` W2/W3 (native mechanisms and real-desktop journeys).
+Status: `[v]` W1-W3 (contract, three real backends, three-OS compile gate and
+real-desktop journeys). `[_]` W4 (public signed 0.0.5 Release).
 Owner direction: `computer-use 要满足 lnx, osx, win`. This PRD specifies the
 contract; `plan/plan-0.0.5-cross-platform-cu.md` carries the design, the OS
 mechanism map and the rejected alternatives.
@@ -68,8 +68,8 @@ carries `verdict`, `platform`, `observe_arm` and the full matrix in evidence.
 | OS | Backend | Mechanism (W2) | Permission / boundary |
 |----|---------|----------------|------------------------|
 | windows | `user32`/`gdi32` | already implemented | UIPI applies; no elevation |
-| macos | one refusing module | CoreGraphics / CoreFoundation via `dlopen` | Screen Recording for pixels and window names; Accessibility/Input Monitoring for events; missing grant is a named refusal |
-| linux | one refusing module | X11 / XTest via `dlopen` | needs `$DISPLAY` (Xorg or XWayland); pure Wayland is refused by name |
+| macos | `screen_macos.rs` | CoreGraphics / CoreFoundation via `dlopen` | Screen Recording for pixels and window names; Input Monitoring for events; missing grant is a named refusal. `act:focus`/`act:move` need AX and are not implemented |
+| linux | `screen_linux.rs` | X11 / XTest via `dlopen` | needs `$DISPLAY` (Xorg or XWayland); pure Wayland is refused by name |
 | other | one refusing module | none | not in the six-cell matrix |
 
 `act:control` stays Windows-only: macOS AX trees and Linux AT-SPI are a
@@ -83,8 +83,10 @@ separate design, and a self-drawn UI reports zero controls as a named result.
 | `[?]` | implementation exists, compiles and links on that OS | W3 per-OS real-desktop journey + independent reader |
 | `[v]` | observation and readback verified on a real desktop | -- |
 
-W1 state: Windows is `[v]` for all verbs; macOS, Linux and other are `[-]`
-for all verbs. This is reported by `disclose`, not hidden behind a boolean.
+W3 state: Windows `[v]` 12/12 verbs, Linux `[v]` 10/12, macOS `[v]` 8/12,
+`other` `[-]` for all. The remaining rows are declared `false` in the
+compiled matrix and are named refusals. All of this is reported by `disclose`,
+not hidden behind a boolean.
 
 ## Verification
 
