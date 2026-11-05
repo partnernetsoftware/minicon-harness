@@ -36,16 +36,19 @@ EXPECTED = {
 POINTER_STEPS = {
     "act_hover", "act_click", "act_click_middle", "act_click_right",
     "act_click_double", "act_drag", "act_drag_middle", "act_scroll",
+    "act_drag_path", "act_scroll_x", "act_scroll_y",
 }
 # Steps that dispatch a real button event. A performed one must carry a
 # receipt produced by the backend and matching the request, not an echo.
 BUTTON_STEPS = {
     "act_click", "act_click_middle", "act_click_right", "act_click_double",
-    "act_drag", "act_drag_middle", "act_control_press",
+    "act_drag", "act_drag_middle", "act_drag_path", "act_control_press",
 }
 REQUIRED_INTERACTIONS = (
     "act_click_middle", "act_click_right", "act_click_double", "act_drag_middle",
+    "act_drag_path", "act_scroll_x", "act_scroll_y",
 )
+SCROLL_STEPS = ("act_scroll", "act_scroll_x", "act_scroll_y")
 TOLERANCE = 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -135,6 +138,11 @@ def main() -> int:
         request = record.get("request", {})
         want_x = request.get("to_x", request.get("x"))
         want_y = request.get("to_y", request.get("y"))
+        # A path drag lands at its LAST point, not at a to_x/to_y the
+        # request may not even carry. Recompute it from the request itself.
+        path = request.get("path")
+        if isinstance(path, list) and len(path) >= 2:
+            want_x, want_y = path[-1]
         readback = record.get("evidence", {}).get("readback", "")
         match = re.search(r"(-?\d+),\s*(-?\d+)", readback)
         check(match is not None, f"{step}: readback has no pointer position: {readback!r}")
@@ -154,6 +162,8 @@ def main() -> int:
         want_button = request.get("button", "left")
         want_double = bool(request.get("double", False))
         want_downs = 2 if want_double else 1
+        path = request.get("path")
+        want_points = len(path) if isinstance(path, list) else (1 if step.startswith("act_drag") else 0)
         receipt = record.get("evidence", {}).get("actuation")
         check(isinstance(receipt, dict),
               f"{step}: performed button event has no actuation receipt")
@@ -169,6 +179,28 @@ def main() -> int:
             target = receipt.get("target")
             check(isinstance(target, str) and target.strip() != "",
                   f"{step}: receipt has no non-empty target")
+            check(receipt.get("path_points") == want_points,
+                  f"{step}: receipt path_points={receipt.get('path_points')!r}, "
+                  f"expected {want_points}")
+
+    # 3c. Two-axis scroll: the published structured axes must equal the
+    #     requested pair. `delta` stays the vertical alias, so an old-style
+    #     request expects (0, delta). No application scroll effect is claimed.
+    for step in SCROLL_STEPS:
+        record = by_step.get(step)
+        if not record or record.get("verdict") != "performed":
+            continue
+        request = record.get("request") or {}
+        want_x = request.get("delta_x", 0)
+        want_y = request.get("delta_y", request.get("delta", 0))
+        axes = record.get("evidence", {}).get("scroll")
+        check(isinstance(axes, dict),
+              f"{step}: performed wheel event has no structured scroll evidence")
+        if isinstance(axes, dict):
+            check(axes.get("delta_x") == want_x,
+                  f"{step}: scroll delta_x={axes.get('delta_x')!r}, expected {want_x!r}")
+            check(axes.get("delta_y") == want_y,
+                  f"{step}: scroll delta_y={axes.get('delta_y')!r}, expected {want_y!r}")
 
     for step in REQUIRED_INTERACTIONS:
         check(step in by_step, f"{step}: required 0.0.6 interaction step is missing")

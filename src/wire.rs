@@ -336,8 +336,20 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         },
                         "x": { "type": "integer", "description": "Screen coordinate or move target." },
                         "y": { "type": "integer", "description": "Screen coordinate or move target." },
-                        "to_x": { "type": "integer", "description": "For action=drag: destination x." },
-                        "to_y": { "type": "integer", "description": "For action=drag: destination y." },
+                        "to_x": { "type": "integer", "description": "For action=drag: destination x; required unless `path` is supplied." },
+                        "to_y": { "type": "integer", "description": "For action=drag: destination y; required unless `path` is supplied." },
+                        "path": {
+                            "type": "array",
+                            "minItems": 2,
+                            "maxItems": 16,
+                            "items": {
+                                "type": "array",
+                                "items": { "type": "integer" },
+                                "minItems": 2,
+                                "maxItems": 2
+                            },
+                            "description": "For action=drag: an optional multi-point path in virtual-desktop coordinates. Each segment is interpolated; the last point is the pointer readback target and the actuation receipt reports how many points were traversed. A point outside the virtual desktop is refused, never clipped."
+                        },
                         "width": { "type": "integer", "description": "For action=move, or a capture region." },
                         "height": { "type": "integer", "description": "For action=move, or a capture region." },
                         "button": {
@@ -361,7 +373,15 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         },
                         "delta": {
                             "type": "integer",
-                            "description": "For action=scroll: wheel delta, positive scrolls up."
+                            "description": "For action=scroll: the legacy vertical alias of `delta_y`; it cannot be combined with `delta_y`."
+                        },
+                        "delta_x": {
+                            "type": "integer",
+                            "description": "For action=scroll: horizontal wheel delta within +-1440; positive scrolls right."
+                        },
+                        "delta_y": {
+                            "type": "integer",
+                            "description": "For action=scroll: vertical wheel delta within +-1440; positive scrolls up. At least one axis must be non-zero; both zero is a named refusal."
                         },
                         "control": {
                             "type": "string",

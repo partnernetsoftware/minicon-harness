@@ -8,6 +8,11 @@ the host rustc, once per backend. It proves the backend contract cannot drift
 between macOS, Linux, an unlisted OS and the Windows implementation, without
 pretending a compile check qualifies a desktop journey.
 
+The Windows FFI is hand-written and needs no foreign SDK to type-check, so
+`windows` is a fourth cfg-rewrite here. `drag`/`scroll` change signature on
+all four configurations in the same commit; this gate is what catches a
+backend that was left behind.
+
 Run after `cargo test --locked` (the serde_json rlib must exist).
 """
 import shutil
@@ -28,6 +33,13 @@ DEPS = REPO / "target" / "debug" / "deps"
 # cfg(any()) disables, cfg(all()) enables. Exactly one `native` module must
 # survive each rewrite; the macro is enabled only for non-Windows configs.
 CONFIGS = {
+    "windows": {
+        '#[cfg(windows)]': '#[cfg(all())]',
+        '#[cfg(not(windows))]': '#[cfg(any())]',
+        '#[cfg(target_os = "macos")]': '#[cfg(any())]',
+        '#[cfg(target_os = "linux")]': '#[cfg(any())]',
+        '#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]': '#[cfg(any())]',
+    },
     "macos": {
         '#[cfg(windows)]': '#[cfg(any())]',
         '#[cfg(not(windows))]': '#[cfg(all())]',
@@ -91,7 +103,7 @@ def main() -> int:
                 print(f"{name}: backend type-check FAILED\n{proc.stderr[:4000]}", file=sys.stderr)
                 return 1
             print(f"{name}: backend type-check ok")
-        print("three computer-use backend configurations type-check")
+        print("four computer-use backend configurations type-check")
         return 0
     finally:
         shutil.rmtree(root, ignore_errors=True)

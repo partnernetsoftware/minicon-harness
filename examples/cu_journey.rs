@@ -153,13 +153,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // 0.0.7 richer actuation: one multi-segment drag and both wheel axes.
+    // Every point is a convex combination of the two already-admitted
+    // pointer coordinates, so the whole path stays inside the virtual
+    // desktop on every runner. The last point is the readback target.
+    let mid_x = (x + to_x) / 2;
+    let mid_y = (y + to_y) / 2;
+    let richer_steps: Vec<(&str, &str, bool, Value)> = vec![
+        ("act_drag_path", "act:drag", caps.act_drag, json!({ "op": "act", "why": "CU journey: multi-point drag path", "action": "drag", "x": x, "y": y, "path": [[x, y], [mid_x, mid_y], [to_x, to_y]] })),
+        ("act_scroll_x", "act:scroll", caps.act_scroll, json!({ "op": "act", "why": "CU journey: horizontal wheel axis", "action": "scroll", "x": x, "y": y, "delta_x": 120, "delta_y": 0 })),
+        ("act_scroll_y", "act:scroll", caps.act_scroll, json!({ "op": "act", "why": "CU journey: vertical wheel axis with the new spelling", "action": "scroll", "x": x, "y": y, "delta_x": 0, "delta_y": -120 })),
+    ];
+    for (step, capability, declared, request) in richer_steps {
+        if declared {
+            journey.run(step, capability, true, true, request);
+        } else {
+            journey.skip(step, capability, "verb is not implemented on this cell");
+        }
+    }
+
     if caps.act_type {
         journey.run(
             "act_type",
             "act:type",
             true,
             true,
-            json!({ "op": "act", "why": "CU journey: typed text", "action": "type", "text": "cu 0.0.6" }),
+            json!({ "op": "act", "why": "CU journey: typed text", "action": "type", "text": "cu 0.0.7" }),
         );
     } else {
         journey.skip("act_type", "act:type", "verb is not implemented on this cell");

@@ -76,6 +76,8 @@ pub enum CuType {
     /// `true` scans the foreground window, a string names one window.
     ControlScan,
     Button,
+    /// An array of `[x,y]` integer pairs, bounded by the drag path limit.
+    Path,
 }
 
 impl CuType {
@@ -87,6 +89,7 @@ impl CuType {
             Self::Capture => "capture",
             Self::ControlScan => "control-scan",
             Self::Button => "button",
+            Self::Path => "int-pair-array",
         }
     }
 }
@@ -116,8 +119,10 @@ const P_SCALE: CuParam = CuParam { name: "scale", ty: CuType::Int, required: fal
 const P_WHY: CuParam = CuParam { name: "why", ty: CuType::String, required: true };
 const P_X: CuParam = CuParam { name: "x", ty: CuType::Int, required: true };
 const P_Y: CuParam = CuParam { name: "y", ty: CuType::Int, required: true };
-const P_TO_X: CuParam = CuParam { name: "to_x", ty: CuType::Int, required: true };
-const P_TO_Y: CuParam = CuParam { name: "to_y", ty: CuType::Int, required: true };
+// `to_x`/`to_y` are required only when `path` is absent; `parse_request`
+// enforces that conditional, so disclose must not advertise them as required.
+const P_TO_X: CuParam = CuParam { name: "to_x", ty: CuType::Int, required: false };
+const P_TO_Y: CuParam = CuParam { name: "to_y", ty: CuType::Int, required: false };
 const P_WIDTH: CuParam = CuParam { name: "width", ty: CuType::Int, required: true };
 const P_HEIGHT: CuParam = CuParam { name: "height", ty: CuType::Int, required: true };
 const P_TITLE: CuParam = CuParam { name: "window", ty: CuType::String, required: true };
@@ -125,7 +130,12 @@ const P_BUTTON: CuParam = CuParam { name: "button", ty: CuType::Button, required
 const P_DOUBLE: CuParam = CuParam { name: "double", ty: CuType::Bool, required: false };
 const P_TEXT: CuParam = CuParam { name: "text", ty: CuType::String, required: true };
 const P_KEYS: CuParam = CuParam { name: "keys", ty: CuType::String, required: true };
-const P_DELTA: CuParam = CuParam { name: "delta", ty: CuType::Int, required: true };
+// `delta` stays as the vertical alias; either spelling (or only `delta_x`)
+// is admitted, so none of the three is unconditionally required.
+const P_DELTA: CuParam = CuParam { name: "delta", ty: CuType::Int, required: false };
+const P_DELTA_X: CuParam = CuParam { name: "delta_x", ty: CuType::Int, required: false };
+const P_DELTA_Y: CuParam = CuParam { name: "delta_y", ty: CuType::Int, required: false };
+const P_PATH: CuParam = CuParam { name: "path", ty: CuType::Path, required: false };
 
 /// The single source of truth for what computer use can do here. The wire
 /// tool definition's action enum is tested against this table so the two
@@ -170,8 +180,8 @@ pub const CAPABILITIES: &[CuCapability] = &[
     CuCapability {
         name: "act:drag",
         kind: CuKind::Act,
-        summary: "Press, move in twelve steps, release; readback is the final cursor position.",
-        params: &[P_WHY, P_X, P_Y, P_TO_X, P_TO_Y, P_BUTTON],
+        summary: "Press, move in twelve steps per segment, release; `path[]` traverses several points and the receipt counts them. Without `path`, `to_x`/`to_y` are required and 0.0.6 behaviour is unchanged.",
+        params: &[P_WHY, P_X, P_Y, P_TO_X, P_TO_Y, P_BUTTON, P_PATH],
     },
     CuCapability {
         name: "act:type",
@@ -188,8 +198,8 @@ pub const CAPABILITIES: &[CuCapability] = &[
     CuCapability {
         name: "act:scroll",
         kind: CuKind::Act,
-        summary: "One wheel turn at a position; readback is the cursor position.",
-        params: &[P_WHY, P_X, P_Y, P_DELTA],
+        summary: "Two-axis wheel turn at a position; `delta` remains the vertical alias of `delta_y`. The axes are published as structured evidence; readback keeps the cursor position.",
+        params: &[P_WHY, P_X, P_Y, P_DELTA, P_DELTA_X, P_DELTA_Y],
     },
     CuCapability {
         name: "act:control",
@@ -358,10 +368,18 @@ pub enum CuAction {
     Move { title: String, x: i32, y: i32, width: i32, height: i32 },
     Click { x: i32, y: i32, button: ClickButton, double: bool },
     Hover { x: i32, y: i32 },
-    Drag { x: i32, y: i32, to_x: i32, to_y: i32, button: ClickButton },
+    Drag {
+        x: i32,
+        y: i32,
+        to_x: i32,
+        to_y: i32,
+        button: ClickButton,
+        /// `None` is the 0.0.6 single-leg drag; `Some` is the bounded path.
+        path: Option<Vec<(i32, i32)>>,
+    },
     Type { text: String },
     Key { keys: String },
-    Scroll { x: i32, y: i32, delta: i32 },
+    Scroll { x: i32, y: i32, delta_x: i32, delta_y: i32 },
     /// Resolve a control from the current frame **by name**; see
     /// [`CuHost::act_control`]. `press` is opt-in so a semantic target can be
     /// qualified on a real desktop without clicking anything.
@@ -799,6 +817,9 @@ impl CuHost {
             "verdict": verdict.tag(),
             "generation": generation,
             "actuation": outcome.actuation.as_ref().map(actuation_json).unwrap_or(Value::Null),
+            "scroll": outcome.scroll.as_ref().map(|axes| json!({
+                "delta_x": axes.delta_x, "delta_y": axes.delta_y,
+            })).unwrap_or(Value::Null),
         });
         self.record(
             &mut state,
@@ -963,7 +984,7 @@ impl CuHost {
         };
         let verdict = verify_actuation(
             if press {
-                Some((button.tag(), if double { 2 } else { 1 }, double))
+                Some((button.tag(), if double { 2 } else { 1 }, double, 0))
             } else {
                 None
             },
@@ -1002,6 +1023,9 @@ impl CuHost {
             "verdict": verdict.tag(),
             "generation": generation,
             "actuation": outcome.actuation.as_ref().map(actuation_json).unwrap_or(Value::Null),
+            "scroll": outcome.scroll.as_ref().map(|axes| json!({
+                "delta_x": axes.delta_x, "delta_y": axes.delta_y,
+            })).unwrap_or(Value::Null),
         });
         self.record(
             &mut state,
@@ -1040,16 +1064,19 @@ impl CuHost {
                 double: *double,
             },
             CuAction::Hover { x, y } => Act::Hover { x: *x, y: *y },
-            CuAction::Drag { x, y, to_x, to_y, button } => Act::Drag {
+            CuAction::Drag { x, y, to_x, to_y, button, path } => Act::Drag {
                 x: *x,
                 y: *y,
                 to_x: *to_x,
                 to_y: *to_y,
                 button: *button,
+                path: path.clone(),
             },
             CuAction::Type { text } => Act::Type { text },
             CuAction::Key { keys } => Act::Key { keys: keys.clone() },
-            CuAction::Scroll { x, y, delta } => Act::Scroll { x: *x, y: *y, delta: *delta },
+            CuAction::Scroll { x, y, delta_x, delta_y } => Act::Scroll {
+                x: *x, y: *y, delta_x: *delta_x, delta_y: *delta_y,
+            },
             // `invoke` routes named targets to `act_control`, which resolves
             // the frame first. Reaching here would mean a caller skipped that
             // admission step; refuse rather than invent coordinates.
@@ -1250,12 +1277,17 @@ fn pointer_from_readback(readback: &str) -> Option<(i32, i32)> {
 /// The button dispatch a request promises, or `None` when that action posts
 /// no button event. Used only to *check* the native receipt, never to create
 /// one: a receipt must come from the backend that posted the events.
-fn expected_dispatch(action: &CuAction) -> Option<(&'static str, u32, bool)> {
+fn expected_dispatch(action: &CuAction) -> Option<(&'static str, u32, bool, u32)> {
     match action {
         CuAction::Click { button, double, .. } => {
-            Some((button.tag(), if *double { 2 } else { 1 }, *double))
+            Some((button.tag(), if *double { 2 } else { 1 }, *double, 0))
         }
-        CuAction::Drag { button, .. } => Some((button.tag(), 1, false)),
+        CuAction::Drag { button, path, .. } => Some((
+            button.tag(),
+            1,
+            false,
+            path.as_ref().map_or(1, |points| points.len() as u32),
+        )),
         _ => None,
     }
 }
@@ -1265,11 +1297,11 @@ fn expected_dispatch(action: &CuAction) -> Option<(&'static str, u32, bool)> {
 /// receipt that disagrees with the request is `not_performed`. A non-button
 /// action, or a call that already failed its readback, keeps its verdict.
 fn verify_actuation(
-    expected: Option<(&'static str, u32, bool)>,
+    expected: Option<(&'static str, u32, bool, u32)>,
     actual: Option<&Actuation>,
     base: CuVerdict,
 ) -> CuVerdict {
-    let (button, downs, double) = match expected {
+    let (button, downs, double, path_points) = match expected {
         Some(expected) => expected,
         None => return base,
     };
@@ -1284,6 +1316,7 @@ fn verify_actuation(
                 || receipt.ups != downs
                 || receipt.ups != receipt.downs
                 || receipt.double != double
+                || receipt.path_points != path_points
                 || receipt.target.trim().is_empty() =>
         {
             CuVerdict::NotPerformed
@@ -1299,6 +1332,7 @@ fn actuation_json(receipt: &Actuation) -> Value {
         "ups": receipt.ups,
         "double": receipt.double,
         "target": receipt.target,
+        "path_points": receipt.path_points,
     })
 }
 
@@ -1317,6 +1351,69 @@ fn classify(error: String) -> (CuVerdict, String) {
         // success for it, and never replay it.
         (CuVerdict::Unknown, error)
     }
+}
+
+/// One integer wheel axis. A missing or null axis is zero; anything else must
+/// be an `i32`, never a truncated `i64` or a float.
+fn scroll_axis(name: &str, value: Option<&Value>) -> Result<i32, String> {
+    match value {
+        None | Some(Value::Null) => Ok(0),
+        Some(other) => other
+            .as_i64()
+            .and_then(|number| i32::try_from(number).ok())
+            .ok_or_else(|| {
+                format!("screen: refused: `{name}` must be a 32-bit integer, got {other}")
+            }),
+    }
+}
+
+/// A `path[]` is admitted as a whole before any pointer or button effect. The
+/// desktop-geometry half of the admission lives in `ScreenTool::act`, which
+/// owns the native `virtual_screen()` reading.
+fn parse_drag_path(arguments: &Value) -> Result<Option<Vec<(i32, i32)>>, String> {
+    let Some(value) = arguments.get("path") else {
+        return Ok(None);
+    };
+    let array = value.as_array().ok_or_else(|| {
+        format!(
+            "screen: refused: `path` must be an array of [x,y] integer pairs, got {value}"
+        )
+    })?;
+    if array.len() < 2 {
+        return Err(format!(
+            "screen: refused: a `path` needs at least 2 points, got {}",
+            array.len()
+        ));
+    }
+    let bound = crate::screen::SCREEN_TOOL_MAX_DRAG_PATH_POINTS;
+    if array.len() > bound {
+        return Err(format!(
+            "screen: refused: a `path` may have at most {bound} points, got {}",
+            array.len()
+        ));
+    }
+    let mut points = Vec::with_capacity(array.len());
+    for (index, point) in array.iter().enumerate() {
+        let pair = point.as_array().filter(|pair| pair.len() == 2).ok_or_else(|| {
+            format!(
+                "screen: refused: `path[{index}]` must be a two-integer [x,y] pair, got {point}"
+            )
+        })?;
+        let mut xy = [0i32; 2];
+        for (axis, component) in pair.iter().enumerate() {
+            xy[axis] = component
+                .as_i64()
+                .and_then(|number| i32::try_from(number).ok())
+                .ok_or_else(|| {
+                    format!(
+                        "screen: refused: `path[{index}][{axis}]` must be a 32-bit integer, \
+                         got {component}"
+                    )
+                })?;
+        }
+        points.push((xy[0], xy[1]));
+    }
+    Ok(Some(points))
 }
 
 /// JSON adapter: the wire codec is the only place raw `Value` enters. Every
@@ -1435,6 +1532,9 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                         format!("screen: refused: action {action:?} needs an integer {name}")
                     })
             };
+            let optional_number = |name: &str| -> Result<i32, String> {
+                scroll_axis(name, arguments.get(name))
+            };
             let title = || -> Result<String, String> {
                 arguments
                     .get("window")
@@ -1471,13 +1571,24 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                     x: number("x")?,
                     y: number("y")?,
                 },
-                "drag" => CuAction::Drag {
-                    x: number("x")?,
-                    y: number("y")?,
-                    to_x: number("to_x")?,
-                    to_y: number("to_y")?,
-                    button: button(),
-                },
+                "drag" => {
+                    let path = parse_drag_path(arguments)?;
+                    // A path replaces the single destination. Without one,
+                    // 0.0.6's typed refusal for a missing `to_x`/`to_y` stays.
+                    let (to_x, to_y) = if path.is_some() {
+                        (optional_number("to_x")?, optional_number("to_y")?)
+                    } else {
+                        (number("to_x")?, number("to_y")?)
+                    };
+                    CuAction::Drag {
+                        x: number("x")?,
+                        y: number("y")?,
+                        to_x,
+                        to_y,
+                        button: button(),
+                        path,
+                    }
+                }
                 "type" => CuAction::Type {
                     text: arguments
                         .get("text")
@@ -1498,11 +1609,30 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                         })?
                         .to_owned(),
                 },
-                "scroll" => CuAction::Scroll {
-                    x: number("x")?,
-                    y: number("y")?,
-                    delta: number("delta")?,
-                },
+                "scroll" => {
+                    let alias = arguments.get("delta").filter(|value| !value.is_null());
+                    let explicit_y = arguments.get("delta_y").filter(|value| !value.is_null());
+                    if alias.is_some() && explicit_y.is_some() {
+                        return Err(
+                            "screen: refused: `delta` and `delta_y` cannot both be supplied; \
+                             `delta` is the vertical alias"
+                                .to_owned(),
+                        );
+                    }
+                    let delta_x = scroll_axis("delta_x", arguments.get("delta_x"))?;
+                    let delta_y = if explicit_y.is_some() {
+                        scroll_axis("delta_y", arguments.get("delta_y"))?
+                    } else {
+                        scroll_axis("delta", arguments.get("delta"))?
+                    };
+                    crate::screen::check_scroll_axes(delta_x, delta_y)?;
+                    CuAction::Scroll {
+                        x: number("x")?,
+                        y: number("y")?,
+                        delta_x,
+                        delta_y,
+                    }
+                }
                 "control" => CuAction::Control {
                     control: arguments
                         .get("control")
@@ -1966,6 +2096,48 @@ mod tests {
     }
 
     #[test]
+    fn richer_actuation_parameters_are_disclosed_and_in_the_wire_schema() {
+        let definitions = crate::wire::tool_definitions();
+        let screen = definitions
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["function"]["name"] == "screen")
+            .expect("screen tool definition");
+        let props = &screen["function"]["parameters"]["properties"];
+        assert_eq!(props["path"]["type"], "array");
+        assert_eq!(props["path"]["minItems"], 2);
+        assert_eq!(props["path"]["maxItems"], 16);
+        assert_eq!(props["delta_x"]["type"], "integer");
+        assert_eq!(props["delta_y"]["type"], "integer");
+        assert_eq!(props["delta"]["type"], "integer");
+
+        let drag = capability("act:drag").unwrap();
+        assert!(drag.params.iter().any(|p| p.name == "path" && p.ty == CuType::Path));
+        assert!(drag.params.iter().any(|p| p.name == "to_x" && !p.required));
+        let scroll = capability("act:scroll").unwrap();
+        for name in ["delta", "delta_x", "delta_y"] {
+            assert!(
+                scroll.params.iter().any(|p| p.name == name && !p.required),
+                "missing or required parameter {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn richer_actuation_adds_parameters_not_capabilities_or_abi() {
+        assert_eq!(
+            act_names(),
+            vec!["focus", "move", "click", "hover", "drag", "type", "key", "scroll", "control"]
+        );
+        assert_eq!(CAPABILITIES.len(), 11);
+        assert_eq!((CU_ABI_MAJOR, CU_ABI_MINOR), (1, 0));
+        assert_eq!(crate::screen::SCREEN_TOOL_MAX_DRAG_PATH_POINTS, 16);
+        assert_eq!(crate::screen::SCREEN_TOOL_MAX_DRAG_STEPS, 12);
+        assert_eq!(crate::screen::SCREEN_TOOL_MAX_SCROLL_DELTA, 1440);
+    }
+
+    #[test]
     fn ungranted_calls_are_refused_with_the_flag_named() {
         let host = host(false);
         for op in ["observe", "act"] {
@@ -2306,12 +2478,23 @@ mod tests {
     }
 
     fn receipt(button: &'static str, downs: u32, ups: u32, double: bool) -> Actuation {
+        receipt_path(button, downs, ups, double, 0)
+    }
+
+    fn receipt_path(
+        button: &'static str,
+        downs: u32,
+        ups: u32,
+        double: bool,
+        path_points: u32,
+    ) -> Actuation {
         Actuation {
             button,
             downs,
             ups,
             double,
             target: "Notepad".to_owned(),
+            path_points,
         }
     }
 
@@ -2320,7 +2503,7 @@ mod tests {
         let expected = expected_dispatch(&CuAction::Click {
             x: 10, y: 10, button: crate::screen::ClickButton::Middle, double: false,
         });
-        assert_eq!(expected, Some(("middle", 1, false)));
+        assert_eq!(expected, Some(("middle", 1, false, 0)));
         assert_eq!(
             verify_actuation(expected, Some(&receipt("middle", 1, 1, false)), CuVerdict::Performed),
             CuVerdict::Performed
@@ -2335,8 +2518,9 @@ mod tests {
         assert_eq!(
             expected_dispatch(&CuAction::Drag {
                 x: 0, y: 0, to_x: 5, to_y: 5, button: crate::screen::ClickButton::Right,
+                path: None,
             }),
-            Some(("right", 1, false))
+            Some(("right", 1, false, 1))
         );
     }
 
@@ -2355,7 +2539,7 @@ mod tests {
 
     #[test]
     fn actuation_receipt_mismatch_is_not_performed() {
-        let expected = Some(("left", 1, false));
+        let expected = Some(("left", 1, false, 0));
         for bad in [
             receipt("right", 1, 1, false),
             receipt("left", 2, 2, false),
@@ -2384,6 +2568,92 @@ mod tests {
         assert_eq!(value["ups"], 1);
         assert_eq!(value["double"], false);
         assert_eq!(value["target"], "Notepad");
+        assert_eq!(value["path_points"], 0);
+    }
+
+    #[test]
+    fn path_drag_receipt_counts_the_points_actually_traversed() {
+        let path = vec![(10, 10), (20, 20), (30, 30)];
+        let expected = expected_dispatch(&CuAction::Drag {
+            x: 0,
+            y: 0,
+            to_x: 0,
+            to_y: 0,
+            button: crate::screen::ClickButton::Left,
+            path: Some(path),
+        });
+        assert_eq!(expected, Some(("left", 1, false, 3)));
+        assert_eq!(
+            verify_actuation(
+                expected,
+                Some(&receipt_path("left", 1, 1, false, 3)),
+                CuVerdict::Performed
+            ),
+            CuVerdict::Performed
+        );
+        // A receipt that omits the path (0.0.6 shape) or claims another
+        // length cannot qualify a performed path drag.
+        assert_eq!(
+            verify_actuation(expected, Some(&receipt("left", 1, 1, false)), CuVerdict::Performed),
+            CuVerdict::NotPerformed
+        );
+        assert_eq!(
+            verify_actuation(expected, None, CuVerdict::Performed),
+            CuVerdict::Unknown
+        );
+    }
+
+    #[test]
+    fn drag_path_admission_is_typed_and_bounded_before_effects() {
+        let host = host(false);
+        let long: Value = Value::Array((0..17).map(|i| json!([i, i])).collect());
+        let cases: &[(&str, Value, &str)] = &[
+            ("one point", json!({ "op": "act", "why": "x", "action": "drag", "x": 1, "y": 2, "path": [[3, 4]] }), "needs at least 2 points"),
+            ("too long", json!({ "op": "act", "why": "x", "action": "drag", "x": 1, "y": 2, "path": long }), "at most 16 points"),
+            ("not an array", json!({ "op": "act", "why": "x", "action": "drag", "x": 1, "y": 2, "path": "3,4" }), "must be an array"),
+            ("short pair", json!({ "op": "act", "why": "x", "action": "drag", "x": 1, "y": 2, "path": [[3, 4], [5]] }), "two-integer [x,y] pair"),
+            ("non integer", json!({ "op": "act", "why": "x", "action": "drag", "x": 1, "y": 2, "path": [[3, 4], [5, "six"]] }), "32-bit integer"),
+        ];
+        for (label, arguments, expected) in cases {
+            let result = host.invoke_json(arguments);
+            assert_eq!(result.verdict, CuVerdict::Refused, "{label}");
+            assert!(result.text.contains(expected), "{label}: {}", result.text);
+        }
+    }
+
+    #[test]
+    fn scroll_axes_are_admitted_before_effects() {
+        let host = host(false);
+        let cases: &[(&str, Value, &str)] = &[
+            ("both zero", json!({ "op": "act", "why": "x", "action": "scroll", "x": 1, "y": 1, "delta_x": 0, "delta_y": 0 }), "both scroll axes are zero"),
+            ("alias conflict", json!({ "op": "act", "why": "x", "action": "scroll", "x": 1, "y": 1, "delta": 120, "delta_y": 120 }), "cannot both be supplied"),
+            ("axis bound", json!({ "op": "act", "why": "x", "action": "scroll", "x": 1, "y": 1, "delta_x": 1441 }), "+-1440"),
+            ("bad axis type", json!({ "op": "act", "why": "x", "action": "scroll", "x": 1, "y": 1, "delta_y": "up" }), "32-bit integer"),
+        ];
+        for (label, arguments, expected) in cases {
+            let result = host.invoke_json(arguments);
+            assert_eq!(result.verdict, CuVerdict::Refused, "{label}");
+            assert!(result.text.contains(expected), "{label}: {}", result.text);
+        }
+    }
+
+    #[test]
+    fn the_vertical_alias_and_path_destinations_are_additive() {
+        let host = host(false);
+        // Both spellings parse cleanly and then stop at the grant gate: the
+        // 0.0.6 call shape still works, and a path needs no to_x/to_y.
+        let legacy = host.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "scroll",
+            "x": 1, "y": 1, "delta": 120,
+        }));
+        assert_eq!(legacy.verdict, CuVerdict::Refused);
+        assert!(legacy.text.contains("--allow-screen"), "{}", legacy.text);
+        let path = host.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "drag",
+            "x": 1, "y": 1, "path": [[2, 2], [3, 3]],
+        }));
+        assert_eq!(path.verdict, CuVerdict::Refused);
+        assert!(path.text.contains("--allow-screen"), "{}", path.text);
     }
 
     #[test]

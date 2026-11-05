@@ -12,7 +12,8 @@
 
 use super::{
     capture_scale, downsample, png, ButtonDispatch, Captured, ClickButton, ControlInfo,
-    DisplayInfo, PlatformCapabilities, WindowInfo, SCREEN_TOOL_MAX_REGION_PIXELS,
+    DisplayInfo, PlatformCapabilities, ScrollDispatch, WindowInfo,
+    SCREEN_TOOL_MAX_DRAG_STEPS, SCREEN_TOOL_MAX_REGION_PIXELS,
     SCREEN_TOOL_POINTER_TOLERANCE_PX,
 };
 use std::ffi::{c_char, c_int, c_uint, c_void, CString};
@@ -688,19 +689,23 @@ pub fn click(
     }
     flush(d)?;
     Ok((position.0, position.1, ButtonDispatch {
-        button: button.tag(), downs, ups, double,
+        button: button.tag(), downs, ups, double, path_points: 0,
     }))
 }
 
 pub fn drag(
     x: i32,
     y: i32,
-    to_x: i32,
-    to_y: i32,
+    points: &[(i32, i32)],
     button: ClickButton,
 ) -> Result<(i32, i32, ButtonDispatch), String> {
-    const STEPS: i64 = 12;
-    check_point(to_x, to_y)?;
+    const STEPS: i64 = SCREEN_TOOL_MAX_DRAG_STEPS;
+    let &(last_x, last_y) = points.last().ok_or_else(|| {
+        "screen: refused: a drag needs at least one destination point".to_owned()
+    })?;
+    for &(px, py) in points {
+        check_point(px, py)?;
+    }
     place_pointer(x, y)?;
     let d = display()?;
     let root = root_window(d)?;
@@ -709,32 +714,54 @@ pub fn drag(
     let mut ups = 0;
     button_event(d, number, true)?;
     downs += 1;
-    for step in 1..=STEPS {
-        let px = x as i64 + (to_x as i64 - x as i64) * step / STEPS;
-        let py = y as i64 + (to_y as i64 - y as i64) * step / STEPS;
-        warp(d, root, px as i32, py as i32)?;
-        std::thread::sleep(std::time::Duration::from_millis(12));
+    let mut from_x = x as i64;
+    let mut from_y = y as i64;
+    for &(to_x, to_y) in points {
+        for step in 1..=STEPS {
+            let px = from_x + (to_x as i64 - from_x) * step / STEPS;
+            let py = from_y + (to_y as i64 - from_y) * step / STEPS;
+            warp(d, root, px as i32, py as i32)?;
+            std::thread::sleep(std::time::Duration::from_millis(12));
+        }
+        from_x = to_x as i64;
+        from_y = to_y as i64;
     }
     button_event(d, number, false)?;
     ups += 1;
     flush(d)?;
-    let position = pointer_readback(to_x, to_y)?;
+    let position = pointer_readback(last_x, last_y)?;
     Ok((position.0, position.1, ButtonDispatch {
         button: button.tag(), downs, ups, double: false,
+        path_points: points.len() as u32,
     }))
 }
 
-pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(i32, i32), String> {
+pub fn scroll(
+    x: i32,
+    y: i32,
+    delta_x: i32,
+    delta_y: i32,
+) -> Result<(i32, i32, ScrollDispatch), String> {
     let position = place_pointer(x, y)?;
     let d = display()?;
-    let number = if delta >= 0 { 4 } else { 5 };
-    let notches = (delta.unsigned_abs() / 120).clamp(1, 12);
-    for _ in 0..notches {
-        button_event(d, number, true)?;
-        button_event(d, number, false)?;
+    // X11 buttons 4/5 are the vertical wheel, 6/7 the horizontal one. Native
+    // button numbers never leak into the published evidence.
+    for (delta, positive, negative) in [
+        (delta_y, 4u32, 5u32),
+        (delta_x, 7u32, 6u32),
+    ] {
+        if delta == 0 {
+            continue;
+        }
+        let number = if delta >= 0 { positive } else { negative };
+        let notches = (delta.unsigned_abs() / 120).clamp(1, 12);
+        for _ in 0..notches {
+            button_event(d, number, true)?;
+            button_event(d, number, false)?;
+        }
     }
     flush(d)?;
-    Ok(position)
+    Ok((position.0, position.1, ScrollDispatch { delta_x, delta_y }))
 }
 
 pub fn focus(handle: u64) -> Result<(), String> {

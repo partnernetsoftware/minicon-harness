@@ -14,7 +14,8 @@
 
 use super::{
     capture_scale, downsample, png, ButtonDispatch, Captured, ClickButton, ControlInfo,
-    DisplayInfo, PlatformCapabilities, WindowInfo, SCREEN_TOOL_MAX_REGION_PIXELS,
+    DisplayInfo, PlatformCapabilities, ScrollDispatch, WindowInfo,
+    SCREEN_TOOL_MAX_DRAG_STEPS, SCREEN_TOOL_MAX_REGION_PIXELS,
     SCREEN_TOOL_POINTER_TOLERANCE_PX,
 };
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
@@ -648,19 +649,23 @@ pub fn click(
         }
     }
     Ok((position.0, position.1, ButtonDispatch {
-        button: button.tag(), downs, ups, double,
+        button: button.tag(), downs, ups, double, path_points: 0,
     }))
 }
 
 pub fn drag(
     x: i32,
     y: i32,
-    to_x: i32,
-    to_y: i32,
+    points: &[(i32, i32)],
     button: ClickButton,
 ) -> Result<(i32, i32, ButtonDispatch), String> {
-    const STEPS: i64 = 12;
-    check_point(to_x, to_y)?;
+    const STEPS: i64 = SCREEN_TOOL_MAX_DRAG_STEPS;
+    let &(last_x, last_y) = points.last().ok_or_else(|| {
+        "screen: refused: a drag needs at least one destination point".to_owned()
+    })?;
+    for &(px, py) in points {
+        check_point(px, py)?;
+    }
     place_pointer(x, y)?;
     let (number, down, up) = mouse_pair(button);
     let dragged = match button {
@@ -672,46 +677,63 @@ pub fn drag(
     let mut ups = 0;
     post_mouse(down, x, y, number)?;
     downs += 1;
-    for step in 1..=STEPS {
-        let px = x as i64 + (to_x as i64 - x as i64) * step / STEPS;
-        let py = y as i64 + (to_y as i64 - y as i64) * step / STEPS;
-        post_mouse(dragged, px as i32, py as i32, number)?;
-        std::thread::sleep(std::time::Duration::from_millis(12));
+    let mut from_x = x as i64;
+    let mut from_y = y as i64;
+    for &(to_x, to_y) in points {
+        for step in 1..=STEPS {
+            let px = from_x + (to_x as i64 - from_x) * step / STEPS;
+            let py = from_y + (to_y as i64 - from_y) * step / STEPS;
+            post_mouse(dragged, px as i32, py as i32, number)?;
+            std::thread::sleep(std::time::Duration::from_millis(12));
+        }
+        from_x = to_x as i64;
+        from_y = to_y as i64;
     }
-    post_mouse(up, to_x, to_y, number)?;
+    post_mouse(up, last_x, last_y, number)?;
     ups += 1;
-    warp(to_x, to_y)?;
-    let position = pointer_readback(to_x, to_y)?;
+    warp(last_x, last_y)?;
+    let position = pointer_readback(last_x, last_y)?;
     Ok((position.0, position.1, ButtonDispatch {
         button: button.tag(), downs, ups, double: false,
+        path_points: points.len() as u32,
     }))
 }
 
-pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(i32, i32), String> {
+pub fn scroll(
+    x: i32,
+    y: i32,
+    delta_x: i32,
+    delta_y: i32,
+) -> Result<(i32, i32, ScrollDispatch), String> {
     let position = place_pointer(x, y)?;
     input_grant()?;
+    // ...2 is the non-variadic six-argument form; a fixed Rust fn pointer must
+    // never call the C variadic CGEventCreateScrollWheelEvent on arm64.
     let create: FnCGEventCreateScrollWheelEvent2 = sym(CG, "CGEventCreateScrollWheelEvent2")?;
     let post: FnCGEventPost = sym(CG, "CGEventPost")?;
-    let notches = (delta / 120).clamp(-12, 12);
+    let notches = |delta: i32| -> i32 {
+        let value = (delta / 120).clamp(-12, 12);
+        if value == 0 { delta.signum() } else { value }
+    };
     let event = unsafe {
         create(
             std::ptr::null(),
             K_CG_SCROLL_EVENT_UNIT_LINE,
-            1,
-            if notches == 0 { delta.signum() } else { notches },
-            0,
+            2, // wheelCount: wheel1 = vertical, wheel2 = horizontal
+            notches(delta_y),
+            notches(delta_x),
             0,
         )
     };
     if event.is_null() {
         return Err(
-            "cu: unsupported: CGEventCreateScrollWheelEvent failed; no effect was performed"
+            "cu: unsupported: CGEventCreateScrollWheelEvent2 failed; no effect was performed"
                 .to_owned(),
         );
     }
     unsafe { post(K_CG_HID_EVENT_TAP, event) };
     release(event);
-    Ok(position)
+    Ok((position.0, position.1, ScrollDispatch { delta_x, delta_y }))
 }
 
 fn post_key(code: u16, down: bool, flags: u64, units: &[u16]) -> Result<(), String> {

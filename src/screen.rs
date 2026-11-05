@@ -88,6 +88,18 @@ pub const SCREEN_TOOL_MAX_CONTROLS: usize = 128;
 /// are truncated with an ellipsis marker in the text, not in the frame.
 pub const SCREEN_TOOL_MAX_CONTROL_TEXT: usize = 256;
 
+/// Most points one `act:drag` path may carry. A longer path is refused, never
+/// truncated: silently dropping the end of a drag changes where it lands.
+pub const SCREEN_TOOL_MAX_DRAG_PATH_POINTS: usize = 16;
+
+/// Stepped intermediate moves **per segment** of a path. Drag-and-drop targets
+/// need intermediate motion; this keeps even a 16-point path bounded.
+pub const SCREEN_TOOL_MAX_DRAG_STEPS: i64 = 12;
+
+/// Absolute bound on one scroll axis: twelve wheel notches of 120. Matches the
+/// clamp the native backends already applied to the single vertical delta.
+pub const SCREEN_TOOL_MAX_SCROLL_DELTA: i32 = 1440;
+
 /// Timeout for one cross-process `WM_GETTEXT`. A hung foreign window must not
 /// be able to stall a harness invocation that only wanted to *observe* it.
 pub const SCREEN_TOOL_CONTROL_TIMEOUT_MS: u32 = 200;
@@ -387,6 +399,17 @@ pub struct ButtonDispatch {
     pub downs: u32,
     pub ups: u32,
     pub double: bool,
+    /// Destination points actually traversed by a drag. A legacy single-leg
+    /// drag reports 1; a click posts no path and reports 0.
+    pub path_points: u32,
+}
+
+/// The two wheel axes a native backend actually posted, normalised so that
+/// positive `delta_y` is up and positive `delta_x` is right on every OS.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScrollDispatch {
+    pub delta_x: i32,
+    pub delta_y: i32,
 }
 
 /// The actuation receipt published by `CuHost` in `evidence["actuation"]`.
@@ -400,6 +423,7 @@ pub struct Actuation {
     pub ups: u32,
     pub double: bool,
     pub target: String,
+    pub path_points: u32,
 }
 
 impl Actuation {
@@ -410,8 +434,52 @@ impl Actuation {
             ups: dispatch.ups,
             double: dispatch.double,
             target,
+            path_points: dispatch.path_points,
         }
     }
+}
+
+/// Reject a path point that the desktop cannot contain. Both the point and
+/// the virtual-desktop rectangle are named; native backends must never clip a
+/// coordinate into a different place and then report a success.
+pub fn check_drag_path(
+    points: &[(i32, i32)],
+    desktop: (i32, i32, i32, i32),
+) -> Result<(), String> {
+    let (vx, vy, vw, vh) = desktop;
+    for &(px, py) in points {
+        if px < vx || px >= vx + vw || py < vy || py >= vy + vh {
+            return Err(format!(
+                "screen: refused: drag path point {px},{py} is outside the virtual desktop \
+                 {vx},{vy} {vw}x{vh}; no button event was posted"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Admission for the two wheel axes, applied before any native wheel event.
+/// Using comparisons instead of `abs()` keeps `i32::MIN` from panicking.
+pub fn check_scroll_axes(delta_x: i32, delta_y: i32) -> Result<(), String> {
+    let bound = SCREEN_TOOL_MAX_SCROLL_DELTA;
+    if delta_x < -bound
+        || delta_x > bound
+        || delta_y < -bound
+        || delta_y > bound
+    {
+        return Err(format!(
+            "screen: refused: each scroll axis must be within +-{bound}, got \
+             delta_x={delta_x} delta_y={delta_y}; no wheel event was posted"
+        ));
+    }
+    if delta_x == 0 && delta_y == 0 {
+        return Err(
+            "screen: refused: both scroll axes are zero; a no-op is never reported as \
+             a performed wheel event"
+                .to_owned(),
+        );
+    }
+    Ok(())
 }
 
 /// The session an input event is posted to. A missing foreground title is
@@ -436,6 +504,9 @@ pub struct ActOutcome {
     /// drag, or a named control with `press=true`. Hover, scroll, typing,
     /// focus and move post no button event and carry no receipt.
     pub actuation: Option<Actuation>,
+    /// Present exactly when the operation posted a wheel event. A scroll has
+    /// no button receipt; its two axes are its own typed evidence.
+    pub scroll: Option<ScrollDispatch>,
 }
 
 /// The `screen` tool: observe the desktop, or perform one operation on it.
@@ -596,6 +667,7 @@ impl ScreenTool {
                     .map(|candidate| format!("foreground={:?}", candidate.title))
                     .unwrap_or_else(|| "foreground=<none>".to_owned());
                 Ok(ActOutcome {
+                    scroll: None,
                     actuation: None,
                     action: "focus".to_owned(),
                     window: Some(window.title),
@@ -630,6 +702,7 @@ impl ScreenTool {
                     ));
                 }
                 Ok(ActOutcome {
+                    scroll: None,
                     actuation: None,
                     action: "move".to_owned(),
                     window: Some(after.title),
@@ -642,6 +715,7 @@ impl ScreenTool {
             Act::Click { x, y, button, double } => {
                 let (px, py, dispatch) = native::click(x, y, button, double)?;
                 Ok(ActOutcome {
+                    scroll: None,
                     actuation: Some(Actuation::from_dispatch(dispatch, dispatch_target())),
                     action: "click".to_owned(),
                     window: None,
@@ -651,6 +725,7 @@ impl ScreenTool {
             Act::Hover { x, y } => {
                 let (px, py) = native::place_pointer(x, y)?;
                 Ok(ActOutcome {
+                    scroll: None,
                     actuation: None,
                     action: "hover".to_owned(),
                     window: None,
@@ -663,9 +738,31 @@ impl ScreenTool {
                 to_x,
                 to_y,
                 button,
+                path,
             } => {
-                let (px, py, dispatch) = native::drag(x, y, to_x, to_y, button)?;
+                let points = match path {
+                    Some(points) => {
+                        if points.len() < 2
+                            || points.len() > SCREEN_TOOL_MAX_DRAG_PATH_POINTS
+                        {
+                            return Err(format!(
+                                "screen: refused: a drag path needs 2..={} points, got {}; \
+                                 no button event was posted",
+                                SCREEN_TOOL_MAX_DRAG_PATH_POINTS,
+                                points.len()
+                            ));
+                        }
+                        // The whole path is admitted against the *desktop's*
+                        // geometry, not just its endpoints, and before any
+                        // native pointer move or button press exists.
+                        check_drag_path(&points, native::virtual_screen()?)?;
+                        points
+                    }
+                    None => vec![(to_x, to_y)],
+                };
+                let (px, py, dispatch) = native::drag(x, y, &points, button)?;
                 Ok(ActOutcome {
+                    scroll: None,
                     actuation: Some(Actuation::from_dispatch(dispatch, dispatch_target())),
                     action: "drag".to_owned(),
                     window: None,
@@ -684,6 +781,7 @@ impl ScreenTool {
                 native::type_text(text)?;
                 let evidence = foreground_evidence(before, native::foreground_title())?;
                 Ok(ActOutcome {
+                    scroll: None,
                     actuation: None,
                     action: "type".to_owned(),
                     window: None,
@@ -695,19 +793,29 @@ impl ScreenTool {
                 native::press_key(&keys)?;
                 let evidence = foreground_evidence(before, native::foreground_title())?;
                 Ok(ActOutcome {
+                    scroll: None,
                     actuation: None,
                     action: "key".to_owned(),
                     window: None,
                     readback: format!("pressed {keys} {evidence}"),
                 })
             }
-            Act::Scroll { x, y, delta } => {
-                let (px, py) = native::scroll(x, y, delta)?;
+            Act::Scroll {
+                x,
+                y,
+                delta_x,
+                delta_y,
+            } => {
+                check_scroll_axes(delta_x, delta_y)?;
+                let (px, py, dispatch) = native::scroll(x, y, delta_x, delta_y)?;
                 Ok(ActOutcome {
+                    scroll: Some(dispatch),
                     actuation: None,
                     action: "scroll".to_owned(),
                     window: None,
-                    readback: format!("scrolled {delta} at {px},{py}"),
+                    // `dx=.. dy=..` carries no comma, so the independent
+                    // reader's `x,y` pointer assertion still reads the tail.
+                    readback: format!("scrolled dx={delta_x} dy={delta_y} at {px},{py}"),
                 })
             }
         }
@@ -944,10 +1052,18 @@ pub enum Act<'a> {
     Move { title: String, x: i32, y: i32, width: i32, height: i32 },
     Click { x: i32, y: i32, button: ClickButton, double: bool },
     Hover { x: i32, y: i32 },
-    Drag { x: i32, y: i32, to_x: i32, to_y: i32, button: ClickButton },
+    Drag {
+        x: i32,
+        y: i32,
+        to_x: i32,
+        to_y: i32,
+        button: ClickButton,
+        /// Optional multi-point path. `None` keeps the 0.0.6 single-leg drag.
+        path: Option<Vec<(i32, i32)>>,
+    },
     Type { text: &'a str },
     Key { keys: String },
-    Scroll { x: i32, y: i32, delta: i32 },
+    Scroll { x: i32, y: i32, delta_x: i32, delta_y: i32 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1184,8 +1300,8 @@ mod native {
 
     use super::{
         control_role, ButtonDispatch, Captured, ClickButton, ControlInfo, PlatformCapabilities,
-        WindowInfo, SCREEN_TOOL_CONTROL_TIMEOUT_MS, SCREEN_TOOL_MAX_CONTROLS,
-        SCREEN_TOOL_MAX_CONTROL_TEXT,
+        ScrollDispatch, WindowInfo, SCREEN_TOOL_CONTROL_TIMEOUT_MS, SCREEN_TOOL_MAX_CONTROLS,
+        SCREEN_TOOL_MAX_CONTROL_TEXT, SCREEN_TOOL_MAX_DRAG_STEPS,
     };
     use std::ffi::c_void;
 
@@ -1288,6 +1404,7 @@ mod native {
     const MOUSEEVENTF_RIGHTDOWN: Dword = 0x0008;
     const MOUSEEVENTF_RIGHTUP: Dword = 0x0010;
     const MOUSEEVENTF_WHEEL: Dword = 0x0800;
+    const MOUSEEVENTF_HWHEEL: Dword = 0x1000;
     const MOUSEEVENTF_MIDDLEDOWN: Dword = 0x0020;
     const MOUSEEVENTF_MIDDLEUP: Dword = 0x0040;
     const WM_GETTEXT: Dword = 0x000D;
@@ -1844,7 +1961,7 @@ mod native {
             ups += 1;
         }
         Ok((position.0, position.1, ButtonDispatch {
-            button: button.tag(), downs, ups, double,
+            button: button.tag(), downs, ups, double, path_points: 0,
         }))
     }
 
@@ -1854,37 +1971,60 @@ mod native {
     pub fn drag(
         x: i32,
         y: i32,
-        to_x: i32,
-        to_y: i32,
+        points: &[(i32, i32)],
         button: ClickButton,
     ) -> Result<(i32, i32, ButtonDispatch), String> {
-        const STEPS: i64 = 12;
-        check_point(to_x, to_y)?;
+        const STEPS: i64 = SCREEN_TOOL_MAX_DRAG_STEPS;
+        let &(last_x, last_y) = points.last().ok_or_else(|| {
+            "screen: refused: a drag needs at least one destination point".to_owned()
+        })?;
+        for &(px, py) in points {
+            check_point(px, py)?;
+        }
         place_pointer(x, y)?;
         let (down, up) = button_flags(button);
         let mut downs = 0;
         let mut ups = 0;
         unsafe { mouse_event(down, 0, 0, 0, 0) };
         downs += 1;
-        for step in 1..=STEPS {
-            let px = x as i64 + (to_x as i64 - x as i64) * step / STEPS;
-            let py = y as i64 + (to_y as i64 - y as i64) * step / STEPS;
-            unsafe { SetCursorPos(px as Int, py as Int) };
-            std::thread::sleep(std::time::Duration::from_millis(12));
+        let mut from_x = x as i64;
+        let mut from_y = y as i64;
+        for &(to_x, to_y) in points {
+            for step in 1..=STEPS {
+                let px = from_x + (to_x as i64 - from_x) * step / STEPS;
+                let py = from_y + (to_y as i64 - from_y) * step / STEPS;
+                unsafe { SetCursorPos(px as Int, py as Int) };
+                std::thread::sleep(std::time::Duration::from_millis(12));
+            }
+            from_x = to_x as i64;
+            from_y = to_y as i64;
         }
         unsafe { mouse_event(up, 0, 0, 0, 0) };
         ups += 1;
-        let position = pointer_readback(to_x, to_y)?;
+        let position = pointer_readback(last_x, last_y)?;
         Ok((position.0, position.1, ButtonDispatch {
             button: button.tag(), downs, ups, double: false,
+            path_points: points.len() as u32,
         }))
     }
 
-    pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(i32, i32), String> {
+    pub fn scroll(
+        x: i32,
+        y: i32,
+        delta_x: i32,
+        delta_y: i32,
+    ) -> Result<(i32, i32, ScrollDispatch), String> {
         let position = place_pointer(x, y)?;
         std::thread::sleep(std::time::Duration::from_millis(40));
-        unsafe { mouse_event(MOUSEEVENTF_WHEEL, 0, 0, delta as Dword, 0) };
-        Ok(position)
+        if delta_y != 0 {
+            unsafe { mouse_event(MOUSEEVENTF_WHEEL, 0, 0, delta_y as Dword, 0) };
+        }
+        if delta_x != 0 {
+            // HWHEEL is positive to the right; the signed convention is
+            // normalised in the published evidence, not left to the reader.
+            unsafe { mouse_event(MOUSEEVENTF_HWHEEL, 0, 0, delta_x as Dword, 0) };
+        }
+        Ok((position.0, position.1, ScrollDispatch { delta_x, delta_y }))
     }
 
     pub fn type_text(text: &str) -> Result<(), String> {
@@ -2177,7 +2317,7 @@ macro_rules! refusing_backend {
     ($platform:expr, $hint:expr) => {
         use super::{
             ButtonDispatch, Captured, ClickButton, ControlInfo, DisplayInfo,
-            PlatformCapabilities, WindowInfo,
+            PlatformCapabilities, ScrollDispatch, WindowInfo,
         };
 
         pub const PLATFORM: &str = $platform;
@@ -2213,7 +2353,7 @@ macro_rules! refusing_backend {
             Err(unsupported("act:hover"))
         }
         pub fn drag(
-            _x: i32, _y: i32, _to_x: i32, _to_y: i32, _button: ClickButton,
+            _x: i32, _y: i32, _points: &[(i32, i32)], _button: ClickButton,
         ) -> Result<(i32, i32, ButtonDispatch), String> {
             Err(unsupported("act:drag"))
         }
@@ -2231,7 +2371,9 @@ macro_rules! refusing_backend {
         ) -> Result<(i32, i32, ButtonDispatch), String> {
             Err(unsupported("act:click"))
         }
-        pub fn scroll(_x: i32, _y: i32, _delta: i32) -> Result<(i32, i32), String> {
+        pub fn scroll(
+            _x: i32, _y: i32, _delta_x: i32, _delta_y: i32,
+        ) -> Result<(i32, i32, ScrollDispatch), String> {
             Err(unsupported("act:scroll"))
         }
         pub fn type_text(_text: &str) -> Result<(), String> {
@@ -2409,6 +2551,30 @@ mod tests {
             window.to_line(),
             "hwnd=42 pid=7 rect=0,0 800x600 focused class=Chrome_WidgetWin_1 title=Grok Bot"
         );
+    }
+
+    #[test]
+    fn drag_path_points_are_admitted_against_the_whole_desktop_rect() {
+        let desktop = (-1920, -200, 3840, 1280);
+        assert!(check_drag_path(&[(-1900, -100), (0, 0), (1900, 1000)], desktop).is_ok());
+        let outside = check_drag_path(&[(0, 0), (1900, 1081)], desktop).unwrap_err();
+        assert!(outside.starts_with("screen: refused:"), "{outside}");
+        assert!(outside.contains("1900,1081"), "{outside}");
+        assert!(outside.contains("-1920,-200 3840x1280"), "{outside}");
+        assert!(outside.contains("no button event was posted"), "{outside}");
+    }
+
+    #[test]
+    fn scroll_axes_are_bounded_and_zero_is_a_named_refusal() {
+        assert!(check_scroll_axes(120, -120).is_ok());
+        assert!(check_scroll_axes(SCREEN_TOOL_MAX_SCROLL_DELTA, 0).is_ok());
+        let too_large = check_scroll_axes(SCREEN_TOOL_MAX_SCROLL_DELTA + 1, 0).unwrap_err();
+        assert!(too_large.contains("+-1440"), "{too_large}");
+        let zero = check_scroll_axes(0, 0).unwrap_err();
+        assert!(zero.contains("both scroll axes are zero"), "{zero}");
+        // i32::MIN must be refused, not panic in an abs() call.
+        let minimum = check_scroll_axes(i32::MIN, 0).unwrap_err();
+        assert!(minimum.contains("+-1440"), "{minimum}");
     }
 
     #[test]
