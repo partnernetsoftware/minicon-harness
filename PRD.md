@@ -151,8 +151,8 @@ minicon-harness computer use
 │   ├── [v] B2 keyboard: type, key
 │   ├── [v] B3 window: focus, move + rect readback (Linux/Windows)
 │   ├── [v] B4 named semantic control: resolve + hover/press (Windows only)
-│   ├── [_] B5 actuation receipt: button, downs/ups, double, target, plus
-│   │        post-observe live session                 target 0.0.6 W1/W2
+│   ├── [v] B5 actuation receipt: button, downs/ups, double, target, plus
+│   │        post-observe live session                 shipped in 0.0.6
 │   ├── [_] B6 multi-point drag path + held-key modifiers
 │   │        target 0.0.7 (OpenAI `drag.path[]`, `keys`)
 │   ├── [_] B7 two-axis scroll, explicit bounded wait
@@ -245,31 +245,45 @@ model loop, takeover/owner-lock, any new crate or runtime, bun/WASM/ujs
 embedding (PRD 31 readiness stays BLOCKED), runtime backend selection, and
 host-resource management (G in the tree above; `PRD_01_08` owns the boundary).
 
-## 0.0.6 frontier (planned, not started)
+## 0.0.6 frontier (shipped as a public signed Release)
 
-[_] Interaction closure. 0.0.5 made observation and pointer movement real on
-three OSes; it never drove `press=true`, `button=middle`, `button=right` or
-`double=true` in a CI journey, and a successful click is currently evidenced
-only by a pointer coordinate. `plan/plan-0.0.6-interaction-closure.md` is the
-plan and `prd/PRD_01_07_interaction_closure.md` is the contract: a typed
-**actuation receipt** (`button`, `downs`, `ups`, `double`, `target`) in
-`evidence`, three-OS CI journeys for the side-effecting variants, a live
-follow-up `observe` with a newer generation, and a public signed v0.0.6 built
-by the same chain. The receipt proves a real button event was dispatched, not
-that the target application's business action ran. `cu-abi 1.0`, the wire
-inputs and the capability matrix (windows 12/12, linux 10/12, macos 8/12) are
-unchanged.
+[v] Interaction closure shipped. 0.0.5 made observation and pointer movement
+real on three OSes but never drove `press=true`, `button=middle`,
+`button=right` or `double=true` in a CI journey; a successful click was
+evidenced only by a pointer coordinate. 0.0.6 adds a typed **actuation
+receipt** (`button`, `downs`, `ups`, `double`, `target`) counted by the native
+backend at dispatch time and published in `evidence["actuation"]`. `CuHost`
+compares it with the request: a missing receipt is `unknown`, a mismatched one
+is `not_performed`, and neither is ever upgraded to a success. `cu-abi 1.0`,
+the wire inputs and the 12-row capability matrix (windows 12/12, linux 10/12,
+macos 8/12) are unchanged. The receipt proves a real button event was
+dispatched, not that the target application's business action ran.
 
-[no] AX / AT-SPI / UIA trees and app-level state-change evidence stay out of
-0.0.6: a GitHub hosted runner cannot self-grant macOS Accessibility, and the
-Xvfb fixture has no AT-SPI bus or ATK bridge, so neither could be accepted
-under the "walk the last step yourself" rule. Their unlock conditions, the
-PRD 31 readiness gate (still BLOCKED), and the 0.0.5 release invariants that
-must not regress are recorded in the plan. No source, version or Release
-change accompanies this plan; the tree is still `0.0.5`. In the capability
-tree above, 0.0.6 owns B5 and extends C3; the external baseline is
-`prd/prd-cu-openai.md`, and the absorbed/deferred deltas are recorded in the
-plan's "External benchmark" section.
+[v] CI drove the previously undriven variants on all three OSes: middle,
+right, double, middle-button drag and (Windows) a real `press=true` click on a
+named control. The independent reader recomputes receipts, pointer readbacks,
+PNG IHDR and generation order; `observe_final` must be strictly newer and
+still report a live window and display. Compile gate **42056894173** and
+journeys **42056894326** are green on windows/macos/linux (Linux 17, macOS 14,
+Windows 20 performed steps).
+
+[v] `v0.0.6` is a public company-signed Latest Release
+(https://github.com/partnernetsoftware/minicon-harness/releases/tag/v0.0.6)
+from source `bf840c9`: pack **42057696157**, candidate **42059780606**,
+signing **42059902962**, dry-run **42060245443**, publish **42060339772**.
+Owner-view acceptance: the Release page and an asset answer anonymous HTTP
+200; all 15 assets were re-downloaded and six sidecars recomputed locally;
+the APE and both signed Windows cells match the receipt's `after_sha256`
+(and differ from `before_sha256`); the downloaded APE prints
+`minicon-harness 0.0.6`.
+
+[no] AX / AT-SPI / UIA trees and app-level state-change evidence stay out:
+a hosted runner cannot self-grant macOS Accessibility, and the Xvfb fixture
+has no AT-SPI bus or ATK bridge. Their unlock conditions and the PRD 31
+readiness gate (still BLOCKED) are recorded in the plan and `PRD_01_06`.
+0.0.6 owns B5 and extends C3 in the tree above; the external baseline is
+`prd/prd-cu-openai.md`, whose absorbed/deferred deltas are in the plan's
+"External benchmark" section.
 
 ## 0.0.5 frontier (shipped as a public signed Release)
 

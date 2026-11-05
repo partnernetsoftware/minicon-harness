@@ -71,8 +71,8 @@ That last sentence is the whole boundary.
 | | |
 |---|---|
 | Delivered | `act:hover`, `act:click` (left/middle/right, `double`), `act:drag` (12 stepped moves), `act:scroll`; pointer readback with 4 px tolerance |
-| Honesty gap | a successful click currently proves the **pointer** position, not that a button event was dispatched; `PRD_01_07` is specified to close this with an actuation receipt in 0.0.6 (`[_]`) |
-| Gaps | receipt (B5), multi-point drag path (B6), two-axis scroll (B7), batched `actions[]` (B8) |
+| Receipt | since 0.0.6 every button event carries a typed actuation receipt (`button`, `downs`, `ups`, `double`, `target`) counted by the backend; a missing receipt is `unknown`, a mismatched one is `not_performed` (`PRD_01_07`) |
+| Gaps | multi-point drag path (B6, planned 0.0.7), two-axis scroll (B7, planned 0.0.7), held keys and batched `actions[]` (deferred) |
 | Owner | `PRD_01_03`, `PRD_01_07` |
 
 ### W — window and control target management `[v]` (deliberately narrow)

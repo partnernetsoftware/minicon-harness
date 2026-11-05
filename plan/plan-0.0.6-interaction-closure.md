@@ -1,11 +1,8 @@
 # 0.0.6 — interaction closure: CI proves a real click, not just a moved pointer
 
-Status: `[_]` plan + contract delivered (2026-11-05). **No source, version or
-Release change is part of this step.** W1-W4 below are the development plan;
-each carries its own gate and none is claimed until a CI run exists. Owner
-direction this plan implements: **"开工做0.0.6的计划"** -- write the next
-version's plan, with the same discipline as 0.0.4/0.0.5: a plan is a set of
-falsifiable gates, not a wish list.
+Status: `[v]` W1-W4 delivered (2026-11-05). The plan was written first, with
+falsifiable gates; every W below is now closed with CI evidence and `v0.0.6`
+is a public company-signed Latest Release. Source version `0.0.6`.
 
 Baseline this plan starts from: `v0.0.5` is a public company-signed Latest
 Release from source `45b13f1`; three real backends; three-OS compile gate
@@ -134,13 +131,13 @@ Rules:
 
 ```text
 0.0.6 — interaction closure
-├── [_] W1 — actuation receipt in the contract
+├── [v] W1 — actuation receipt in the contract
 │   files: src/screen.rs, src/screen_macos.rs, src/screen_linux.rs,
 │          src/cu.rs, scripts/cu-cfg-check.py
 │   invariant: cu-abi stays 1.0; readback text unchanged; all four cfgs
 │   type-check; cargo test --locked green on all three OS CI jobs
 │   evidence: cu-platforms.yml run + matrix test unchanged at 12/10/8/0
-├── [_] W2 — real interaction journeys in CI
+├── [v] W2 — real interaction journeys in CI
 │   files: examples/cu_journey.rs, scripts/cu-journey-verify.py,
 │          .github/workflows/cu-journeys.yml
 │   invariant: new required steps act_click_middle, act_click_right,
@@ -151,7 +148,7 @@ Rules:
 │   never on a button/menu)
 │   evidence: cu-journeys.yml run, three cu-journey.json artifacts,
 │   independent reader output
-├── [_] W3 — the truth of the docs
+├── [v] W3 — the truth of the docs
 │   files: PRD.md, README.md, prd/PRD_01_03_computer_use.md,
 │          prd/PRD_01_04_cu_base.md, prd/PRD_01_05_semantic_controls.md,
 │          prd/PRD_01_06_cross_platform_cu.md
@@ -161,7 +158,7 @@ Rules:
 │   the six false matrix cells carry their unlock conditions, not a vague
 │   "separate design"
 │   evidence: grep for stale claims returns nothing; git diff --check clean
-└── [_] W4 — 0.0.6 version bump and public signed Release
+└── [v] W4 — 0.0.6 version bump and public signed Release
     files: Cargo.toml, Cargo.lock, release-policy.json,
            loader/ape-version.rc, .github/release-notes.md
     invariant: four version sources in ONE commit; dry-run before publish;
@@ -255,6 +252,28 @@ locally against the receipt and sidecars, and the downloaded APE printing
 
 ## Delivery record
 
-Filled in as each W closes, with the CI run IDs, the three journey artifacts,
-the release chain runs and the owner-view anonymous acceptance result. Until
-then every W above stays `[_]` and the source version stays `0.0.5`.
+- **W1** (`96e94c4`): `ButtonDispatch` counted at each native dispatch site,
+  `Actuation` published by `CuHost` in `evidence["actuation"]`, additive under
+  `cu-abi 1.0`; four configurations type-checked, 76 local tests green.
+- **W2**: compile gate **42056894173** (windows/macos/linux success);
+  journeys **42056894326** (all three success). Three `cu-journey.json`
+  artifacts were downloaded and re-verified locally with the independent
+  reader: PASS on linux (17 performed), macos (14), windows (20). Every
+  performed button step carries a receipt matching the request; the Linux
+  no-foreground case honestly reports `target="desktop session"`.
+- **W3** (`bf840c9`): 0.0.3 signing chain S1-S5 reconciled, three-backend
+  README/Layout, the six false matrix cells given per-cell unlock conditions,
+  stale Windows-only claims removed. `git diff --check` clean.
+- **W4**: four version sources bumped in one commit; release chain from
+  source `bf840c98c3a6fad194a6a20587d81fe1240fc1a4` -- pack **42057696157**,
+  candidate **42059780606**, signing **42059902962**, dry-run **42060245443**,
+  publish **42060339772**, all success.
+- **Owner-view acceptance**: `v0.0.6` is Latest, non-draft, non-prerelease,
+  15 assets; anonymous Release page 200 and asset (after redirect) 200;
+  fresh download of all 15 assets, six `.sha256` sidecars recomputed OK;
+  APE `93ee3e310df1d633...`, win-x86_64 `15bbe2fbfdcfc665...`, win-aarch64
+  `68a89ca00bd506d2...` all equal the receipt `after_sha256` and differ from
+  `before_sha256`; the downloaded APE prints `minicon-harness 0.0.6`.
+
+0.0.7 is planned separately in `plan/plan-0.0.7-richer-actuation.md`; no
+0.0.6 asset was overwritten.

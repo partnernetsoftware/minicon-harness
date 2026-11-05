@@ -1,9 +1,10 @@
 # PRD 01.07 — actuation receipt and interaction closure
 
-Status: `[_]` specified (2026-11-05), not implemented. This PRD is the
-contract half of `plan/plan-0.0.6-interaction-closure.md`; the plan owns the
-work breakdown and the CI gates, this document owns the observable contract.
-Nothing here claims a capability that a CI run has not produced.
+Status: `[v]` implemented, qualified on three OSes and shipped in the public
+signed `v0.0.6` (2026-11-05). This PRD is the contract half of
+`plan/plan-0.0.6-interaction-closure.md`; the plan owns the work breakdown
+and the CI gates, this document owns the observable contract. Evidence:
+compile gate **42056894173**, journeys **42056894326**, publish **42060339772**.
 
 ## Problem
 

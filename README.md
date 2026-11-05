@@ -78,6 +78,10 @@ dependency.
   characters per control text, 200 ms per cross-process `WM_GETTEXT`, 4 px of
   readback slack before a window move or a pointer action counts as not
   performed, 32 retained CU receipts.
+- `screen` actuation receipt: every button event reports `button`, `downs`,
+  `ups`, `double` and a non-empty `target`; a missing receipt is `unknown`,
+  a mismatched one is `not_performed`
+  (`prd/PRD_01_07_interaction_closure.md`).
 
 ## Usage
 

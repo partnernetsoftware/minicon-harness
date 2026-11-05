@@ -174,7 +174,7 @@ desktop geometry named.
 | `[v]` macOS/Linux native mechanisms | 0.0.5 shipped real CG/CF and X11/XTest backends with runtime symbol resolution; three-OS CI journeys drove real observation and actuation. The remaining false matrix cells are named refusals | `prd/PRD_01_06_cross_platform_cu.md` owns the per-cell unlock conditions |
 | `[-]` no vision input path | a capture is a local artifact; the model reads its path, not its pixels | the wire codec is text-only by design; an image arm is a separate decision |
 | `[v]` capture retention | -- | newest 12 tool-produced PNGs are kept per root; only names the tool composes are considered, other files are never touched |
-| `[_]` pointer-path qualification for drag/middle | hover and the shared pointer readback are qualified on a real desktop; drag and middle-button press are not yet exercised against one | add them to the ignored real-desktop journey |
+| `[v]` pointer-path qualification for drag/middle | 0.0.6 drove middle/right/double clicks, middle drag and a real `press=true` control click in three-OS CI journeys, each with an actuation receipt | `prd/PRD_01_07_interaction_closure.md` |
 
 ## Where this goes next
 
