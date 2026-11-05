@@ -17,13 +17,13 @@ use super::{
     PlatformCapabilities, WindowInfo, SCREEN_TOOL_MAX_REGION_PIXELS,
     SCREEN_TOOL_POINTER_TOLERANCE_PX,
 };
-use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
+use std::ffi::{c_char, c_int, c_void, CStr, CString};
 
 const CG: &str = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics";
 const CF: &str = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
 
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
-const K_CF_NUMBER_SINT64: c_int = 4;
+const K_CF_NUMBER_SINT64: isize = 4;
 const K_CG_WINDOW_LIST_OPTION_ON_SCREEN_ONLY: u32 = 1;
 const K_CG_NULL_WINDOW_ID: u32 = 0;
 const K_CG_HID_EVENT_TAP: u32 = 0;
@@ -32,11 +32,8 @@ const K_CG_EVENT_LEFT_MOUSE_DOWN: u32 = 1;
 const K_CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
 const K_CG_EVENT_RIGHT_MOUSE_DOWN: u32 = 3;
 const K_CG_EVENT_RIGHT_MOUSE_UP: u32 = 4;
-const K_CG_EVENT_MOUSE_MOVED: u32 = 5;
 const K_CG_EVENT_LEFT_MOUSE_DRAGGED: u32 = 6;
 const K_CG_EVENT_RIGHT_MOUSE_DRAGGED: u32 = 7;
-const K_CG_EVENT_KEY_DOWN: u32 = 10;
-const K_CG_EVENT_KEY_UP: u32 = 11;
 const K_CG_EVENT_OTHER_MOUSE_DOWN: u32 = 25;
 const K_CG_EVENT_OTHER_MOUSE_UP: u32 = 26;
 const K_CG_EVENT_OTHER_MOUSE_DRAGGED: u32 = 27;
@@ -114,8 +111,12 @@ type FnCGEventKeyboardSetUnicodeString =
     unsafe extern "C" fn(*const c_void, usize, *const u16);
 type FnCGEventSetFlags = unsafe extern "C" fn(*const c_void, u64);
 type FnCGEventPost = unsafe extern "C" fn(u32, *const c_void);
-type FnCGEventCreateScrollWheelEvent =
-    unsafe extern "C" fn(*const c_void, u32, u32, i32) -> *const c_void;
+// The variadic CGEventCreateScrollWheelEvent is not ABI-safe to call through
+// a fixed Rust fn pointer on arm64. ...2 is the non-variadic six-argument form.
+type FnCGEventCreateScrollWheelEvent2 =
+    unsafe extern "C" fn(*const c_void, u32, u32, i32, i32, i32) -> *const c_void;
+type FnCFStringCreateWithCString =
+    unsafe extern "C" fn(*const c_void, *const c_char, u32) -> *const c_void;
 type FnCGPreflightScreenCaptureAccess = unsafe extern "C" fn() -> u8;
 type FnCGPreflightPostEventAccess = unsafe extern "C" fn() -> u8;
 type FnCFArrayGetCount = unsafe extern "C" fn(*const c_void) -> isize;
@@ -125,7 +126,7 @@ type FnCFDictionaryGetValue =
     unsafe extern "C" fn(*const c_void, *const c_void) -> *const c_void;
 type FnCFStringGetCString =
     unsafe extern "C" fn(*const c_void, *mut c_char, isize, u32) -> u8;
-type FnCFNumberGetValue = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> u8;
+type FnCFNumberGetValue = unsafe extern "C" fn(*const c_void, isize, *mut c_void) -> u8;
 type FnCFDataGetBytePtr = unsafe extern "C" fn(*const c_void) -> *const u8;
 type FnCFDataGetLength = unsafe extern "C" fn(*const c_void) -> isize;
 type FnCFRelease = unsafe extern "C" fn(*const c_void);
@@ -134,24 +135,24 @@ fn sym<T: Copy>(library: &'static str, name: &str) -> Result<T, String> {
     unsafe { super::dynlib::sym::<T>(library, name) }
 }
 
+/// Build a CFString dictionary key from its literal name.
+///
 /// `kCGWindowName` and friends are exported *data* symbols holding a
-/// `CFStringRef`. `dlsym` gives their address; the value is one dereference
-/// away.
-fn constant(library: &'static str, name: &str) -> Result<*const c_void, String> {
-    let lib = super::dynlib::Lib::open(library)?;
-    let address: *mut c_void = unsafe { lib.sym::<*mut c_void>(name) }?;
-    if address.is_null() {
+/// `CFStringRef`. Dereferencing a dlsym data symbol is fragile across macOS
+/// SDK/dyld versions, so the backend creates an equal CFString instead; the
+/// CG window dictionaries use `kCFTypeDictionaryKeyCallBacks` (CFEqual), so
+/// the literal keys match the constants. A NULL allocator is the documented
+/// default allocator.
+fn cf_key(name: &str) -> Result<*const c_void, String> {
+    let create: FnCFStringCreateWithCString = sym(CF, "CFStringCreateWithCString")?;
+    let c = CString::new(name).map_err(|_| format!("cu: unsupported: bad key {name:?}"))?;
+    let key = unsafe { create(std::ptr::null(), c.as_ptr(), K_CF_STRING_ENCODING_UTF8) };
+    if key.is_null() {
         return Err(format!(
-            "cu: unsupported: {library} does not export {name}; no effect was performed"
+            "cu: unsupported: CoreFoundation could not create key {name:?}; no effect was performed"
         ));
     }
-    let value = unsafe { *(address as *const *const c_void) };
-    if value.is_null() {
-        return Err(format!(
-            "cu: unsupported: {name} is null on this session; no effect was performed"
-        ));
-    }
-    Ok(value)
+    Ok(key)
 }
 
 fn cf_string(value: *const c_void) -> Option<String> {
@@ -320,12 +321,12 @@ fn window_entries() -> Result<Vec<Entry>, String> {
                 .to_owned(),
         );
     }
-    let key_number = constant(CG, "kCGWindowNumber").ok();
-    let key_name = constant(CG, "kCGWindowName").ok();
-    let key_owner = constant(CG, "kCGWindowOwnerName").ok();
-    let key_pid = constant(CG, "kCGWindowOwnerPID").ok();
-    let key_bounds = constant(CG, "kCGWindowBounds").ok();
-    let key_layer = constant(CG, "kCGWindowLayer").ok();
+    let key_number = cf_key("kCGWindowNumber").ok();
+    let key_name = cf_key("kCGWindowName").ok();
+    let key_owner = cf_key("kCGWindowOwnerName").ok();
+    let key_pid = cf_key("kCGWindowOwnerPID").ok();
+    let key_bounds = cf_key("kCGWindowBounds").ok();
+    let key_layer = cf_key("kCGWindowLayer").ok();
     let count_f: FnCFArrayGetCount = sym(CF, "CFArrayGetCount")?;
     let at_f: FnCFArrayGetValueAtIndex = sym(CF, "CFArrayGetValueAtIndex")?;
     let dict_rect: FnCGRectMakeWithDictionaryRepresentation =
@@ -385,6 +386,12 @@ fn window_entries() -> Result<Vec<Entry>, String> {
         });
     }
     release(array);
+    for key in [key_number, key_name, key_owner, key_pid, key_bounds, key_layer]
+        .into_iter()
+        .flatten()
+    {
+        release(key);
+    }
     Ok(out)
 }
 
@@ -634,7 +641,7 @@ pub fn drag(
 pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(i32, i32), String> {
     let position = place_pointer(x, y)?;
     input_grant()?;
-    let create: FnCGEventCreateScrollWheelEvent = sym(CG, "CGEventCreateScrollWheelEvent")?;
+    let create: FnCGEventCreateScrollWheelEvent2 = sym(CG, "CGEventCreateScrollWheelEvent2")?;
     let post: FnCGEventPost = sym(CG, "CGEventPost")?;
     let notches = (delta / 120).clamp(-12, 12);
     let event = unsafe {
@@ -643,6 +650,8 @@ pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(i32, i32), String> {
             K_CG_SCROLL_EVENT_UNIT_LINE,
             1,
             if notches == 0 { delta.signum() } else { notches },
+            0,
+            0,
         )
     };
     if event.is_null() {

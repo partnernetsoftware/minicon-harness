@@ -12,6 +12,7 @@ and not a silent failure: it is recorded as such and never upgraded to `[v]`.
 """
 import argparse
 import json
+import re
 import struct
 import sys
 from pathlib import Path
@@ -123,16 +124,12 @@ def main() -> int:
         want_x = request.get("to_x", request.get("x"))
         want_y = request.get("to_y", request.get("y"))
         readback = record.get("evidence", {}).get("readback", "")
-        marker = "pointer at "
-        check(marker in readback, f"{step}: readback has no pointer position")
-        if marker in readback:
-            try:
-                position = readback.split(marker, 1)[1].split()[0]
-                got_x, got_y = (int(part) for part in position.split(","))
-                check(abs(got_x - want_x) <= TOLERANCE and abs(got_y - want_y) <= TOLERANCE,
-                      f"{step}: readback {got_x},{got_y} != requested {want_x},{want_y}")
-            except (ValueError, IndexError) as error:
-                failures.append(f"{step}: unparsable pointer readback {readback!r}: {error}")
+        match = re.search(r"(-?\d+),\s*(-?\d+)", readback)
+        check(match is not None, f"{step}: readback has no pointer position: {readback!r}")
+        if match:
+            got_x, got_y = int(match.group(1)), int(match.group(2))
+            check(abs(got_x - want_x) <= TOLERANCE and abs(got_y - want_y) <= TOLERANCE,
+                  f"{step}: readback {got_x},{got_y} != requested {want_x},{want_y}")
 
     # 4. A performed capture is a real PNG on disk whose IHDR agrees with the
     #    typed evidence. A black/missing image is not a successful capture.

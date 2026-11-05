@@ -2088,6 +2088,7 @@ mod dynlib;
 /// that has not implemented a verb must never report an empty success, and
 /// must never be described as a different OS.
 #[cfg(not(windows))]
+#[allow(unused_macros)]
 macro_rules! refusing_backend {
     ($platform:expr, $hint:expr) => {
         use super::{

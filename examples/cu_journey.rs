@@ -20,6 +20,7 @@ struct Journey {
 
 impl Journey {
     fn run(&mut self, step: &str, capability: &str, declared: bool, required: bool, request: Value) -> Value {
+        eprintln!("cu-journey step={step} capability={capability} declared={declared}");
         let result = self.host.invoke_json(&request);
         let record = json!({
             "step": step,
