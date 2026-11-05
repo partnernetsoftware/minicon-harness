@@ -666,12 +666,15 @@ pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(i32, i32), String> {
 }
 
 fn post_key(code: u16, down: bool, flags: u64, units: &[u16]) -> Result<(), String> {
+    eprintln!("cu-macos post_key: begin");
     input_grant()?;
+    eprintln!("cu-macos post_key: grant ok");
     let create: FnCGEventCreateKeyboardEvent = sym(CG, "CGEventCreateKeyboardEvent")?;
     let set_flags: FnCGEventSetFlags = sym(CG, "CGEventSetFlags")?;
     let set_unicode: FnCGEventKeyboardSetUnicodeString =
         sym(CG, "CGEventKeyboardSetUnicodeString")?;
     let post: FnCGEventPost = sym(CG, "CGEventPost")?;
+    eprintln!("cu-macos post_key: creating keyboard event");
     let event = unsafe {
         create(
             std::ptr::null(),
@@ -679,11 +682,13 @@ fn post_key(code: u16, down: bool, flags: u64, units: &[u16]) -> Result<(), Stri
             if down { 1 } else { 0 },
         )
     };
+    eprintln!("cu-macos post_key: keyboard event created");
     if event.is_null() {
         return Err(
             "cu: unsupported: CGEventCreateKeyboardEvent failed; no key was delivered".to_owned(),
         );
     }
+    eprintln!("cu-macos post_key: setting fields");
     unsafe {
         set_flags(event, flags);
         if !units.is_empty() {
@@ -691,6 +696,7 @@ fn post_key(code: u16, down: bool, flags: u64, units: &[u16]) -> Result<(), Stri
         }
         post(K_CG_HID_EVENT_TAP, event);
     }
+    eprintln!("cu-macos post_key: posted");
     release(event);
     Ok(())
 }

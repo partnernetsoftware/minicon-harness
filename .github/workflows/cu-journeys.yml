@@ -72,6 +72,7 @@ jobs:
           path: |
             cu-journey.json
             .cu-journey/.harness/capture/*.png
+          include-hidden-files: true
           if-no-files-found: warn
 
   macos:
@@ -102,6 +103,7 @@ jobs:
           path: |
             cu-journey.json
             .cu-journey/.harness/capture/*.png
+          include-hidden-files: true
           if-no-files-found: warn
 
   windows:
@@ -138,4 +140,5 @@ jobs:
           path: |
             cu-journey.json
             .cu-journey/.harness/capture/*.png
+          include-hidden-files: true
           if-no-files-found: warn
