@@ -1693,6 +1693,18 @@ mod tests {
         let result = host.invoke_json(&json!({
             "op": "act", "why": "x", "action": "control", "control": "OK"
         }));
+        // A cell without an `act:control` backend admits nothing, so its own
+        // platform refusal is the only honest outcome -- see PRD 01.06.
+        if !crate::screen::platform_capabilities().supports("act:control") {
+            assert_eq!(result.verdict, CuVerdict::Refused);
+            assert!(
+                result.text.contains(crate::screen::platform_name()),
+                "{}",
+                result.text
+            );
+            assert_eq!(result.evidence["qualified"], json!(false));
+            return;
+        }
         assert_eq!(result.verdict, CuVerdict::Refused);
         assert!(result.text.contains("no observation yet"), "{}", result.text);
         assert_eq!(result.evidence["reason"], "no_frame");
@@ -1700,6 +1712,19 @@ mod tests {
 
     #[test]
     fn a_named_target_never_guesses_ambiguous_stale_or_unusable_controls() {
+        if !crate::screen::platform_capabilities().supports("act:control") {
+            let refused = host_with_frame(Vec::new(), 1, 1, (0, 0, 800, 600)).invoke_json(
+                &json!({ "op": "act", "why": "x", "action": "control", "control": "OK" }),
+            );
+            assert_eq!(refused.verdict, CuVerdict::Refused);
+            assert!(
+                refused.text.contains(crate::screen::platform_name()),
+                "{}",
+                refused.text
+            );
+            assert_eq!(refused.evidence["platform_capabilities"].as_array().unwrap().len(), 12);
+            return;
+        }
         let empty = host_with_frame(Vec::new(), 1, 1, (0, 0, 800, 600));
         let no_controls = empty.invoke_json(&json!({
             "op": "act", "why": "x", "action": "control", "control": "OK"
