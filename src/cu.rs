@@ -1236,6 +1236,11 @@ fn classify(error: String) -> (CuVerdict, String) {
         (CuVerdict::NotPerformed, error)
     } else if error.starts_with("screen: refused:") {
         (CuVerdict::Refused, error)
+    } else if error.starts_with("cu: unsupported:") {
+        // A backend that cannot perform an effect (missing library, missing
+        // OS grant, missing mechanism) reports a named unsupported refusal.
+        // It is not an unconfirmed outcome: no effect happened, by contract.
+        (CuVerdict::Unsupported, error)
     } else {
         // Anything else is an unconfirmed native outcome. Never report a
         // success for it, and never replay it.

@@ -1,0 +1,141 @@
+# Real-desktop computer-use journeys on all three OSes. The compile gate
+# (`cu-platforms.yml`) proves the backends build and link; this workflow proves
+# they can *observe and act* on a desktop, with a readback per effect. Linux
+# uses Xvfb and a titled X client, macOS uses the runner GUI session, Windows
+# uses a Notepad window. Each job writes cu-journey.json and an independent
+# reader recomputes the verdict from those records.
+name: Cross-platform CU desktop journeys
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'examples/cu_journey.rs'
+      - 'scripts/cu-journey-verify.py'
+      - '.github/workflows/cu-journeys.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: minicon-harness-cu-journeys
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    name: Linux X11 journey (Xvfb)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      DISPLAY: ':99'
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Install an X server and a titled X client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends xvfb x11-apps x11-utils
+      - name: Drive the Linux backend under Xvfb
+        run: |
+          set -euo pipefail
+          Xvfb :99 -screen 0 1280x800x24 -nolisten tcp > "$RUNNER_TEMP/xvfb.log" 2>&1 &
+          XVFB_PID=$!
+          trap 'kill "$XVFB_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
+            xdpyinfo >/dev/null 2>&1 && break
+            sleep 1
+          done
+          xdpyinfo | grep dimensions
+          # No window manager on purpose: XMoveResizeWindow readback is exact
+          # without a reparenting frame, and XSetInputFocus is not overridden.
+          xmessage -title cu-journey-window -geometry 400x200+300+200 \
+            'minicon-harness CU journey' &
+          MESSAGE_PID=$!
+          sleep 2
+          xwininfo -root -tree | head -20
+          cargo run --locked --example cu_journey -- \
+            --root .cu-journey --out cu-journey.json --window cu-journey-window
+          python3 scripts/cu-journey-verify.py \
+            --journey cu-journey.json --root .cu-journey
+          kill "$MESSAGE_PID" 2>/dev/null || true
+      - name: Publish the Linux journey evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cu-journey-linux
+          path: |
+            cu-journey.json
+            .cu-journey/.harness/capture/*.png
+          if-no-files-found: warn
+
+  macos:
+    name: macOS CoreGraphics journey
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Drive the macOS backend in the runner GUI session
+        run: |
+          set -euo pipefail
+          # A missing Screen Recording / Input Monitoring grant is a named
+          # boundary, never an empty success. The independent reader records
+          # it and does not upgrade it to a passed verb.
+          cargo run --locked --example cu_journey -- \
+            --root .cu-journey --out cu-journey.json
+          python3 scripts/cu-journey-verify.py \
+            --journey cu-journey.json --root .cu-journey
+      - name: Publish the macOS journey evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cu-journey-macos
+          path: |
+            cu-journey.json
+            .cu-journey/.harness/capture/*.png
+          if-no-files-found: warn
+
+  windows:
+    name: Windows Win32 journey
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Rust toolchain
+        shell: bash
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Open a titled desktop window
+        shell: pwsh
+        run: |
+          Start-Process notepad.exe
+          Start-Sleep -Seconds 4
+          Get-Process notepad -ErrorAction SilentlyContinue |
+            Select-Object Id, MainWindowTitle | Format-Table -AutoSize
+      - name: Drive the Windows backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run --locked --example cu_journey -- \
+            --root .cu-journey --out cu-journey.json --window Notepad
+          python scripts/cu-journey-verify.py \
+            --journey cu-journey.json --root .cu-journey
+      - name: Publish the Windows journey evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cu-journey-windows
+          path: |
+            cu-journey.json
+            .cu-journey/.harness/capture/*.png
+          if-no-files-found: warn
