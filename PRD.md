@@ -55,6 +55,8 @@ minicon-harness — one-file bounded agent worker
 ├── Delivery: minicon-harness.com → prd/PRD_01_01_com_delivery.md
 ├── Windows signing: company Authenticode → prd/PRD_01_02_windows_signing.md
 ├── Computer use: the `screen` tool → prd/PRD_01_03_computer_use.md
+│   └── domain model (KVM + window target) and resource boundary
+│       → prd/PRD_01_08_computer_use_scope.md
 ├── 0.0.3 frontier (signed releases)
 │   ├── [-] S1 signing qualification on this repository (owner fills 3
 │   │   secrets, one qualification_only run, receipt read back)
@@ -93,6 +95,29 @@ minicon-harness — one-file bounded agent worker
 - The `.com` artifact is a pack of already-qualified native cells. It never
   recompiles the worker against cosmopolitan libc, and cells are never
   rebuilt on a test runner.
+- Computer use operates one local interactive session: keyboard, video, mouse
+  and the window/control target that binds them. Host resources -- processes,
+  memory, devices, network, storage -- are not computer use here; they belong
+  to `exec`/`file` or are explicit non-goals (`prd/PRD_01_08_computer_use_scope.md`).
+
+## What computer use means here
+
+Added 2026-11-05. The owner's model is **KVM plus resource management**
+(window, process, memory, hardware). This repository carries a deliberately
+narrow slice of it: the bounded operation of one local interactive session --
+read its video output, send keyboard and mouse input, and bind those effects
+to a verified window/control target. Process, memory, device and host-resource
+management are **outside** computer use here: `exec` owns processes, `file`
+owns storage, `minicon-winmgr` owns window-manager product behavior, and the
+rest is `[no]`. The domain model, the resource-boundary table and the CU
+document branch are owned by `prd/PRD_01_08_computer_use_scope.md`; the tree
+below remains the single index of feature status.
+
+How to read the tree: **A and B are the domain axes** (what the desktop can
+observe and what it can do); **C, D, E and F are cross-cutting layers** (how a
+call is admitted, looped, compiled and evidenced); **G is the boundary** (what
+computer use is not). Counting C-F as domain coverage would inflate the
+product's scope on paper.
 
 ## CU capability tree (benchmarked against `prd/prd-cu-openai.md`)
 
@@ -160,12 +185,23 @@ minicon-harness computer use
 │   ├── [_] E4 OS-grant matrix in evidence (Screen Recording, Input
 │   │        Monitoring, Accessibility)              target 0.0.7
 │   └── [no] E5 Wayland-native protocol, runtime backend selection
-└── F Verification and delivery
-    ├── [v] F1 CI compile gate + three-OS real-desktop journeys + independent
-    │        reader recomputing matrix, readback, PNG IHDR, generation
-    ├── [v] F2 public company-signed Release, Defender and post-publish court
-    └── [_] F3 app-level effect evidence via a self-hosted echo window
-             target 0.0.7+; unlock: side-effect-free fixture on three OSes
+├── F Verification and delivery
+│   ├── [v] F1 CI compile gate + three-OS real-desktop journeys + independent
+│   │        reader recomputing matrix, readback, PNG IHDR, generation
+│   ├── [v] F2 public company-signed Release, Defender and post-publish court
+│   └── [_] F3 app-level effect evidence via a self-hosted echo window
+│            target 0.0.7+; unlock: side-effect-free fixture on three OSes
+└── G Resource-domain boundary — NOT a capability axis; owner PRD 01.08
+    ├── [no] process spawn / inspect / signal / kill / usage / maps / fds:
+    │        `exec` owns processes; a window's `pid` is identity metadata
+    ├── [no] memory, CPU, load, topology and hardware inventory
+    ├── [no] network, disk and device management; displays and input devices
+    │        are preconditions of K/V/M, not objects this tool manages
+    ├── [no] window-manager product behavior (minicon-winmgr owns it);
+    │        here W is target binding: focus/move + inventory + named control
+    └── [no] widening `screen` into host control by adding one verb: a new
+             tool/grant, its own threat model and its own readback semantics
+             are required first (unlock conditions in PRD 01.08)
 ```
 
 Two directions of the gap, kept separate on purpose:
@@ -206,7 +242,8 @@ carries the gate. Candidate chapters, all `[_]`, with their unlock conditions:
 `[no]` carried forward from every earlier frontier: plugin host, permission
 policy engine, streaming, MCP, a scripting surface over the desktop, a second
 model loop, takeover/owner-lock, any new crate or runtime, bun/WASM/ujs
-embedding (PRD 31 readiness stays BLOCKED), and runtime backend selection.
+embedding (PRD 31 readiness stays BLOCKED), runtime backend selection, and
+host-resource management (G in the tree above; `PRD_01_08` owns the boundary).
 
 ## 0.0.6 frontier (planned, not started)
 

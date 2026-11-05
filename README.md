@@ -24,6 +24,14 @@ by name when not granted or when the platform was never qualified. Contract
 and migration notes:
 [`prd/PRD_01_03_computer_use.md`](prd/PRD_01_03_computer_use.md).
 
+**Scope.** Here computer use means KVM plus the window/control target that
+binds an effect: one local interactive session, one effect per call, readback
+that proves desktop state. Process, memory, device, network and storage
+management are **not** part of `screen`: processes belong to `exec`, storage
+to `file`, window-manager product behavior to `minicon-winmgr`, and the rest
+is an explicit non-goal. Domain model and boundary:
+[`prd/PRD_01_08_computer_use_scope.md`](prd/PRD_01_08_computer_use_scope.md).
+
 Above the mechanisms sits a **versioned host capability contract**
 (`src/cu.rs`, `prd/PRD_01_04_cu_base.md`): cu-abi 1.0, a discoverable
 capability manifest, typed inputs/outputs, observation generations with
