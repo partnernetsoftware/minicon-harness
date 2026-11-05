@@ -85,6 +85,11 @@ jobs:
           persist-credentials: false
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Open a titled desktop window
+        run: |
+          open -a TextEdit
+          sleep 4
+          osascript -e 'tell application "System Events" to get name of every process whose frontmost is true' || true
       - name: Drive the macOS backend in the runner GUI session
         run: |
           set -euo pipefail

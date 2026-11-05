@@ -130,6 +130,9 @@ type FnCFNumberGetValue = unsafe extern "C" fn(*const c_void, isize, *mut c_void
 type FnCFDataGetBytePtr = unsafe extern "C" fn(*const c_void) -> *const u8;
 type FnCFDataGetLength = unsafe extern "C" fn(*const c_void) -> isize;
 type FnCFRelease = unsafe extern "C" fn(*const c_void);
+type FnCFGetTypeID = unsafe extern "C" fn(*const c_void) -> usize;
+type FnCFStringGetTypeID = unsafe extern "C" fn() -> usize;
+type FnCFNumberGetTypeID = unsafe extern "C" fn() -> usize;
 
 fn sym<T: Copy>(library: &'static str, name: &str) -> Result<T, String> {
     unsafe { super::dynlib::sym::<T>(library, name) }
@@ -155,7 +158,31 @@ fn cf_key(name: &str) -> Result<*const c_void, String> {
     Ok(key)
 }
 
+fn cf_type_is(value: *const c_void, expected: &str) -> bool {
+    if value.is_null() {
+        return false;
+    }
+    let (get, wanted): (usize, usize) = match sym::<FnCFGetTypeID>(CF, "CFGetTypeID") {
+        Ok(_) => match expected {
+            "CFString" => (
+                unsafe { sym::<FnCFGetTypeID>(CF, "CFGetTypeID").ok().map(|f| f(value)).unwrap_or(0) },
+                unsafe { sym::<FnCFStringGetTypeID>(CF, "CFStringGetTypeID").ok().map(|f| f()).unwrap_or(0) },
+            ),
+            "CFNumber" => (
+                unsafe { sym::<FnCFGetTypeID>(CF, "CFGetTypeID").ok().map(|f| f(value)).unwrap_or(0) },
+                unsafe { sym::<FnCFNumberGetTypeID>(CF, "CFNumberGetTypeID").ok().map(|f| f()).unwrap_or(0) },
+            ),
+            _ => return false,
+        },
+        Err(_) => return true, // older SDK: fall through to the guarded call
+    };
+    wanted != 0 && get == wanted
+}
+
 fn cf_string(value: *const c_void) -> Option<String> {
+    if !cf_type_is(value, "CFString") {
+        return None;
+    }
     let get: FnCFStringGetCString = sym(CF, "CFStringGetCString").ok()?;
     let mut buffer = [0 as c_char; 1024];
     let ok = unsafe {
@@ -177,6 +204,9 @@ fn cf_string(value: *const c_void) -> Option<String> {
 }
 
 fn cf_number(value: *const c_void) -> Option<i64> {
+    if !cf_type_is(value, "CFNumber") {
+        return None;
+    }
     let get: FnCFNumberGetValue = sym(CF, "CFNumberGetValue").ok()?;
     let mut out: i64 = 0;
     let ok = unsafe {
@@ -199,6 +229,9 @@ fn release(value: *const c_void) {
 }
 
 fn dictionary_value(dictionary: *const c_void, key: *const c_void) -> *const c_void {
+    if dictionary.is_null() || key.is_null() {
+        return std::ptr::null();
+    }
     let get: FnCFDictionaryGetValue = match sym(CF, "CFDictionaryGetValue") {
         Ok(f) => f,
         Err(_) => return std::ptr::null(),
@@ -240,6 +273,7 @@ fn input_grant() -> Result<(), String> {
 }
 
 fn display_ids() -> Result<Vec<u32>, String> {
+    eprintln!("cu-macos: display_ids");
     let list: FnCGGetActiveDisplayList = sym(CG, "CGGetActiveDisplayList")?;
     let mut ids = [0u32; 16];
     let mut count: u32 = 0;
@@ -307,6 +341,7 @@ struct Entry {
 }
 
 fn window_entries() -> Result<Vec<Entry>, String> {
+    eprintln!("cu-macos: window_entries");
     let copy: FnCGWindowListCopyWindowInfo = sym(CG, "CGWindowListCopyWindowInfo")?;
     let array = unsafe {
         copy(
@@ -415,6 +450,7 @@ pub fn windows() -> Result<Vec<WindowInfo>, String> {
 }
 
 pub fn foreground_title() -> Option<String> {
+    eprintln!("cu-macos: foreground_title");
     window_entries()
         .ok()?
         .into_iter()
@@ -702,10 +738,12 @@ fn post_key(code: u16, down: bool, flags: u64, units: &[u16]) -> Result<(), Stri
 }
 
 pub fn type_text(text: &str) -> Result<(), String> {
+    eprintln!("cu-macos: type_text");
     // CGEventKeyboardSetUnicodeString delivers any Unicode scalar without a
     // keyboard-layout keycode map. That is why `act:type` is not ASCII-only on
     // this backend.
     for character in text.chars() {
+        eprintln!("cu-macos: type_text char={character:?}");
         let mut buffer = [0u16; 2];
         let units = character.encode_utf16(&mut buffer);
         post_key(0, true, 0, units)?;

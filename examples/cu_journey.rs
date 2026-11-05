@@ -33,6 +33,10 @@ impl Journey {
             "evidence": result.evidence,
             "request": request,
         });
+        eprintln!(
+            "cu-journey step={step} verdict={}",
+            result.verdict.tag()
+        );
         self.records.push(record.clone());
         record
     }
