@@ -1,8 +1,9 @@
 # 0.0.5 — cross-platform computer use: one contract, three backends
 
-Status: `[v]` W1 design + contract + compile gate delivered (2026-11-05).
-`[_]` W2/W3 (native mechanisms per OS, real-desktop journeys) are specified
-here, not claimed. Owner direction this plan implements: **the CU design must
+Status: `[v]` W1 design + contract + compile gate delivered (2026-11-05),
+three-OS CI run **41939696616** green. `[_]` W2/W3 (native mechanisms per OS,
+real-desktop journeys) are specified here, not claimed. Owner direction this
+plan implements: **the CU design must
 be cross-platform and computer use must cover linux, macOS and Windows** --
 not a Windows implementation plus a refusal for the other five cells.
 
@@ -216,6 +217,32 @@ Outcome: one CU contract with three real backends and honest per-verb admission
     invariant: same W6 chain as 0.0.4, no unsigned Windows cells
     dependency: W3
 ```
+
+## W1 delivery record (2026-11-05)
+
+Commits `2b1c865` (one backend per `target_os`, capability matrix, PNG encoder
+promotion, CI gate), `3c8c38a` (this plan, PRD 01.06, PRD/README sync),
+`684c2a5` (tests branch on the compiled capability). `cu-platforms.yml` run
+**41939696616** is green on all three OSes: full test suite, release link and
+the three-config cfg type-check (9/9 steps on each job). The matrix test prints
+what each cell actually compiled:
+
+| OS | qualified | declared matrix |
+|----|-----------|-----------------|
+| windows | `true` | 12/12 verbs implemented |
+| macos | `false` | 12/12 named refusals |
+| linux | `false` | 12/12 named refusals |
+
+First gate run **41939188579** failed on linux/macOS: two pre-existing
+named-target tests drive `CuHost` with a synthetic frame and were intercepted
+by the new platform admission step. Fixed by branching those tests on
+`platform_capabilities().supports("act:control")` instead of adding a
+test-only capability backdoor to production code. No production assertion was
+relaxed; the Windows path still runs the full named-target matrix.
+
+Host verification: `cargo test --offline` 72 passed / 3 ignored,
+`scripts/cu-cfg-check.py` green in macOS, Linux and fallback configurations,
+`yaml.safe_load` on the new workflow, `git diff --check` clean.
 
 ## Non-goals
 

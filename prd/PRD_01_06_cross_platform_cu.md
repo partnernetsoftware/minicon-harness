@@ -93,7 +93,9 @@ for all verbs. This is reported by `disclose`, not hidden behind a boolean.
   `cu.rs` in the macOS, Linux and fallback configurations.
 - `.github/workflows/cu-platforms.yml`: three-OS matrix running the full test
   suite, a release link, and the cfg gate. The matrix test prints the compiled
-  cell's platform and matrix into the CI log.
+  cell's platform and matrix into the CI log. Run **41939696616** is green on
+  windows/macos/linux; see the W1 delivery record in the plan for the printed
+  matrices and the one intermediate failure that was fixed.
 - A green compile gate is evidence of **shape only**. No macOS or Linux
   desktop capability is claimed until W3.
 
