@@ -94,6 +94,120 @@ minicon-harness — one-file bounded agent worker
   recompiles the worker against cosmopolitan libc, and cells are never
   rebuilt on a test runner.
 
+## CU capability tree (benchmarked against `prd/prd-cu-openai.md`)
+
+Added 2026-11-05. This is the **single index of computer-use features**: where
+a capability lives, who owns its contract, and which version may implement it.
+Legend as above: `[v]` delivered with evidence, `[-]` partial/open, `[_]`
+planned, `[no]` explicit non-goal. A `[_]` means a chapter exists, not that
+code exists. The external baseline is `prd/prd-cu-openai.md` (OpenAI Responses
+API `computer` tool, Codex, ChatGPT agent/Work); raw evidence is kept outside
+the repo in a temporary corpus. No OpenAI field name is imported by this tree.
+
+```text
+minicon-harness computer use
+├── A Observation
+│   ├── [v] A1 pixel arm: virtual screen, displays, window inventory, PNG
+│   │        captured under the task root; desktop/window/region, scale
+│   │        owner PRD 01.03 / 01.06
+│   ├── [v] A2 typed Win32 child controls: label, class-derived role, rect,
+│   │        text, state; deliberately NOT a UIA tree   owner PRD 01.05
+│   ├── [v] A3 foreground title, multi-monitor negative coordinates,
+│   │        bounded capture arithmetic                 owner PRD 01.06
+│   ├── [_] A4 accessibility trees: macOS AX, Linux AT-SPI, Windows UIA COM
+│   │        unlock: per-app TCC grant on macOS; AT-SPI D-Bus bus + ATK
+│   │        fixture on Linux; each green on real CI before declaring true
+│   │        target 0.0.7+ or [no]                      owner PRD 01.06
+│   └── [_] A5 image arm in the wire codec: base64 PNG to the model each turn
+│            unlock: separate PRD + budget/retention decision
+│            target 0.0.7 candidate; [no] in 0.0.6
+├── B Actuation
+│   ├── [v] B1 pointer: hover, click, drag, scroll + pointer readback
+│   ├── [v] B2 keyboard: type, key
+│   ├── [v] B3 window: focus, move + rect readback (Linux/Windows)
+│   ├── [v] B4 named semantic control: resolve + hover/press (Windows only)
+│   ├── [_] B5 actuation receipt: button, downs/ups, double, target, plus
+│   │        post-observe live session                 target 0.0.6 W1/W2
+│   ├── [_] B6 multi-point drag path + held-key modifiers
+│   │        target 0.0.7 (OpenAI `drag.path[]`, `keys`)
+│   ├── [_] B7 two-axis scroll, explicit bounded wait
+│   │        target 0.0.7 (OpenAI `scroll_x/scroll_y`, `wait`)
+│   ├── [_] B8 batched `actions[]` with ordered receipts
+│   │        target 0.0.7+; needs its own admission/stale design
+│   └── [no] B9 browser-navigation buttons (`back`/`forward`/`wheel` as a
+│            button enum): desktop CU has no browser history to navigate
+├── C Contract and safety
+│   ├── [v] C1 `cu-abi 1.0`, CAPABILITIES, disclose, six typed verdicts
+│   ├── [v] C2 grant (`--allow-screen`), required `why`, task-root bounds
+│   ├── [v] C3 generation / `as_of` pin / stale refusal / receipts / evidence
+│   ├── [v] C4 per-OS capability matrix and named refusals
+│   ├── [_] C5 `pending_safety_checks` + acknowledged checks + human hand-off
+│   │        target 0.0.7; a policy PRD before any code
+│   ├── [_] C6 untrusted-screen-content policy (prompt injection)
+│   │        target 0.0.7; distinct from grant/admission
+│   └── [no] C7 takeover / owner-lock / watch mode (top-level non-goal)
+├── D Loop and state
+│   ├── [v] D1 one bounded tool call -> one verdict -> one evidence record
+│   ├── [_] D2 screenshot-per-turn loop with a model-visible image (needs A5)
+│   ├── [_] D3 session continuity beyond `as_of` (OpenAI uses
+│   │        `previous_response_id`; it does NOT restore login/runtime state)
+│   └── [_] D4 bounded iterations / time / cost ceilings
+├── E Platform and environment
+│   ├── [v] E1 three real backends: Win32, CG/CF, X11/XTest via dlopen
+│   ├── [v] E2 six cells cross-compiled on one runner, no link-time platform lib
+│   ├── [_] E3 environment enum + display width/height in `disclose`
+│   │        target 0.0.7; geometry is already in the pixel arm
+│   ├── [_] E4 OS-grant matrix in evidence (Screen Recording, Input
+│   │        Monitoring, Accessibility)              target 0.0.7
+│   └── [no] E5 Wayland-native protocol, runtime backend selection
+└── F Verification and delivery
+    ├── [v] F1 CI compile gate + three-OS real-desktop journeys + independent
+    │        reader recomputing matrix, readback, PNG IHDR, generation
+    ├── [v] F2 public company-signed Release, Defender and post-publish court
+    └── [_] F3 app-level effect evidence via a self-hosted echo window
+             target 0.0.7+; unlock: side-effect-free fixture on three OSes
+```
+
+Two directions of the gap, kept separate on purpose:
+
+- **We are ahead**: typed verdicts, actuation/readback evidence, capability
+  matrix, named refusals, `as_of` stale protection, three-OS CI journeys and
+  signed-release evidence. The OpenAI tool surface specifies none of these.
+  Aligning with it must never cost us one of them.
+- **They are ahead**: a model-visible image arm, batched actions, explicit
+  wait, two-axis scroll, multi-point drag, held keys, and a three-level
+  human-confirmation/safety-check policy. These are candidates, not debts:
+  each needs its own PRD, gate and owner decision before it enters a version.
+
+## 0.0.7 frontier (chapter stub, not planned)
+
+Opened 2026-11-05 so the tree above has somewhere to put new work. **No plan,
+no version bump, no code and no `[v]` claim exists here.** A `[_]` is a
+chapter, **not** a lifted non-goal: anything marked `[no]` in an earlier
+frontier stays `[no]` until an owner decision lifts it and a version plan
+carries the gate. Candidate chapters, all `[_]`, with their unlock conditions:
+
+```text
+0.0.7 — TBD (chapters only)
+├── [_] 0.7.1 image arm in the wire codec (A5, D2)
+│        unlock: budget, retention and model-visible PNG format decision
+├── [_] 0.7.2 safety checks and human confirmation (C5, C6)
+│        unlock: a policy PRD defining risk classes, who acknowledges,
+│        and how a refusal is recorded in evidence
+├── [_] 0.7.3 richer actuation (B6, B7, B8)
+│        unlock: 0.0.6 interaction closure green on three OSes
+├── [_] 0.7.4 accessibility trees (A4)
+│        unlock: OS grants and CI fixtures that can be accepted first-hand
+├── [_] 0.7.5 environment and grant disclosure (E3, E4)
+└── [_] 0.7.6 app-level effect evidence (F3)
+         unlock: side-effect-free echo-window fixtures on three OSes
+```
+
+`[no]` carried forward from every earlier frontier: plugin host, permission
+policy engine, streaming, MCP, a scripting surface over the desktop, a second
+model loop, takeover/owner-lock, any new crate or runtime, bun/WASM/ujs
+embedding (PRD 31 readiness stays BLOCKED), and runtime backend selection.
+
 ## 0.0.6 frontier (planned, not started)
 
 [_] Interaction closure. 0.0.5 made observation and pointer movement real on
@@ -115,7 +229,10 @@ Xvfb fixture has no AT-SPI bus or ATK bridge, so neither could be accepted
 under the "walk the last step yourself" rule. Their unlock conditions, the
 PRD 31 readiness gate (still BLOCKED), and the 0.0.5 release invariants that
 must not regress are recorded in the plan. No source, version or Release
-change accompanies this plan; the tree is still `0.0.5`.
+change accompanies this plan; the tree is still `0.0.5`. In the capability
+tree above, 0.0.6 owns B5 and extends C3; the external baseline is
+`prd/prd-cu-openai.md`, and the absorbed/deferred deltas are recorded in the
+plan's "External benchmark" section.
 
 ## 0.0.5 frontier (shipped as a public signed Release)
 

@@ -54,6 +54,42 @@ worth more than a version that declares three new verbs and refuses them all.
 | docs | 0.0.5 truth recorded | the stale 0.0.3/gap-table statements corrected |
 | delivery | v0.0.5 public signed | v0.0.6 public signed, no regression in the four release invariants |
 
+## External benchmark: what 0.0.6 absorbs and defers
+
+Added after the owner's request to benchmark against Codex / ChatGPT / OpenAI.
+The structured reading is `prd/prd-cu-openai.md` (external reference, **not a
+contract**); raw SDK types, official-page excerpts and an evidence-tier index
+sit in a temporary corpus outside the repo. Source quality is graded there:
+first-party SDK types (generated from the OpenAPI spec) and the Microsoft Learn
+integration guide are tier A, first-party pages blocked by 403/Cloudflare are
+tier B, third-party synthesis is tier C.
+
+The comparison **does not change the WBS below**. It makes the boundary
+explicit so 0.0.7 does not have to re-derive it.
+
+| OpenAI CU surface (tier A/B) | minicon-harness today | 0.0.6 decision |
+|---|---|---|
+| `double_click` (separate action) | `double` in wire, never driven in CI | **absorb**: required `act_click_double` step |
+| `click.button` = left/right/wheel/back/forward | `left`/`right`/`middle` in wire; only left driven | **absorb**: middle/right required; wheel/back/forward stay `[no]` (browser-only) |
+| `act:control` has no equivalent; no typed targets | named control with `press=false` hover only | **absorb on Windows**: `press=true` real click with rect readback + receipt |
+| `status: "completed"` on a `computer_call` | six typed verdicts + readback + evidence | **keep ours**; never downgrade to a generation status |
+| `actions[]` batched, executed in order | one invoke -> one verdict -> one receipt | **defer to 0.0.7 (B8)**; batching needs its own admission/stale design |
+| `drag.path[]`, `keys[]` held modifiers | single from→to drag, no held keys | **defer to 0.0.7 (B6)** |
+| `scroll_x` / `scroll_y`, `wait` | one `delta` axis, no wait verb | **defer to 0.0.7 (B7)** |
+| base64 PNG returned to the model every turn | PNG written under the task root; text + evidence only | **defer to 0.0.7 (A5/D2)**; needs a separate PRD |
+| `pending_safety_checks` + 3-level human confirmation | grant (`--allow-screen`), `why`, refused, task-root bounds | **defer to 0.0.7 (C5/C6)**; policy PRD first |
+| macOS AX tree (Codex desktop app, tier C) | named refusal, `controls=false` | **stay `[no]`** for 0.0.6; the same per-app TCC grant problem is why CI cannot qualify it |
+
+Two consequences worth writing down:
+
+1. **No regression in exchange for alignment.** Typed verdicts, actuation
+   readback, the 12-row capability matrix, `as_of` stale protection, receipts,
+   three-OS CI journeys and signed-release evidence are specified nowhere in
+   the OpenAI tool surface. They are our advantage, not compatibility debt.
+2. **0.0.7 has a home.** `PRD.md` → "CU capability tree" and "0.0.7 frontier
+   (chapter stub, not planned)" now hold A4–A7 / B6–B8 / C5–C6 / D2–D4 /
+   E3–E4 / F3 with unlock conditions. Nothing there is a promise.
+
 ## Contract: actuation receipt (spec owner `prd/PRD_01_07_interaction_closure.md`)
 
 A click is not evidenced by a coordinate alone. Every `act` that dispatches a
