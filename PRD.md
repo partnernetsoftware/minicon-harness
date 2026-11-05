@@ -155,7 +155,7 @@ minicon-harness computer use
 │   │        post-observe live session                 shipped in 0.0.6
 │   ├── [v] B6a multi-point drag path                  qualified in 0.0.7
 │   │        16 bounded points, 12 steps per segment, `path_points` receipt
-│   ├── [_] B6b held-key modifiers                    deferred to 0.0.8+
+│   ├── [_] B6b held-key modifiers                    planned 0.0.8
 │   │        unlock: three-backend keyboard state machine + release path
 │   ├── [v] B7a two-axis scroll                      qualified in 0.0.7
 │   │        `delta_x`/`delta_y`, `delta` stays the vertical alias
@@ -219,7 +219,40 @@ Two directions of the gap, kept separate on purpose:
   human-confirmation/safety-check policy. These are candidates, not debts:
   each needs its own PRD, gate and owner decision before it enters a version.
 
-## 0.0.7 frontier (implemented; public signed Release in progress)
+## 0.0.8 frontier (planned, not started)
+
+Planned after `v0.0.7` was published, per the owner's "plan the next version
+after each public release" loop. **No version bump, no code and no `[v]`
+claim exists here.** Direction unchanged: concentrate on computer use;
+harness-side capability work stays deferred. The plan is
+`plan/plan-0.0.8-held-key-modifiers.md`, the contract is
+`prd/PRD_01_10_held_key_modifiers.md`. A `[_]` is a chapter, **not** a
+lifted non-goal: anything marked `[no]` in an earlier frontier stays `[no]`
+until an owner decision lifts it and a version plan carries the gate.
+
+```text
+0.0.8 — held-key modifiers (planned)
+├── [_] B6b held-key modifiers on `act:key`
+│        `hold` / `release`, whitelisted modifiers, bounded to four
+│        auto-release on foreground change / lost grant / host teardown
+│        separate `evidence["keyboard"]`; never a button actuation receipt
+│        matrix stays 12/10/8/0; cu-abi 1.0; additive wire params only
+├── [_] B7b explicit bounded wait          deferred: loop/budget decision (D4)
+├── [_] B8 batched actions[]               deferred: admission/stale design
+├── [_] 0.7.1 image arm (A5, D2)            unlock: PNG budget/retention
+├── [_] 0.7.2 safety checks (C5, C6)        unlock: a policy PRD first
+├── [_] 0.7.4 accessibility trees (A4)      unlock: OS grants + fixtures
+├── [_] 0.7.5 environment/grant disclosure  unlock: disclose design
+└── [_] 0.7.6 app-level effect evidence     unlock: echo-window fixtures
+```
+
+`[no]` carried forward from every earlier frontier: plugin host, permission
+policy engine, streaming, MCP, a scripting surface over the desktop, a second
+model loop, takeover/owner-lock, any new crate or runtime, bun/WASM/ujs
+embedding (PRD 31 readiness stays BLOCKED), runtime backend selection, and
+host-resource management (G in the tree above; `PRD_01_08` owns the boundary).
+
+## 0.0.7 frontier (shipped as a public signed Release)
 
 Planned 2026-11-05 **after `v0.0.6` was published**, per the owner's
 "plan the next version after each public release" loop; implemented the
@@ -248,6 +281,16 @@ last path point on each OS; `act_scroll_x` publishes `(120,0)` and
 `act_scroll_y` publishes `(0,-120)`. `scripts/cu-cfg-check.py` type-checks
 **four** backend configurations (Windows, macOS, Linux, unlisted-OS
 fallback) with the new `drag`/`scroll` signatures.
+
+[v] `v0.0.7` is a public company-signed Latest Release
+(https://github.com/partnernetsoftware/minicon-harness/releases/tag/v0.0.7)
+from source `ef743ec`: pack **42068228345**, candidate
+**42070465260**, signing **42070561984**, dry-run **42070968482**,
+publish **42071076064**. Owner-view acceptance: the Release page and an
+asset answer anonymous HTTP 200; all 15 assets were re-downloaded and six
+sidecars recomputed locally; the APE and both signed Windows cells match the
+receipt's `after_sha256` (and differ from `before_sha256`); the downloaded
+APE prints `minicon-harness 0.0.7`.
 
 ```text
 0.0.7 — richer actuation (implemented)

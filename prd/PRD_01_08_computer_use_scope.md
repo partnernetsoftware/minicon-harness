@@ -160,6 +160,7 @@ prd/
 ├── PRD_01_07_interaction_closure.md [v] 0.0.6 actuation receipt contract
 ├── PRD_01_08_computer_use_scope.md  domain model + resource boundary
 ├── PRD_01_09_richer_actuation.md    [v] 0.0.7 path drag + two-axis scroll
+├── PRD_01_10_held_key_modifiers.md  [_] 0.0.8 held-key modifiers
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 

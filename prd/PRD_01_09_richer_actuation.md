@@ -1,7 +1,8 @@
 # PRD 01.09 — richer actuation: path drag and two-axis scroll
 
-Status: `[v]` implemented and qualified on three OSes (2026-11-05); the
-public signed Release is in progress. Owner of the **contract** for 0.0.7;
+Status: `[v]` shipped as the public company-signed `v0.0.7` (2026-11-05),
+qualified on three OSes and accepted from an anonymous download. Owner of the
+**contract** for 0.0.7;
 `plan/plan-0.0.7-richer-actuation.md` owns the work breakdown, gates and
 release chain. Nothing here claims a capability that a CI run has not
 produced. `PRD_01_03` owns the `screen` tool's bounds,

@@ -275,5 +275,5 @@ locally against the receipt and sidecars, and the downloaded APE printing
   `68a89ca00bd506d2...` all equal the receipt `after_sha256` and differ from
   `before_sha256`; the downloaded APE prints `minicon-harness 0.0.6`.
 
-0.0.7 is planned separately in `plan/plan-0.0.7-richer-actuation.md`; no
+0.0.7 was planned separately in `plan/plan-0.0.7-richer-actuation.md`; no
 0.0.6 asset was overwritten.

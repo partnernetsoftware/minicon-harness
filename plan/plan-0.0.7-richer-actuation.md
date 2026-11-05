@@ -1,7 +1,8 @@
 # 0.0.7 — richer actuation: a real path drag and two-axis scroll
 
-Status: `[v]` W1/W2/W3 delivered (2026-11-05); W4 (public signed Release)
-is in progress. Written after `v0.0.6` was published, as the owner's
+Status: `[v]` W1-W4 delivered (2026-11-05), including the public signed
+Release and its owner-view acceptance. Written after `v0.0.6` was published,
+as the owner's
 "plan the next version after each public release" loop requires. The source
 version is `0.0.7` from the W4 commit.
 
@@ -79,7 +80,7 @@ parameters, not new capability names. `cu-abi` stays 1.0.
 │          prd/PRD_01_09_richer_actuation.md, release notes
 │   invariant: B6/B7 split recorded (delivered half vs deferred half), the
 │   0.0.6 frontier marked shipped, no stale "planned" claim for a shipped verb
-└── [_] W4 — 0.0.7 version bump and public signed Release
+└── [v] W4 — 0.0.7 version bump and public signed Release
     files: Cargo.toml, Cargo.lock, release-policy.json,
            loader/ape-version.rc, .github/release-notes.md
     invariant: four version sources in ONE commit; dry-run before publish;
@@ -180,5 +181,14 @@ W3: PRD.md (B6/B7 split, 0.0.7 frontier), README.md, PRD_01_03 (verb table
 and gap row), PRD_01_08 (M row and document index), PRD_01_09 status, and the
 0.0.7 release notes now state what the CI actually produced.
 
-W4: filled in after the public signed Release and the owner-view anonymous
-acceptance.
+W4: pack **42068228345** -> candidate **42070465260** -> signing
+**42070561984** -> dry-run **42070968482** -> publish **42071076064**,
+all successful on source `ef743ec`. Owner-view acceptance: the
+public Latest Release page and an asset answer anonymous HTTP 200; all 15
+assets re-downloaded, six sidecars recomputed, the APE and both signed
+Windows cells equal the receipt's `after_sha256`; the downloaded APE prints
+`minicon-harness 0.0.7`. The signing step's conclusion was read twice after a
+transient GitHub API TLS error; no step was re-run or skipped.
+
+The next version was planned only after this acceptance:
+`plan/plan-0.0.8-held-key-modifiers.md`.
