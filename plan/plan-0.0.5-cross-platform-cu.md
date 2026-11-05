@@ -155,7 +155,7 @@ Outcome: one CU contract, three real backends, CI-proven journeys, public signed
 ├── [v] W3 — per-OS real-desktop journeys in CI
 │   invariant: JSON observation + independent reader, all three OS jobs green
 │   evidence: cu-journeys.yml run, cu-journey.json artifacts
-├── [_] W4 — 0.0.5 version bump and signed public Release
+├── [v] W4 — 0.0.5 version bump and signed public Release
 │   invariant: pack -> candidate -> signing -> defender -> release, no unsigned
 │   Windows cells, post-publish court green, owner-view download verified
 │   evidence: run IDs + anonymous HTTP 200 + local re-hash
