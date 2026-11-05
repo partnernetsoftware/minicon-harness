@@ -13,8 +13,8 @@
 //! a silent no-op.
 
 use super::{
-    capture_scale, downsample, png, Captured, ClickButton, ControlInfo, DisplayInfo,
-    PlatformCapabilities, WindowInfo, SCREEN_TOOL_MAX_REGION_PIXELS,
+    capture_scale, downsample, png, ButtonDispatch, Captured, ClickButton, ControlInfo,
+    DisplayInfo, PlatformCapabilities, WindowInfo, SCREEN_TOOL_MAX_REGION_PIXELS,
     SCREEN_TOOL_POINTER_TOLERANCE_PX,
 };
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
@@ -630,18 +630,26 @@ fn mouse_pair(button: ClickButton) -> (u32, u32, u32) {
     }
 }
 
-pub fn click(x: i32, y: i32, button: ClickButton, double: bool) -> Result<(i32, i32), String> {
+pub fn click(
+    x: i32, y: i32, button: ClickButton, double: bool,
+) -> Result<(i32, i32, ButtonDispatch), String> {
     let position = place_pointer(x, y)?;
     let (number, down, up) = mouse_pair(button);
     let rounds = if double { 2 } else { 1 };
+    let mut downs = 0;
+    let mut ups = 0;
     for _ in 0..rounds {
         post_mouse(down, x, y, number)?;
+        downs += 1;
         post_mouse(up, x, y, number)?;
+        ups += 1;
         if double {
             std::thread::sleep(std::time::Duration::from_millis(60));
         }
     }
-    Ok(position)
+    Ok((position.0, position.1, ButtonDispatch {
+        button: button.tag(), downs, ups, double,
+    }))
 }
 
 pub fn drag(
@@ -650,7 +658,7 @@ pub fn drag(
     to_x: i32,
     to_y: i32,
     button: ClickButton,
-) -> Result<(i32, i32), String> {
+) -> Result<(i32, i32, ButtonDispatch), String> {
     const STEPS: i64 = 12;
     check_point(to_x, to_y)?;
     place_pointer(x, y)?;
@@ -660,7 +668,10 @@ pub fn drag(
         ClickButton::Right => K_CG_EVENT_RIGHT_MOUSE_DRAGGED,
         ClickButton::Middle => K_CG_EVENT_OTHER_MOUSE_DRAGGED,
     };
+    let mut downs = 0;
+    let mut ups = 0;
     post_mouse(down, x, y, number)?;
+    downs += 1;
     for step in 1..=STEPS {
         let px = x as i64 + (to_x as i64 - x as i64) * step / STEPS;
         let py = y as i64 + (to_y as i64 - y as i64) * step / STEPS;
@@ -668,8 +679,12 @@ pub fn drag(
         std::thread::sleep(std::time::Duration::from_millis(12));
     }
     post_mouse(up, to_x, to_y, number)?;
+    ups += 1;
     warp(to_x, to_y)?;
-    pointer_readback(to_x, to_y)
+    let position = pointer_readback(to_x, to_y)?;
+    Ok((position.0, position.1, ButtonDispatch {
+        button: button.tag(), downs, ups, double: false,
+    }))
 }
 
 pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(i32, i32), String> {

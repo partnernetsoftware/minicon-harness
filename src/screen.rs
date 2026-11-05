@@ -376,6 +376,52 @@ impl WindowInfo {
     }
 }
 
+/// What the native backend actually posted, counted at each dispatch site.
+/// It is produced *after* the down/up calls, so the host can compare it with
+/// the request instead of echoing the request back as evidence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ButtonDispatch {
+    /// Cross-platform normalisation; an independent reader never depends on
+    /// native constants (X11 button 2, `MOUSEEVENTF_MIDDLEDOWN`, CG centre).
+    pub button: &'static str,
+    pub downs: u32,
+    pub ups: u32,
+    pub double: bool,
+}
+
+/// The actuation receipt published by `CuHost` in `evidence["actuation"]`.
+/// `target` is the foreground window title at dispatch time, or the literal
+/// `desktop session` when the session exposes no foreground window: a non-empty
+/// statement of where the event was posted, never a guessed handle.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Actuation {
+    pub button: &'static str,
+    pub downs: u32,
+    pub ups: u32,
+    pub double: bool,
+    pub target: String,
+}
+
+impl Actuation {
+    pub fn from_dispatch(dispatch: ButtonDispatch, target: String) -> Self {
+        Self {
+            button: dispatch.button,
+            downs: dispatch.downs,
+            ups: dispatch.ups,
+            double: dispatch.double,
+            target,
+        }
+    }
+}
+
+/// The session an input event is posted to. A missing foreground title is
+/// reported as the session, not silently replaced with a plausible window.
+fn dispatch_target() -> String {
+    native::foreground_title()
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or_else(|| "desktop session".to_owned())
+}
+
 /// What one `act` did, as evidence rather than as an intention.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActOutcome {
@@ -386,6 +432,10 @@ pub struct ActOutcome {
     /// What the desktop says afterwards: the target's rect for window moves,
     /// the foreground window's title for input.
     pub readback: String,
+    /// Present exactly when the operation dispatched a button event: click,
+    /// drag, or a named control with `press=true`. Hover, scroll, typing,
+    /// focus and move post no button event and carry no receipt.
+    pub actuation: Option<Actuation>,
 }
 
 /// The `screen` tool: observe the desktop, or perform one operation on it.
@@ -546,6 +596,7 @@ impl ScreenTool {
                     .map(|candidate| format!("foreground={:?}", candidate.title))
                     .unwrap_or_else(|| "foreground=<none>".to_owned());
                 Ok(ActOutcome {
+                    actuation: None,
                     action: "focus".to_owned(),
                     window: Some(window.title),
                     readback,
@@ -579,6 +630,7 @@ impl ScreenTool {
                     ));
                 }
                 Ok(ActOutcome {
+                    actuation: None,
                     action: "move".to_owned(),
                     window: Some(after.title),
                     readback: format!(
@@ -588,8 +640,9 @@ impl ScreenTool {
                 })
             }
             Act::Click { x, y, button, double } => {
-                let (px, py) = native::click(x, y, button, double)?;
+                let (px, py, dispatch) = native::click(x, y, button, double)?;
                 Ok(ActOutcome {
+                    actuation: Some(Actuation::from_dispatch(dispatch, dispatch_target())),
                     action: "click".to_owned(),
                     window: None,
                     readback: format!("pointer at {px},{py}"),
@@ -598,6 +651,7 @@ impl ScreenTool {
             Act::Hover { x, y } => {
                 let (px, py) = native::place_pointer(x, y)?;
                 Ok(ActOutcome {
+                    actuation: None,
                     action: "hover".to_owned(),
                     window: None,
                     readback: format!("pointer at {px},{py}"),
@@ -610,8 +664,9 @@ impl ScreenTool {
                 to_y,
                 button,
             } => {
-                let (px, py) = native::drag(x, y, to_x, to_y, button)?;
+                let (px, py, dispatch) = native::drag(x, y, to_x, to_y, button)?;
                 Ok(ActOutcome {
+                    actuation: Some(Actuation::from_dispatch(dispatch, dispatch_target())),
                     action: "drag".to_owned(),
                     window: None,
                     readback: format!("pointer at {px},{py}"),
@@ -629,6 +684,7 @@ impl ScreenTool {
                 native::type_text(text)?;
                 let evidence = foreground_evidence(before, native::foreground_title())?;
                 Ok(ActOutcome {
+                    actuation: None,
                     action: "type".to_owned(),
                     window: None,
                     readback: format!("typed {chars} characters {evidence}"),
@@ -639,6 +695,7 @@ impl ScreenTool {
                 native::press_key(&keys)?;
                 let evidence = foreground_evidence(before, native::foreground_title())?;
                 Ok(ActOutcome {
+                    actuation: None,
                     action: "key".to_owned(),
                     window: None,
                     readback: format!("pressed {keys} {evidence}"),
@@ -647,6 +704,7 @@ impl ScreenTool {
             Act::Scroll { x, y, delta } => {
                 let (px, py) = native::scroll(x, y, delta)?;
                 Ok(ActOutcome {
+                    actuation: None,
                     action: "scroll".to_owned(),
                     window: None,
                     readback: format!("scrolled {delta} at {px},{py}"),
@@ -899,6 +957,16 @@ pub enum ClickButton {
     Middle,
 }
 
+impl ClickButton {
+    pub fn tag(&self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Middle => "middle",
+        }
+    }
+}
+
 /// One encoded image on its way to disk.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Captured {
@@ -1115,8 +1183,9 @@ mod native {
     //! the harness process talks to the desktop and exits.
 
     use super::{
-        control_role, Captured, ClickButton, ControlInfo, PlatformCapabilities, WindowInfo,
-        SCREEN_TOOL_CONTROL_TIMEOUT_MS, SCREEN_TOOL_MAX_CONTROLS, SCREEN_TOOL_MAX_CONTROL_TEXT,
+        control_role, ButtonDispatch, Captured, ClickButton, ControlInfo, PlatformCapabilities,
+        WindowInfo, SCREEN_TOOL_CONTROL_TIMEOUT_MS, SCREEN_TOOL_MAX_CONTROLS,
+        SCREEN_TOOL_MAX_CONTROL_TEXT,
     };
     use std::ffi::c_void;
 
@@ -1757,18 +1826,26 @@ mod native {
         y: i32,
         button: ClickButton,
         double: bool,
-    ) -> Result<(i32, i32), String> {
+    ) -> Result<(i32, i32, ButtonDispatch), String> {
         let position = place_pointer(x, y)?;
         std::thread::sleep(std::time::Duration::from_millis(40));
         let (down, up) = button_flags(button);
+        let mut downs = 0;
+        let mut ups = 0;
         unsafe { mouse_event(down, 0, 0, 0, 0) };
+        downs += 1;
         unsafe { mouse_event(up, 0, 0, 0, 0) };
+        ups += 1;
         if double {
             std::thread::sleep(std::time::Duration::from_millis(60));
             unsafe { mouse_event(down, 0, 0, 0, 0) };
+            downs += 1;
             unsafe { mouse_event(up, 0, 0, 0, 0) };
+            ups += 1;
         }
-        Ok(position)
+        Ok((position.0, position.1, ButtonDispatch {
+            button: button.tag(), downs, ups, double,
+        }))
     }
 
     /// A press, a stepped move and a release. Stepped motion matters: most
@@ -1780,12 +1857,15 @@ mod native {
         to_x: i32,
         to_y: i32,
         button: ClickButton,
-    ) -> Result<(i32, i32), String> {
+    ) -> Result<(i32, i32, ButtonDispatch), String> {
         const STEPS: i64 = 12;
         check_point(to_x, to_y)?;
         place_pointer(x, y)?;
         let (down, up) = button_flags(button);
+        let mut downs = 0;
+        let mut ups = 0;
         unsafe { mouse_event(down, 0, 0, 0, 0) };
+        downs += 1;
         for step in 1..=STEPS {
             let px = x as i64 + (to_x as i64 - x as i64) * step / STEPS;
             let py = y as i64 + (to_y as i64 - y as i64) * step / STEPS;
@@ -1793,7 +1873,11 @@ mod native {
             std::thread::sleep(std::time::Duration::from_millis(12));
         }
         unsafe { mouse_event(up, 0, 0, 0, 0) };
-        pointer_readback(to_x, to_y)
+        ups += 1;
+        let position = pointer_readback(to_x, to_y)?;
+        Ok((position.0, position.1, ButtonDispatch {
+            button: button.tag(), downs, ups, double: false,
+        }))
     }
 
     pub fn scroll(x: i32, y: i32, delta: i32) -> Result<(i32, i32), String> {
@@ -2092,7 +2176,8 @@ mod dynlib;
 macro_rules! refusing_backend {
     ($platform:expr, $hint:expr) => {
         use super::{
-            Captured, ClickButton, ControlInfo, DisplayInfo, PlatformCapabilities, WindowInfo,
+            ButtonDispatch, Captured, ClickButton, ControlInfo, DisplayInfo,
+            PlatformCapabilities, WindowInfo,
         };
 
         pub const PLATFORM: &str = $platform;
@@ -2129,7 +2214,7 @@ macro_rules! refusing_backend {
         }
         pub fn drag(
             _x: i32, _y: i32, _to_x: i32, _to_y: i32, _button: ClickButton,
-        ) -> Result<(i32, i32), String> {
+        ) -> Result<(i32, i32, ButtonDispatch), String> {
             Err(unsupported("act:drag"))
         }
         pub fn find(_title: &str) -> Result<WindowInfo, String> {
@@ -2143,7 +2228,7 @@ macro_rules! refusing_backend {
         }
         pub fn click(
             _x: i32, _y: i32, _b: ClickButton, _d: bool,
-        ) -> Result<(i32, i32), String> {
+        ) -> Result<(i32, i32, ButtonDispatch), String> {
             Err(unsupported("act:click"))
         }
         pub fn scroll(_x: i32, _y: i32, _delta: i32) -> Result<(i32, i32), String> {

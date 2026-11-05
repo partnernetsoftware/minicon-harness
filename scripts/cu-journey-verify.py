@@ -3,9 +3,9 @@
 
 The journey writer (`examples/cu_journey.rs`) is deliberately not allowed to
 decide its own success. This script recomputes every claim from `records`:
-declared capability matrix, performed verdicts, pointer readbacks, PNG bytes
-and generation ordering. A green `cargo check` is evidence of shape; this is
-evidence of a desktop effect.
+declared capability matrix, performed verdicts, pointer readbacks, actuation
+receipts, PNG bytes and generation ordering. A green `cargo check` is evidence
+of shape; this is evidence of a desktop effect.
 
 A macOS OS-grant refusal (`permission:...`) is a *named boundary*, not a pass
 and not a silent failure: it is recorded as such and never upgraded to `[v]`.
@@ -33,7 +33,19 @@ EXPECTED = {
         "act:type": True, "act:key": True, "act:scroll": True, "act:control": False,
     },
 }
-POINTER_STEPS = {"act_hover", "act_click", "act_drag", "act_scroll"}
+POINTER_STEPS = {
+    "act_hover", "act_click", "act_click_middle", "act_click_right",
+    "act_click_double", "act_drag", "act_drag_middle", "act_scroll",
+}
+# Steps that dispatch a real button event. A performed one must carry a
+# receipt produced by the backend and matching the request, not an echo.
+BUTTON_STEPS = {
+    "act_click", "act_click_middle", "act_click_right", "act_click_double",
+    "act_drag", "act_drag_middle", "act_control_press",
+}
+REQUIRED_INTERACTIONS = (
+    "act_click_middle", "act_click_right", "act_click_double", "act_drag_middle",
+)
 TOLERANCE = 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -131,6 +143,39 @@ def main() -> int:
             check(abs(got_x - want_x) <= TOLERANCE and abs(got_y - want_y) <= TOLERANCE,
                   f"{step}: readback {got_x},{got_y} != requested {want_x},{want_y}")
 
+    # 3b. Interaction closure: every performed button event carries a typed
+    #     actuation receipt that agrees with the request. A missing receipt is
+    #     an unconfirmed effect, not a successful click.
+    for record in records:
+        step = record["step"]
+        if step not in BUTTON_STEPS or record["verdict"] != "performed":
+            continue
+        request = record.get("request") or {}
+        want_button = request.get("button", "left")
+        want_double = bool(request.get("double", False))
+        want_downs = 2 if want_double else 1
+        receipt = record.get("evidence", {}).get("actuation")
+        check(isinstance(receipt, dict),
+              f"{step}: performed button event has no actuation receipt")
+        if isinstance(receipt, dict):
+            check(receipt.get("button") == want_button,
+                  f"{step}: receipt button={receipt.get('button')!r}, requested {want_button!r}")
+            check(receipt.get("downs") == want_downs,
+                  f"{step}: receipt downs={receipt.get('downs')!r}, expected {want_downs}")
+            check(receipt.get("ups") == receipt.get("downs") == want_downs,
+                  f"{step}: receipt ups={receipt.get('ups')!r} != downs")
+            check(receipt.get("double") is want_double,
+                  f"{step}: receipt double={receipt.get('double')!r}, expected {want_double}")
+            target = receipt.get("target")
+            check(isinstance(target, str) and target.strip() != "",
+                  f"{step}: receipt has no non-empty target")
+
+    for step in REQUIRED_INTERACTIONS:
+        check(step in by_step, f"{step}: required 0.0.6 interaction step is missing")
+    if platform == "windows":
+        check("act_control_press" in by_step,
+              "windows: required act_control_press step is missing")
+
     # 4. A performed capture is a real PNG on disk whose IHDR agrees with the
     #    typed evidence. A black/missing image is not a successful capture.
     captured = by_step.get("observe_capture", {})
@@ -166,6 +211,18 @@ def main() -> int:
     ]
     check(all(a < b for a, b in zip(generations, generations[1:])),
           f"observation generations did not advance: {generations}")
+
+    # 5b. The final observation must be a strictly newer, still-live frame,
+    #     not cached state after the side-effecting clicks.
+    final = by_step.get("observe_final", {})
+    final_evidence = final.get("evidence", {})
+    check(final.get("verdict") == "performed", "observe_final was not performed")
+    check(final.get("generation", 0) > observed.get("generation", 0),
+          "observe_final generation did not advance past the first observation")
+    check(len(final_evidence.get("windows", [])) >= 1,
+          "observe_final reported no windows; session is not live")
+    check(len(final_evidence.get("displays", [])) >= 1,
+          "observe_final reported no displays; session is not live")
 
     # 6. A declared-but-skipped verb is a contract violation; only an
     #    undeclared verb may be skipped.

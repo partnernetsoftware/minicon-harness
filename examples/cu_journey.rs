@@ -137,13 +137,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // 0.0.6 interaction closure: middle / double / middle-drag were in the
+    // wire schema but never driven by CI. Every one must leave an actuation
+    // receipt; the independent reader checks it against the request.
+    let button_steps: Vec<(&str, &str, bool, Value)> = vec![
+        ("act_click_middle", "act:click", caps.act_click, json!({ "op": "act", "why": "CU journey: middle button receipt", "action": "click", "x": x, "y": y, "button": "middle" })),
+        ("act_click_double", "act:click", caps.act_click, json!({ "op": "act", "why": "CU journey: double click receipt", "action": "click", "x": x, "y": y, "button": "left", "double": true })),
+        ("act_drag_middle", "act:drag", caps.act_drag, json!({ "op": "act", "why": "CU journey: middle drag receipt", "action": "drag", "x": x, "y": y, "to_x": to_x, "to_y": to_y, "button": "middle" })),
+    ];
+    for (step, capability, declared, request) in button_steps {
+        if declared {
+            journey.run(step, capability, true, true, request);
+        } else {
+            journey.skip(step, capability, "verb is not implemented on this cell");
+        }
+    }
+
     if caps.act_type {
         journey.run(
             "act_type",
             "act:type",
             true,
             true,
-            json!({ "op": "act", "why": "CU journey: typed text", "action": "type", "text": "cu 0.0.5" }),
+            json!({ "op": "act", "why": "CU journey: typed text", "action": "type", "text": "cu 0.0.6" }),
         );
     } else {
         journey.skip("act_type", "act:type", "verb is not implemented on this cell");
@@ -214,7 +230,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "act:control",
                 true,
                 false,
-                json!({ "op": "act", "why": "CU journey: named control target", "action": "control", "control": label }),
+                json!({ "op": "act", "why": "CU journey: named control target", "action": "control", "control": label.clone() }),
+            );
+            // A real press on the named control, not only a hover. Windows is
+            // the only cell that declares act:control; its edit control is a
+            // harmless target. If the runner has no child window this step is
+            // skipped by a declared capability and the reader fails the gate.
+            journey.run(
+                "act_control_press",
+                "act:control",
+                true,
+                true,
+                json!({ "op": "act", "why": "CU journey: real click on a named control", "action": "control", "control": label, "press": true }),
             );
         } else {
             journey.skip("act_control", "act:control", "no typed child control in this session");
@@ -222,6 +249,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         journey.skip("observe_controls", "observe", "controls arm is not implemented on this cell");
         journey.skip("act_control", "act:control", "verb is not implemented on this cell");
+    }
+
+    // Right-click goes last among clicks: a context menu may open. A refocus
+    // plus a live final observation prove the session survived it.
+    if caps.act_click {
+        journey.run(
+            "act_click_right",
+            "act:click",
+            true,
+            true,
+            json!({ "op": "act", "why": "CU journey: right button receipt", "action": "click", "x": x, "y": y, "button": "right" }),
+        );
+    } else {
+        journey.skip("act_click_right", "act:click", "verb is not implemented on this cell");
+    }
+    if caps.act_focus {
+        if let Some(window) = &title {
+            journey.run(
+                "act_refocus_after_right_click",
+                "act:focus",
+                true,
+                true,
+                json!({ "op": "act", "why": "CU journey: restore focus after a context menu", "action": "focus", "window": window }),
+            );
+        }
     }
 
     journey.run(

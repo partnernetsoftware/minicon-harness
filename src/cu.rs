@@ -30,7 +30,7 @@
 //! typed contract and refuse by name -- the ABI does not promise a desktop.
 
 use crate::screen::{
-    resolve_control, Act, CaptureTarget, ClickButton, ControlInfo, ControlTarget,
+    resolve_control, Act, Actuation, CaptureTarget, ClickButton, ControlInfo, ControlTarget,
     ScreenSnapshot, ScreenTool, WindowInfo, SCREEN_TOOL_MAX_CAPTURE_SCALE,
     SCREEN_TOOL_MAX_TYPE_CHARS,
 };
@@ -769,6 +769,11 @@ impl CuHost {
         } else {
             CuVerdict::Performed
         };
+        let verdict = verify_actuation(
+            expected_dispatch(&action),
+            outcome.actuation.as_ref(),
+            verdict,
+        );
         let window = outcome.window.clone();
         let readback = outcome.readback.clone();
         let mut text = format!(
@@ -793,6 +798,7 @@ impl CuHost {
             "readback": readback,
             "verdict": verdict.tag(),
             "generation": generation,
+            "actuation": outcome.actuation.as_ref().map(actuation_json).unwrap_or(Value::Null),
         });
         self.record(
             &mut state,
@@ -955,6 +961,15 @@ impl CuHost {
             ),
             None => (CuVerdict::Unknown, "pointer readback could not be parsed"),
         };
+        let verdict = verify_actuation(
+            if press {
+                Some((button.tag(), if double { 2 } else { 1 }, double))
+            } else {
+                None
+            },
+            outcome.actuation.as_ref(),
+            verdict,
+        );
         let readback = format!(
             "{}; control={:?} role={} rect={},{} {}x{} {detail}",
             outcome.readback,
@@ -986,6 +1001,7 @@ impl CuHost {
             "readback": readback,
             "verdict": verdict.tag(),
             "generation": generation,
+            "actuation": outcome.actuation.as_ref().map(actuation_json).unwrap_or(Value::Null),
         });
         self.record(
             &mut state,
@@ -1229,6 +1245,61 @@ fn pointer_from_readback(readback: &str) -> Option<(i32, i32)> {
     let pair = readback.strip_prefix("pointer at ")?;
     let (x, y) = pair.split_once(',')?;
     Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
+
+/// The button dispatch a request promises, or `None` when that action posts
+/// no button event. Used only to *check* the native receipt, never to create
+/// one: a receipt must come from the backend that posted the events.
+fn expected_dispatch(action: &CuAction) -> Option<(&'static str, u32, bool)> {
+    match action {
+        CuAction::Click { button, double, .. } => {
+            Some((button.tag(), if *double { 2 } else { 1 }, *double))
+        }
+        CuAction::Drag { button, .. } => Some((button.tag(), 1, false)),
+        _ => None,
+    }
+}
+
+/// A performed button action without a matching native receipt is not a
+/// performed interaction. Missing evidence is unconfirmed (`unknown`); a
+/// receipt that disagrees with the request is `not_performed`. A non-button
+/// action, or a call that already failed its readback, keeps its verdict.
+fn verify_actuation(
+    expected: Option<(&'static str, u32, bool)>,
+    actual: Option<&Actuation>,
+    base: CuVerdict,
+) -> CuVerdict {
+    let (button, downs, double) = match expected {
+        Some(expected) => expected,
+        None => return base,
+    };
+    if base != CuVerdict::Performed {
+        return base;
+    }
+    match actual {
+        None => CuVerdict::Unknown,
+        Some(receipt)
+            if receipt.button != button
+                || receipt.downs != downs
+                || receipt.ups != downs
+                || receipt.ups != receipt.downs
+                || receipt.double != double
+                || receipt.target.trim().is_empty() =>
+        {
+            CuVerdict::NotPerformed
+        }
+        Some(_) => base,
+    }
+}
+
+fn actuation_json(receipt: &Actuation) -> Value {
+    json!({
+        "button": receipt.button,
+        "downs": receipt.downs,
+        "ups": receipt.ups,
+        "double": receipt.double,
+        "target": receipt.target,
+    })
 }
 
 fn classify(error: String) -> (CuVerdict, String) {
@@ -2232,6 +2303,87 @@ mod tests {
         .expect("write control evidence");
         eprintln!("cu-controls evidence: {}", root.display());
         drop(window);
+    }
+
+    fn receipt(button: &'static str, downs: u32, ups: u32, double: bool) -> Actuation {
+        Actuation {
+            button,
+            downs,
+            ups,
+            double,
+            target: "Notepad".to_owned(),
+        }
+    }
+
+    #[test]
+    fn actuation_receipt_matching_the_request_stays_performed() {
+        let expected = expected_dispatch(&CuAction::Click {
+            x: 10, y: 10, button: crate::screen::ClickButton::Middle, double: false,
+        });
+        assert_eq!(expected, Some(("middle", 1, false)));
+        assert_eq!(
+            verify_actuation(expected, Some(&receipt("middle", 1, 1, false)), CuVerdict::Performed),
+            CuVerdict::Performed
+        );
+        let double = expected_dispatch(&CuAction::Click {
+            x: 10, y: 10, button: crate::screen::ClickButton::Left, double: true,
+        });
+        assert_eq!(
+            verify_actuation(double, Some(&receipt("left", 2, 2, true)), CuVerdict::Performed),
+            CuVerdict::Performed
+        );
+        assert_eq!(
+            expected_dispatch(&CuAction::Drag {
+                x: 0, y: 0, to_x: 5, to_y: 5, button: crate::screen::ClickButton::Right,
+            }),
+            Some(("right", 1, false))
+        );
+    }
+
+    #[test]
+    fn actuation_receipt_missing_is_unknown_never_performed() {
+        let expected = expected_dispatch(&CuAction::Click {
+            x: 1, y: 1, button: crate::screen::ClickButton::Left, double: false,
+        });
+        assert_eq!(verify_actuation(expected, None, CuVerdict::Performed), CuVerdict::Unknown);
+        // A failed readback stays failed; the receipt cannot upgrade it.
+        assert_eq!(
+            verify_actuation(expected, Some(&receipt("left", 1, 1, false)), CuVerdict::NotPerformed),
+            CuVerdict::NotPerformed
+        );
+    }
+
+    #[test]
+    fn actuation_receipt_mismatch_is_not_performed() {
+        let expected = Some(("left", 1, false));
+        for bad in [
+            receipt("right", 1, 1, false),
+            receipt("left", 2, 2, false),
+            receipt("left", 1, 0, false),
+            receipt("left", 1, 1, true),
+            Actuation { target: "  ".to_owned(), ..receipt("left", 1, 1, false) },
+        ] {
+            assert_eq!(
+                verify_actuation(expected, Some(&bad), CuVerdict::Performed),
+                CuVerdict::NotPerformed,
+                "bad receipt: {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_button_action_carries_no_receipt_and_keeps_its_verdict() {
+        assert_eq!(expected_dispatch(&CuAction::Hover { x: 1, y: 1 }), None);
+        assert_eq!(
+            verify_actuation(None, None, CuVerdict::Performed),
+            CuVerdict::Performed
+        );
+        let value = actuation_json(&receipt("left", 1, 1, false));
+        assert_eq!(value["button"], "left");
+        assert_eq!(value["downs"], 1);
+        assert_eq!(value["ups"], 1);
+        assert_eq!(value["double"], false);
+        assert_eq!(value["target"], "Notepad");
     }
 
     #[test]
