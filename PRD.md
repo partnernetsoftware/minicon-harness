@@ -153,10 +153,14 @@ minicon-harness computer use
 │   ├── [v] B4 named semantic control: resolve + hover/press (Windows only)
 │   ├── [v] B5 actuation receipt: button, downs/ups, double, target, plus
 │   │        post-observe live session                 shipped in 0.0.6
-│   ├── [_] B6 multi-point drag path (0.0.7) + held-key modifiers (0.0.8+)
-│   │        OpenAI `drag.path[]`, `keys`; owner PRD 01.09
-│   ├── [_] B7 two-axis scroll (0.0.7) + explicit bounded wait (0.0.8+)
-│   │        OpenAI `scroll_x/scroll_y`, `wait`; owner PRD 01.09
+│   ├── [v] B6a multi-point drag path                  qualified in 0.0.7
+│   │        16 bounded points, 12 steps per segment, `path_points` receipt
+│   ├── [_] B6b held-key modifiers                    deferred to 0.0.8+
+│   │        unlock: three-backend keyboard state machine + release path
+│   ├── [v] B7a two-axis scroll                      qualified in 0.0.7
+│   │        `delta_x`/`delta_y`, `delta` stays the vertical alias
+│   ├── [_] B7b explicit bounded wait                 deferred to 0.0.8+
+│   │        unlock: a loop/budget decision (D4), not a desktop verb
 │   ├── [_] B8 batched `actions[]` with ordered receipts
 │   │        target 0.0.7+; needs its own admission/stale design
 │   └── [no] B9 browser-navigation buttons (`back`/`forward`/`wheel` as a
@@ -215,20 +219,39 @@ Two directions of the gap, kept separate on purpose:
   human-confirmation/safety-check policy. These are candidates, not debts:
   each needs its own PRD, gate and owner decision before it enters a version.
 
-## 0.0.7 frontier (planned, not started)
+## 0.0.7 frontier (implemented; public signed Release in progress)
 
 Planned 2026-11-05 **after `v0.0.6` was published**, per the owner's
-"plan the next version after each public release" loop. **No version bump,
-no code and no `[v]` claim exists here.** Direction: keep concentrating on
-computer use; harness-side capability work stays deferred. The plan is
+"plan the next version after each public release" loop; implemented the
+same day on `main`. Direction: keep concentrating on computer use;
+harness-side capability work stays deferred. The plan is
 `plan/plan-0.0.7-richer-actuation.md`, the contract is
 `prd/PRD_01_09_richer_actuation.md`. A `[_]` is a chapter, **not** a lifted
 non-goal: anything marked `[no]` in an earlier frontier stays `[no]` until an
 owner decision lifts it and a version plan carries the gate.
 
+[v] `act:drag` accepts a bounded `path[]` (2..16 points, every segment
+interpolated with 12 stepped moves, whole path admitted against the virtual
+desktop before any native effect). The pointer readback must land at the
+**last** point and the actuation receipt gains `path_points`, counted by the
+native backend. Omitting `path` keeps 0.0.6's single-leg drag unchanged.
+`act:scroll` accepts `delta_x`/`delta_y` within +-1440, publishes them as
+`evidence["scroll"]`, and keeps `delta` as the vertical alias; `(0,0)` and a
+`delta`/`delta_y` conflict are named refusals. Both are additive wire
+parameters: `cu-abi 1.0` and the 12-row matrix are unchanged.
+
+[v] Compile gate **42067350856** and journeys **42067350269** are green on
+windows/macos/linux. The independent reader was re-run locally on all three
+downloaded `cu-journey.json` artifacts (Linux 20, macOS 17, Windows 23
+performed steps): `act_drag_path` reports `path_points=3` and lands at the
+last path point on each OS; `act_scroll_x` publishes `(120,0)` and
+`act_scroll_y` publishes `(0,-120)`. `scripts/cu-cfg-check.py` type-checks
+**four** backend configurations (Windows, macOS, Linux, unlisted-OS
+fallback) with the new `drag`/`scroll` signatures.
+
 ```text
-0.0.7 — richer actuation (planned)
-├── [_] 0.7.3 path drag + two-axis scroll (B6 half, B7 half)
+0.0.7 — richer actuation (implemented)
+├── [v] 0.7.3 path drag + two-axis scroll (B6a, B7a)
 │        unlock MET: 0.0.6 interaction closure green on three OSes
 │        matrix stays 12/10/8/0; cu-abi 1.0; additive wire params only
 ├── [_] held-key modifiers (B6 half)                deferred to 0.0.8+

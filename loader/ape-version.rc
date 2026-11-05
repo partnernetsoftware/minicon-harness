@@ -12,11 +12,11 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "FileDescription", "MiniCon Harness bounded agent loader"
-            VALUE "FileVersion", "0.0.6"
+            VALUE "FileVersion", "0.0.7"
             VALUE "InternalName", "minicon-harness"
             VALUE "OriginalFilename", "minicon-harness.com"
             VALUE "ProductName", "MiniCon Harness"
-            VALUE "ProductVersion", "0.0.6"
+            VALUE "ProductVersion", "0.0.7"
         END
     END
     BLOCK "VarFileInfo"

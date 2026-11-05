@@ -32,6 +32,16 @@ to `file`, window-manager product behavior to `minicon-winmgr`, and the rest
 is an explicit non-goal. Domain model and boundary:
 [`prd/PRD_01_08_computer_use_scope.md`](prd/PRD_01_08_computer_use_scope.md).
 
+**Richer actuation (0.0.7).** `action=drag` accepts a bounded `path[]` of
+2..16 points: each segment is interpolated, the pointer readback must land at
+the last point, and `evidence["actuation"]["path_points"]` reports how many
+points the native backend actually traversed. `action=scroll` accepts
+`delta_x`/`delta_y` within +-1440 and publishes them as
+`evidence["scroll"]`; `delta` stays accepted as the vertical alias. Both are
+additive wire parameters, not new capabilities: `cu-abi 1.0` and the 12-row
+matrix are unchanged. Contract:
+[`prd/PRD_01_09_richer_actuation.md`](prd/PRD_01_09_richer_actuation.md).
+
 Above the mechanisms sits a **versioned host capability contract**
 (`src/cu.rs`, `prd/PRD_01_04_cu_base.md`): cu-abi 1.0, a discoverable
 capability manifest, typed inputs/outputs, observation generations with
@@ -79,8 +89,8 @@ dependency.
   readback slack before a window move or a pointer action counts as not
   performed, 32 retained CU receipts.
 - `screen` actuation receipt: every button event reports `button`, `downs`,
-  `ups`, `double` and a non-empty `target`; a missing receipt is `unknown`,
-  a mismatched one is `not_performed`
+  `ups`, `double`, a non-empty `target` and `path_points`; a missing receipt
+  is `unknown`, a mismatched one is `not_performed`
   (`prd/PRD_01_07_interaction_closure.md`).
 
 ## Usage

@@ -1,9 +1,10 @@
 # PRD 01.09 — richer actuation: path drag and two-axis scroll
 
-Status: `[_]` specified (2026-11-05), **not implemented**. Owner of the
-**contract** for 0.0.7; `plan/plan-0.0.7-richer-actuation.md` owns the work
-breakdown, gates and release chain. Nothing here claims a capability that a
-CI run has not produced. `PRD_01_03` owns the `screen` tool's bounds,
+Status: `[v]` implemented and qualified on three OSes (2026-11-05); the
+public signed Release is in progress. Owner of the **contract** for 0.0.7;
+`plan/plan-0.0.7-richer-actuation.md` owns the work breakdown, gates and
+release chain. Nothing here claims a capability that a CI run has not
+produced. `PRD_01_03` owns the `screen` tool's bounds,
 `PRD_01_04` owns the host contract, `PRD_01_07` owns the actuation receipt,
 `PRD_01_08` owns the domain model. This PRD only widens two declared verbs.
 
@@ -142,6 +143,7 @@ native::scroll(x, y, delta_x, delta_y)          -> (px, py)
 
 ## Where this goes next
 
-Only after W1-W4 of plan 0.0.7 are green does the next version get planned.
+Only after W1-W4 of plan 0.0.7 are green (including the owner-view Release
+acceptance) does the next version get planned.
 The deferred halves of B6/B7 and B8 are candidates, not debts: each needs its
 own PRD, its own gate and an owner decision before it enters a version.

@@ -1,9 +1,9 @@
 # 0.0.7 — richer actuation: a real path drag and two-axis scroll
 
-Status: `[_]` plan + contract delivered (2026-11-05), **no source, version or
-Release change**. Written after `v0.0.6` was published, as the owner's
-"plan the next version after each public release" loop requires. The version
-still in the source tree is `0.0.6` until W4 of this plan runs.
+Status: `[v]` W1/W2/W3 delivered (2026-11-05); W4 (public signed Release)
+is in progress. Written after `v0.0.6` was published, as the owner's
+"plan the next version after each public release" loop requires. The source
+version is `0.0.7` from the W4 commit.
 
 Baseline: `v0.0.6` is a public company-signed Latest Release; interaction
 closure is green on three OSes, every performed button event carries an
@@ -60,13 +60,13 @@ parameters, not new capability names. `cu-abi` stays 1.0.
 
 ```text
 0.0.7 — richer actuation
-├── [_] W1 — path drag and two-axis scroll in the contract
+├── [v] W1 — path drag and two-axis scroll in the contract
 │   files: src/cu.rs, src/wire.rs, src/screen.rs, src/screen_macos.rs,
 │          src/screen_linux.rs, scripts/cu-cfg-check.py
 │   invariant: cu-abi 1.0, 12-row matrix unchanged, all four cfgs
 │   type-check, cargo test --locked green on all three CI jobs
 │   evidence: cu-platforms.yml run, matrix test still 12/10/8/0
-├── [_] W2 — real richer-actuation journeys in CI
+├── [v] W2 — real richer-actuation journeys in CI
 │   files: examples/cu_journey.rs, scripts/cu-journey-verify.py,
 │          .github/workflows/cu-journeys.yml
 │   invariant: new required steps act_drag_path, act_scroll_x, act_scroll_y
@@ -74,7 +74,7 @@ parameters, not new capability names. `cu-abi` stays 1.0.
 │   drag) a matching actuation receipt; final observe strictly newer and live
 │   evidence: cu-journeys.yml run, three cu-journey.json artifacts,
 │   independent reader output recomputing the path's last point and both axes
-├── [_] W3 — the truth of the docs
+├── [v] W3 — the truth of the docs
 │   files: PRD.md, README.md, prd/PRD_01_03_computer_use.md,
 │          prd/PRD_01_09_richer_actuation.md, release notes
 │   invariant: B6/B7 split recorded (delivered half vs deferred half), the
@@ -165,6 +165,20 @@ locally against the receipt and sidecars, and the downloaded APE printing
 
 ## Delivery record
 
-Filled in as each W closes, with the CI run IDs, the three journey artifacts,
-the release chain runs and the owner-view anonymous acceptance result. Until
-then every W above stays `[_]` and the source version stays `0.0.6`.
+W1: four backend configurations type-check (`scripts/cu-cfg-check.py` gained
+a Windows cfg rewrite); 84 unit tests pass; `cu-abi 1.0`, the 12-row matrix
+and all 0.0.6 receipt assertions unchanged.
+
+W2: compile gate **42067350856** and journeys **42067350269** green on
+windows/macos/linux. All three `cu-journey.json` artifacts were downloaded and
+re-read locally with the independent reader: Linux 20, macOS 17, Windows 23
+performed steps. `act_drag_path` reports `path_points=3` and a pointer
+readback at the last path point on each OS; `act_scroll_x` / `act_scroll_y`
+publish `(120,0)` / `(0,-120)`. No assertion was relaxed.
+
+W3: PRD.md (B6/B7 split, 0.0.7 frontier), README.md, PRD_01_03 (verb table
+and gap row), PRD_01_08 (M row and document index), PRD_01_09 status, and the
+0.0.7 release notes now state what the CI actually produced.
+
+W4: filled in after the public signed Release and the owner-view anonymous
+acceptance.

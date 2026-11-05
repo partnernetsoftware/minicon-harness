@@ -161,11 +161,14 @@ activation; in-flight calls keep the generation they were pinned to.
 1. Keep the contract stable while actions are added: a new action is one row
    in `CAPABILITIES`, one `CuAction` variant, one `Act` translation and a test
    that the wire enum agrees.
-2. Qualified in 0.0.6: drag, middle/right/double button and a real
+2. Qualified in 0.0.7: `path[]` drag and two-axis scroll are additive
+   parameters on existing capabilities, still **cu-abi 1.0**, with four
+   backend configurations type-checked and three-OS CI journeys.
+3. Qualified in 0.0.6: drag, middle/right/double button and a real
    `press=true` click on a control are now CI journeys with an additive
    actuation receipt, still **cu-abi 1.0**. The typed control arm and the
    named target were added as `PRD_01_05` with exactly the step 1 pattern.
    A real UIA accessibility tree remains a stated limitation.
-3. Only after an immutable `unisacc`/`ujs` revision is inspected, design the
+4. Only after an immutable `unisacc`/`ujs` revision is inspected, design the
    module envelope (`abi_major`, `module_version`, `facts_as_of`, bounded
    output) against this contract. That is a separate PRD and a separate gate.

@@ -70,10 +70,10 @@ That last sentence is the whole boundary.
 
 | | |
 |---|---|
-| Delivered | `act:hover`, `act:click` (left/middle/right, `double`), `act:drag` (12 stepped moves), `act:scroll`; pointer readback with 4 px tolerance |
-| Receipt | since 0.0.6 every button event carries a typed actuation receipt (`button`, `downs`, `ups`, `double`, `target`) counted by the backend; a missing receipt is `unknown`, a mismatched one is `not_performed` (`PRD_01_07`) |
-| Gaps | multi-point drag path (B6, planned 0.0.7), two-axis scroll (B7, planned 0.0.7), held keys and batched `actions[]` (deferred) |
-| Owner | `PRD_01_03`, `PRD_01_07` |
+| Delivered | `act:hover`, `act:click` (left/middle/right, `double`), `act:drag` (12 steps per segment, optional 2..16-point `path[]`), `act:scroll` (two axes); pointer readback with 4 px tolerance |
+| Receipt | since 0.0.6 every button event carries a typed actuation receipt (`button`, `downs`, `ups`, `double`, `target`, since 0.0.7 `path_points`) counted by the backend; a missing receipt is `unknown`, a mismatched one is `not_performed` (`PRD_01_07`). A scroll posts no button event; it publishes `evidence["scroll"]` with both axes (`PRD_01_09`) |
+| Gaps | held-key modifiers (B6b), explicit bounded `wait` (B7b), batched `actions[]` (B8); each deferred with its own unlock condition |
+| Owner | `PRD_01_03`, `PRD_01_07`, `PRD_01_09` |
 
 ### W — window and control target management `[v]` (deliberately narrow)
 
@@ -157,9 +157,9 @@ prd/
 ├── PRD_01_04_cu_base.md             [v] cu-abi 1.0 host contract
 ├── PRD_01_05_semantic_controls.md   [v] typed Win32 controls, named target
 ├── PRD_01_06_cross_platform_cu.md   [v] three real backends, capability matrix
-├── PRD_01_07_interaction_closure.md [_] 0.0.6 actuation receipt contract
+├── PRD_01_07_interaction_closure.md [v] 0.0.6 actuation receipt contract
 ├── PRD_01_08_computer_use_scope.md  domain model + resource boundary
-├── PRD_01_09_richer_actuation.md    [_] 0.0.7 path drag + two-axis scroll
+├── PRD_01_09_richer_actuation.md    [v] 0.0.7 path drag + two-axis scroll
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 

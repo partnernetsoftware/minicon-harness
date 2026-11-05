@@ -91,10 +91,12 @@ screen
     ├── [v] move         window, x, y, width, height      (rect readback, 4 px tolerance)
     ├── [v] click        x, y, button?, double?           (pointer readback)
     ├── [v] hover        x, y                             (pointer readback)
-    ├── [v] drag         x, y, to_x, to_y, button?        (12 stepped moves + pointer readback)
+    ├── [v] drag         x, y, to_x, to_y, button?, path?  (12 steps/segment;
+    │                    2..16 pts; last-point readback + path_points receipt)
     ├── [v] type         text                             (foreground before/after)
     ├── [v] key          keys ("ctrl+s", "win+left")     (foreground before/after)
-    ├── [v] scroll       x, y, delta                      (pointer readback)
+    ├── [v] scroll       x, y, delta | delta_x, delta_y   (two-axis evidence +
+    │                    pointer readback; delta stays the vertical alias)
     └── [v] control      control, press?, button?, double? (named target from the
             current frame; pointer readback must land inside the control rect)
 ```
@@ -175,6 +177,7 @@ desktop geometry named.
 | `[-]` no vision input path | a capture is a local artifact; the model reads its path, not its pixels | the wire codec is text-only by design; an image arm is a separate decision |
 | `[v]` capture retention | -- | newest 12 tool-produced PNGs are kept per root; only names the tool composes are considered, other files are never touched |
 | `[v]` pointer-path qualification for drag/middle | 0.0.6 drove middle/right/double clicks, middle drag and a real `press=true` control click in three-OS CI journeys, each with an actuation receipt | `prd/PRD_01_07_interaction_closure.md` |
+| `[v]` richer actuation | 0.0.7 drives a three-point drag and both wheel axes as required steps on all three OSes; the independent reader recomputes the last point, `path_points` and both axes | `prd/PRD_01_09_richer_actuation.md` |
 
 ## Where this goes next
 
