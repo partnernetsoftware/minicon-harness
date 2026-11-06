@@ -1,10 +1,12 @@
 # 0.0.8 — held-key modifiers: a keyboard state that can never be left stuck
 
-Status: `[v]` W1/W2 green after `v0.0.7` was published, as the owner's
-"plan the next version after each public release" loop requires. W3 (the
-truth of the docs) and the W4 version bump are in the same commit as this
-status line. Compile gate **42154222974**, journeys **42154223003**; all
-three `cu-journey.json` artifacts were downloaded and re-read locally.
+Status: `[v]` shipped as the public company-signed `v0.0.8` after
+`v0.0.7` was published, as the owner's "plan the next version after each
+public release" loop requires. W1-W4 are complete. Compile gate
+**42154222974**, journeys **42154223003**; all three `cu-journey.json`
+artifacts were downloaded and re-read locally. Release chain: pack
+**42154879691**, candidate **42155897541**, signing **42155962651**,
+dry-run **42156176166**, publish **42156239210**.
 
 Baseline: `v0.0.7` is a public company-signed Latest Release. Both halves of
 B6/B7 that are pure desktop verbs (path drag, two-axis scroll) are qualified
@@ -79,7 +81,7 @@ expressiveness and evidence of declared verbs before declaring new ones.
 │   release notes
 │   invariant: B6b marked delivered, B7b/B8 still deferred with unlock
 │   conditions, no stale "planned" claim for a shipped verb
-└── [_] W4 — 0.0.8 version bump and public signed Release
+└── [v] W4 — 0.0.8 version bump and public signed Release
     files: Cargo.toml, Cargo.lock, release-policy.json,
            loader/ape-version.rc, .github/release-notes.md
     invariant: four version sources in ONE commit; dry-run before publish;
@@ -180,5 +182,10 @@ locally against the receipt and sidecars, and the downloaded APE printing
   keyboard step has a null button actuation receipt.
 - W3: B6b is `[v]`, B7b/B8 stay `[_]` with their unlock conditions, and no
   stale "planned" claim remains for a shipped verb.
-- W4: filled in after the public signed Release and its owner-view
-  anonymous acceptance are complete.
+- W4: source `38be0e22dedc06c295f7a36bf66b69f76861d55d`; pack **42154879691** -> candidate
+  **42155897541** -> signing **42155962651** -> dry-run
+  **42156176166** -> publish **42156239210**, all green. Owner-view
+  acceptance: `v0.0.8` is public Latest, the Release page and one asset
+  answer anonymous HTTP 200, all 15 assets were downloaded fresh, the six
+  sidecars and the signing receipt were recomputed locally, and the
+  downloaded APE prints `minicon-harness 0.0.8`.

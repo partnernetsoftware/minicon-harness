@@ -220,7 +220,39 @@ Two directions of the gap, kept separate on purpose:
   0.0.8 as additive verbs with their own evidence. The remaining candidates
   are not debts: each needs its own PRD, gate and owner decision.
 
-## 0.0.8 frontier (implemented; Release pending)
+## 0.0.9 frontier (planned, not started)
+
+Planned after `v0.0.8` was published, per the owner's "plan the next version
+after each public release" loop. **No version bump, no code and no `[v]`
+claim exists here.** Direction unchanged: concentrate on computer use;
+harness-side capability work stays deferred. The plan is
+`plan/plan-0.0.9-grant-disclosure.md`, the contract is
+`prd/PRD_01_11_grant_disclosure.md`. A `[_]` is a chapter, **not** a
+lifted non-goal: anything marked `[no]` in an earlier frontier stays `[no]`
+until an owner decision lifts it and a version plan carries the gate.
+
+```text
+0.0.9 — grant and environment disclosure (planned)
+├── [_] E3/E4 read-only environment + grants[] on `op=disclose`
+│        four typed statuses; `unknown` always carries a reason
+│        preflight / read-only APIs only, no permission prompt
+│        no new capability row; matrix 12/10/8/0; cu-abi 1.0
+├── [_] B7b explicit bounded wait          deferred: loop/budget decision (D4)
+├── [_] B8 batched actions[]               deferred: admission/stale design
+├── [_] 0.7.1 image arm (A5, D2)            unlock: PNG budget/retention
+├── [_] 0.7.2 safety checks (C5, C6)        unlock: a policy PRD first
+├── [_] 0.7.4 accessibility trees (A4)      unlock: OS grants + fixtures
+├── [_] 0.7.6 app-level effect evidence     unlock: echo-window fixtures
+└── [_] held-key effect evidence (F3)       unlock: three-OS echo fixture
+```
+
+`[no]` carried forward from every earlier frontier: plugin host, permission
+policy engine, streaming, MCP, a scripting surface over the desktop, a second
+model loop, takeover/owner-lock, any new crate or runtime, bun/WASM/ujs
+embedding (PRD 31 readiness stays BLOCKED), runtime backend selection, and
+host-resource management (G in the tree above; `PRD_01_08` owns the boundary).
+
+## 0.0.8 frontier (shipped as a public signed Release)
 
 Planned after `v0.0.7` was published, per the owner's "plan the next version
 after each public release" loop, then implemented. Direction unchanged:
@@ -230,13 +262,13 @@ plan is `plan/plan-0.0.8-held-key-modifiers.md`, the contract is
 compile gate **42154222974**, journeys **42154223003**. The three
 `cu-journey.json` artifacts were downloaded and re-read locally (Linux 25 /
 macOS 22 / Windows 28 performed steps) with the held set recomputed from
-each record. The public signed Release and its owner-view acceptance are
-recorded here once W4 runs. A `[_]` is a chapter, **not** a lifted non-goal:
-anything marked `[no]` in an earlier frontier stays `[no]` until an owner
-decision lifts it and a version plan carries the gate.
+each record. W3/W4 are complete; the Release chain and the owner-view
+acceptance are recorded below. A `[_]` is a chapter, **not** a lifted
+non-goal: anything marked `[no]` in an earlier frontier stays `[no]` until
+an owner decision lifts it and a version plan carries the gate.
 
 ```text
-0.0.8 — held-key modifiers (implemented)
+0.0.8 — held-key modifiers (implemented, shipped)
 ├── [v] B6b held-key modifiers on `act:key`
 │        `hold` / `release`, four whitelisted modifiers, host-owned state
 │        auto-release on foreground change / lost grant / host teardown
@@ -256,6 +288,16 @@ policy engine, streaming, MCP, a scripting surface over the desktop, a second
 model loop, takeover/owner-lock, any new crate or runtime, bun/WASM/ujs
 embedding (PRD 31 readiness stays BLOCKED), runtime backend selection, and
 host-resource management (G in the tree above; `PRD_01_08` owns the boundary).
+
+[v] `v0.0.8` is a public company-signed Latest Release
+(https://github.com/partnernetsoftware/minicon-harness/releases/tag/v0.0.8)
+from source `38be0e22dedc06c295f7a36bf66b69f76861d55d`: pack **42154879691**, candidate
+**42155897541**, signing **42155962651**, dry-run **42156176166**,
+publish **42156239210**. Owner-view acceptance: the Release page and an
+asset answer anonymous HTTP 200; all 15 assets were re-downloaded and six
+sidecars recomputed locally; the APE and both signed Windows cells match the
+receipt's `after_sha256` (and differ from `before_sha256`); the downloaded
+APE prints `minicon-harness 0.0.8`.
 
 ## 0.0.7 frontier (shipped as a public signed Release)
 

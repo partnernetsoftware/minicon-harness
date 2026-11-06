@@ -162,6 +162,7 @@ prd/
 ├── PRD_01_08_computer_use_scope.md  domain model + resource boundary
 ├── PRD_01_09_richer_actuation.md    [v] 0.0.7 path drag + two-axis scroll
 ├── PRD_01_10_held_key_modifiers.md  [v] 0.0.8 held-key modifiers
+├── PRD_01_11_grant_disclosure.md    [_] 0.0.9 grant/environment disclosure
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 

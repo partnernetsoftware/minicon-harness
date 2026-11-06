@@ -1,9 +1,9 @@
 # PRD 01.10 — held-key modifiers
 
-Status: `[v]` implemented and qualified on three OSes (compile gate
-**42154222974**, journeys **42154223003**); the public signed Release and its
-owner-view acceptance are recorded in `plan/plan-0.0.8-held-key-modifiers.md`
-once W4 runs. Owner of the **contract** for 0.0.8; `plan/plan-0.0.8-held-key-modifiers.md`
+Status: `[v]` shipped as the public company-signed `v0.0.8`; qualified on
+three OSes (compile gate **42154222974**, journeys **42154223003**) with the
+owner-view Release acceptance recorded in
+`plan/plan-0.0.8-held-key-modifiers.md`. Owner of the **contract** for 0.0.8; `plan/plan-0.0.8-held-key-modifiers.md`
 owns the work breakdown, gates and release chain. Nothing here claims a
 capability that a CI run has not produced. `PRD_01_03` owns the `screen`
 tool's bounds, `PRD_01_04` owns the host contract, `PRD_01_07` owns the button
