@@ -99,10 +99,15 @@ and the plan's mandatory downgrade rule (written before W1, not invented
 afterwards) requires stopping on the zero-rectangle reads. No owner choice was
 requested.
 
-**Reopen trigger:** a probe that reads named, non-Pane, stable bounded nodes
-from the WorkBuddy client itself across repeated reads, plus its own PRD and
-independent reader rule. A successful `CoCreateInstance` on some other
-window, or a single non-empty tree, is not sufficient.
+**Reopen trigger (sharpened by W0 pass 6):** a probe that reads named,
+non-Pane, stable bounded nodes **from a WorkBuddy client whose full
+accessibility mode is enabled**, across repeated reads, plus its own PRD and
+independent reader rule. Pass 6 found that Chromium builds its full web a11y
+tree lazily (`--force-renderer-accessibility`, an assistive-technology
+presence, or Electron's `setAccessibilitySupportEnabled`); enabling that in
+the *target app* is outside `screen` and changes neither this repo's grant
+nor the G boundary. A successful `CoCreateInstance` on some other window, or
+a single non-empty tree, is not sufficient.
 
 **Evidence grade:** X (local measurement, `plan-0.0.15` W1 delivery record).
 
@@ -130,6 +135,7 @@ a choice:
 | 2026-11-06 | 4 | host-side vs guest-side resource telemetry trust | O / P / S | guest self-reports are debugging data, never a security boundary; host-side signals sit on the far side of the isolation boundary | T3 R9/R10 |
 | 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default must not be escalated; the owner keeps a veto, not an approval queue | this file, T8 |
 | 2026-11-06 | 5 | W1 UIA probe verdict on the real desktop | X (this machine) | every slot S_OK + usable desktop root RECT, yet the target provider gave 8 Pane nodes / 0 non-Pane controls; cold-start zero RECTs became stable on re-run. The downgrade rule stopped W2 without an owner choice | `plan-0.0.15`, `PRD_01_17` pass 5, T7 |
+| 2026-11-06 | 6 | lazy Chromium `AXMode`, Linux/macOS a11y grant tiers | O / S / V | the empty tree is a target-app launch precondition outside `screen`; this sharpens the W2 reopen trigger but starts no implementation | `PRD_01_17` pass 6, this file |
 
 ## Non-goals
 

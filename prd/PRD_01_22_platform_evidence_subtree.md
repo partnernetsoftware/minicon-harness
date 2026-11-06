@@ -141,6 +141,7 @@ T6 Evidence / verification
 | 2026-11-06 | 3 | OSWorld 2.1 release contract and verifier design | P / O | manifest pins components but disclaims full evaluation; do not quote it as a leaderboard | T6 E5 |
 | 2026-11-06 | 1-3 | this repo's own CI / release chain | X (local + CI runs) | owner-view acceptance is the only claim allowed to become `[v]` | T6 E1-E4 |
 | 2026-11-06 | 5 | UIA provider behaviour across seven real windows | X (local probe) | all slots S_OK + usable desktop root RECT, but the WorkBuddy provider gives 8 Pane nodes / 0 non-Pane controls; cold-start zero RECTs settled to `840,0,1680,1014` on re-run. One successful COM call is neither a usable tree nor a stability claim | `plan-0.0.15`, T4 PL1.2 |
+| 2026-11-06 | 6 | AT-SPI2 session-bus / Wayland tiers; macOS dual TCC grants | O / S / V | Wayland is semantic-only with interactive portals disabled; Qt needs `QT_ACCESSIBILITY=1`; `Newton` is experimental. macOS Accessibility (`-25211`) and Screen Recording fail differently and bind to the responsible process + code signature; a running helper caches a stale answer, so a short-lived probe is required | `PRD_01_17` pass 6, T4 |
 
 ## Non-goals
 

@@ -132,6 +132,7 @@ no source, test, version bump or Release asset changed.
 | 2026-11-06 | 3 | owner instruction to slow down before code | owner direction | earlier "implement next" delegation is superseded for this phase | this file, current phase |
 | 2026-11-06 | 4 | installed Windows SDK COM headers, resource-telemetry trust, decision authority | O (installed SDK) / P / S / owner direction | a header proves slots for its SDK, not runtime behaviour; `RECT` != `[x,y,w,h]`; a reversible default was wrongly escalated | `PRD_01_17` pass 4, `PRD_01_24`, this checklist |
 | 2026-11-06 | 5 | W1 probe verdict on the real desktop | X (this machine) | all slots S_OK and the desktop root read a usable RECT, but the target provider withheld all bounds; the downgrade rule stopped W2 | `plan-0.0.15`, T7 |
+| 2026-11-06 | 6 | why the Electron tree was empty; Linux/macOS a11y gates | O / S / V | lazy `AXMode` is a target-app precondition outside `screen`; AT-SPI2 needs a session bus and macOS needs two TCC grants. Study only, no implementation | `PRD_01_17` pass 6, T7 |
 
 ## Non-goals
 

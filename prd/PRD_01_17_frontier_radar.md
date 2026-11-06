@@ -105,6 +105,7 @@ binary scores and results from different step budgets are **not comparable**.
 | 2026-11-06 | 4 | resource telemetry trust: host-side vs guest-side observability | O / P / S | guest self-report is debugging data, never a security boundary; host-side signals are on the far side of isolation | T3 R9/R10 |
 | 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default was wrongly escalated; owner veto replaces the approval queue | `PRD_01_24`, T8 |
 | 2026-11-06 | 5 | W1 UIA probe verdict on a real Windows desktop | X (this machine) | every COM slot returned S_OK and the desktop root read `0,0,1680,1050`, yet the target WorkBuddy provider gave 8 Pane nodes with 0 non-Pane controls; cold-start RECTs were all zero but four re-runs returned `840,0,1680,1014`. A correct vtable implies neither a useful provider nor a stable first read | `plan-0.0.15`, T1 P2.4, T7 |
+| 2026-11-06 | 6 | Electron `AXMode` activation, AT-SPI2/Wayland tiers, macOS TCC, AT-SPI pidfd leak | O (Electron/Chromium docs) / S / V | a11y tree emptiness is an app-launch/AT-detection property, not a CU verb; TCC grants bind to the responsible process and code signature; Wayland is semantic-only | T1, T3 R10, T4, `plan-0.0.15` reopen trigger |
 
 ## Findings, 2026-11-06
 
@@ -318,6 +319,60 @@ changed.
   finding is the **zero non-Pane controls**, not the zero rectangles. A single
   successful `CoCreateInstance` or a single empty tree is not evidence.
 
+## Findings, 2026-11-06 (sixth pass, why the Electron tree was empty)
+
+W0 pass 6 asked why a correct UIA surface produced only Pane nodes on the
+L3 target. Sources: official Electron / Chromium accessibility docs (O),
+platform engineering write-ups (S) and vendor docs (V). **None of this is
+X-grade evidence in this repo**; it explains the pass 5 measurement, it does
+not claim a capability.
+
+- **Chromium builds its full web a11y tree lazily.** It raises `AXMode` to
+  full only when it detects an assistive technology, or when the app is
+  started with `--force-renderer-accessibility`. Before that, an observer
+  sees "a shell with almost no children" — exactly the 8 Pane nodes measured.
+  Electron documents `app.setAccessibilitySupportEnabled(enabled)`
+  (Windows/macOS only, after `ready`) and the macOS `AXManualAccessibility`
+  attribute that third-party assistive software can set on the app's
+  `AXUIElement`. Chromium's own `ax_dump_tree` inspector requires Narrator /
+  NVDA / JAWS on Windows, VoiceOver on macOS, Orca on Linux, or the runtime
+  flag.
+- **Consequence for this repo's G boundary.** Making the target expose its
+  tree means changing the **target application's** launch flags or app-level
+  setting, or driving an OS accessibility grant. All three are outside
+  `screen`: this repo is a bounded one-file worker with no OS grant
+  requests and no authority over how another app was launched. So the W1
+  finding is not a bug to fix in the CU reader — it is an environmental
+  precondition. It is recorded as a study note, not as a new verb.
+- **Linux is more fragmented, not less.** AT-SPI2 needs a session D-Bus
+  (`dbus-launch` in headless CI), `toolkit-accessibility=true` and
+  `QT_ACCESSIBILITY=1` for Qt apps; Wayland is described as semantic-only
+  with interactive portal use disabled, and synthetic input needs
+  `gnome-ponytail-daemon`. `Newton` (AccessKit-based, Wayland-native) is
+  experimental in 2026 — track it, do not depend on it. Custom-drawn
+  widgets remain opaque to AT-SPI.
+- **macOS TCC is two grants, not one, and both fail silently.**
+  Accessibility covers AX tree reads *and* synthetic events
+  (`kAXErrorAPIDisabled = -25211`); Screen Recording covers pixels *and*
+  other apps' window titles. The grant binds to the **responsible process**
+  (usually a hosting GUI app, not the CLI binary) and to its code signature;
+  a rebuilt binary invalidates it, a stale row can read "on" while denying,
+  and a running helper can cache a stale Screen Recording answer — the
+  documented fix is a short-lived verified probe re-read on focus. This is
+  why `PRD_01_08` publishes named `unknown` grant rows instead of guessing.
+- **Resource-domain cross-link (T3 / R10).** A 2026 `at-spi2-core` pidfd leak
+  can fill the fd table (`LimitNOFILE=1024`), wedge the portal into an
+  `accept`-EMFILE spin, and make *every* AT-SPI tree walk block for the full
+  15 s D-Bus timeout. A stale a11y tree can therefore be a **host resource
+  exhaustion symptom**, not just a UI problem. This is a study note about
+  why G stays closed; it grants `screen` no process or fd authority.
+
+**What this changes in the plan.** It does not reopen W2: the downgrade rule
+already fired and the missing tree is an app-launch precondition outside
+`screen`. It does sharpen the reopen trigger to include a target that has its
+full accessibility mode enabled, and it adds Linux/macOS gate conditions to
+the AT-SPI / AX candidate. No implementation starts from this pass.
+
 ## Candidate table (upserted, not promised)
 
 | Finding | Repo axis | Candidate | Unlock condition | This cycle |
@@ -325,7 +380,7 @@ changed.
 | UIA supersedes MSAA; UIA-aware agents measurably better | A2 / A4 | UIA-first + MSAA fallback in `observe.a11y`, additive `a11y_source` | **closed by W0 pass 5**: the probe verified every COM slot and five other apps' trees, but the target WorkBuddy provider gives 8 Pane nodes / 0 non-Pane controls and a cold-start zero-rect window. UIA-first would regress the L3 target; the downgrade rule fired | `[no]` W2 stopped |
 | WGA / PrintWindow black frames, DWM shadow rects | A5 / E | per-window capture router with named reason | image arm + PNG budget decision (A5/D2) | deferred |
 | Cross-platform agents need one normalised node schema | A4 | `a11y_controls[]` gains `state` / `state_names` / `value` plus `a11y_node_schema`; the reader recomputes the bit mask | none (gate open) | **shipped in 0.0.14 W1/W2** |
-| a11y trees are event streams | A4 / D | incremental change subscription | three-OS AT-SPI / AX grants + fixtures; the schema above is its prerequisite | deferred |
+| a11y trees are event streams | A4 / D | incremental change subscription | three-OS AT-SPI / AX grants + fixtures; the schema above is its prerequisite; pass 6 adds the Linux session-bus / Wayland and macOS dual-TCC conditions | deferred |
 | Wait before re-observation; budget ceilings | B7b / D4 | `observe.wait_ms` + `evidence["wait"]` | none (gate open) | **shipped in 0.0.13 W1/W2** |
 | Long-horizon verification and independent readers | F3 / L2 | app-level effect evidence | side-effect-free three-OS fixture | deferred |
 | Sandbox isolation ladder, quotas, credential brokerage | G / exec | resource-domain telemetry and control | separate PRD + 4 reopen triggers (`PRD_01_24`) | **not implemented; G decided closed (a)** |

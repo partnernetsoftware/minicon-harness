@@ -228,6 +228,14 @@ tree as reproducible X-grade evidence; the next W0 pass examines the AT-SPI /
 AX and incremental-event candidates. `v0.0.14` remains the last shipped
 version. No owner choice was requested.
 
+W0 pass 6 then explained the empty tree as Chromium's lazy `AXMode`
+activation (`--force-renderer-accessibility`, an assistive technology, or
+Electron's `setAccessibilitySupportEnabled`) — a **target-app launch
+precondition outside `screen`**, not a CU reader bug. It also recorded the
+Linux session-bus / Wayland and macOS dual-TCC conditions for the AT-SPI / AX
+candidate. It sharpens the reopen trigger in `PRD_01_24` and does **not**
+reopen W2; no implementation starts from this pass.
+
 ## Non-goals
 
 - `[no]` any UIA write, invoke pattern, focus setting, event subscription or

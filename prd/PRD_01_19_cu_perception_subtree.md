@@ -121,6 +121,7 @@ T1 Observation / perception
 | 2026-11-06 | 4 | installed Windows SDK `UIAutomationClient.h`/`.idl`: CLSID/IID, exact vtable slots, `RECT`, `TreeScope` | O (installed SDK 10.0.22000.0) | `RECT` = left/top/right/bottom, not `[x,y,w,h]`; a header does not prove runtime provider behaviour; raw HRESULTs still required | `PRD_01_17` pass 4, P2.4, `plan-0.0.15` |
 | 2026-11-06 | 4 | decision authority correction under `/goal` | owner direction | a reversible default must not be escalated; owner keeps a veto | `PRD_01_24`, T8 |
 | 2026-11-06 | 5 | W1 UIA probe on the real desktop | X (this machine) | all slots S_OK + usable desktop root RECT, but the target provider gives 0 non-Pane controls and cold-start reads were all-zero RECTs; a callable interface is not a useful provider, and one read is not stability | `PRD_01_17` pass 5, P2.4 |
+| 2026-11-06 | 6 | Electron/Chromium lazy `AXMode` activation | O (Electron docs) / S | the empty tree is a target-app launch precondition (`--force-renderer-accessibility` / AT present), not a reader bug and not something `screen` may enable | `PRD_01_17` pass 6, P2.4 reopen trigger |
 
 ## Non-goals
 

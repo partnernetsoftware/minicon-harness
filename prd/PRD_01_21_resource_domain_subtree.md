@@ -190,6 +190,7 @@ and grants `screen` no resource authority.
 | 2026-11-06 | 3 | four production boundaries, `pids.max`, three timeouts | O / S | policy examples are representative shapes, not a standard | R6/R8 |
 | 2026-11-06 | 4 | host-side vs guest-side telemetry trust; PSI as a pressure signal | O / P / S | guest self-report is forgeable and is debugging data, not a security boundary; `usage/limit` is lagging, PSI `some`/`full` measures stall time | R9/R10, G decision |
 | 2026-11-06 | 4 | decision authority correction under `/goal` | owner direction | G (a) is decided by the controller; (b) has four triggers; (c) is `[no]` | `PRD_01_24`, T8 |
+| 2026-11-06 | 6 | `at-spi2-core` pidfd leak -> fd table full -> 15 s D-Bus timeout | O (upstream issue) / S | a stale a11y tree can be host resource exhaustion, not a UI bug; `LimitNOFILE` is a lifecycle bound, not a CU knob | R10, `PRD_01_17` pass 6 |
 
 ## Non-goals
 

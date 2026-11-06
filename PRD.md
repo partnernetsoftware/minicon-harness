@@ -179,6 +179,7 @@ where the owner actually spoke (e.g. the 0.0.11 a11y lift).
 | 2026-11-06 | 4 | host-side vs guest-side resource telemetry trust boundary | O/P/S | guest self-report is debugging data, not a security boundary; host-side signals sit on the far side of isolation |
 | 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default must not be escalated; owner keeps a veto, not an approval queue |
 | 2026-11-06 | 5 | W1 UIA probe verdict on the real desktop | X (this machine) | all COM slots S_OK + desktop root `0,0,1680,1050`, yet the target WorkBuddy provider gives 8 Pane nodes / 0 non-Pane controls; cold-start RECTs were zero then stable on re-run. A callable interface is neither a useful provider nor a stable first read |
+| 2026-11-06 | 6 | Electron lazy `AXMode`, AT-SPI2/Wayland tiers, macOS dual TCC, AT-SPI pidfd exhaustion | O/S/V | an empty a11y tree is a target-app launch precondition, not a CU verb; TCC binds to the responsible process + code signature; Wayland is semantic-only; a wedged portal stalls every tree walk for 15 s |
 
 Evidence grades: **O** official, **B** benchmark board, **P** paper,
 **V** vendor claim, **S** survey / secondary, **X** local measurement. Only
@@ -675,9 +676,13 @@ ships. The controller made this decision itself (`PRD_01_24`); the probe
 remains in the tree as reproducible evidence.
 
 The next W0 pass examines AT-SPI / AX three-OS trees and incremental a11y
-change events. `cu-abi 1.0`, the 12/10/8/0 matrix and the G boundary are
-unchanged; G direction (a) is a dated controller decision, not a choice
-offered back to the owner.
+change events. Pass 6 has already recorded their gate conditions: Chromium
+builds its full web a11y tree lazily, AT-SPI2 needs a session D-Bus and
+Wayland is semantic-only, and macOS needs two separate TCC grants bound to
+the responsible process. Enabling any of those in the target app is outside
+`screen`; no implementation starts from that pass. `cu-abi 1.0`, the
+12/10/8/0 matrix and the G boundary are unchanged; G direction (a) is a
+dated controller decision, not a choice offered back to the owner.
 
 ## 0.0.9 frontier (shipped as a public signed Release)
 
