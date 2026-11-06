@@ -79,6 +79,33 @@ that is D4 territory, not a version decision.
 **Evidence grade:** O (`PRD_01_08` boundary), X (this repo's shipped
 12/10/8/0 matrix and four-backend gate). No new capability is claimed.
 
+## Decision record 2026-11-06 — stop W2 after the W1 probe
+
+**Choice:** stop 0.0.15 W2 (UIA-first + MSAA fallback), claim no UIA
+capability, run no version bump and no Release chain. Keep
+`examples/cu_probe_uia.rs` in the tree as reproducible X-grade evidence.
+`v0.0.14` remains the last shipped Release.
+
+**Reason.** The W1 probe on the real desktop returned `S_OK` from every COM
+slot and a usable `RECT` from the desktop root, while Brave / Sourcetree / GVIM
+/ cmd produced hundreds of named, bounded, non-Pane rows. But both WorkBuddy
+windows (the L3 self-hosted-orchestration target) exposed only 8 nodes, all
+Pane, only one named and **zero non-Pane controls** — the shipped 0.0.11 MSAA
+tree reads real controls on that same client. Cold-start reads also returned
+all-zero rectangles with `S_OK` before the same handle settled to
+`840,0,1680,1014` on four consecutive re-runs. Shipping UIA-first would
+therefore make `observe.a11y` *worse* on the exact window the end state needs,
+and the plan's mandatory downgrade rule (written before W1, not invented
+afterwards) requires stopping on the zero-rectangle reads. No owner choice was
+requested.
+
+**Reopen trigger:** a probe that reads named, non-Pane, stable bounded nodes
+from the WorkBuddy client itself across repeated reads, plus its own PRD and
+independent reader rule. A successful `CoCreateInstance` on some other
+window, or a single non-empty tree, is not sufficient.
+
+**Evidence grade:** X (local measurement, `plan-0.0.15` W1 delivery record).
+
 ## Decision record 2026-11-06 22:15 — working cadence
 
 The controller arranges the rest itself, in this order, without returning for
@@ -86,13 +113,14 @@ a choice:
 
 1. W0 pass 4: verify the UIA COM surface against the **locally installed
    Windows SDK headers** (grade O/X), replacing the second-hand vtable claim;
-   learn the resource-telemetry trust boundary as a study note.
-2. Upsert T1/T3/T5/T7/T8, the W0 ledger and the 0.0.15 plan in place.
+   learn the resource-telemetry trust boundary as a study note. **Done.**
+2. Upsert T1/T3/T5/T7/T8, the W0 ledger and the 0.0.15 plan in place. **Done.**
 3. Complete the 0.0.15 plan-completeness checklist (6/6) and mark W1
-   eligible.
-4. Start W1 (the Rust UIA diagnostic probe) only after step 3, then follow
-   the probe's downgrade rule and the usual W2/W3/W4 chain.
-5. Report the decision, the reason and the result — not a menu.
+   eligible. **Done.**
+4. Start W1 (Rust UIA diagnostic probe) after step 3, then follow its
+   downgrade rule. **Done — the rule fired, W2 is stopped (decision above).**
+5. Continue W0 with the next open-gate candidate; report decisions, reasons
+   and results, not a menu.
 
 ## Learning notes (dated)
 
@@ -101,6 +129,7 @@ a choice:
 | 2026-11-06 | 4 | local `UIAutomationClient.h` / `.idl` vtable, CLSID/IID, `RECT`, `TreeScope` | O (installed SDK 10.0.22000.0) | a header is authoritative for the SDK it ships with, not for every runtime; a probe must still print raw HRESULTs | T1 P2.4, `plan-0.0.15` |
 | 2026-11-06 | 4 | host-side vs guest-side resource telemetry trust | O / P / S | guest self-reports are debugging data, never a security boundary; host-side signals sit on the far side of the isolation boundary | T3 R9/R10 |
 | 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default must not be escalated; the owner keeps a veto, not an approval queue | this file, T8 |
+| 2026-11-06 | 5 | W1 UIA probe verdict on the real desktop | X (this machine) | every slot S_OK + usable desktop root RECT, yet the target provider gave 8 Pane nodes / 0 non-Pane controls; cold-start zero RECTs became stable on re-run. The downgrade rule stopped W2 without an owner choice | `plan-0.0.15`, `PRD_01_17` pass 5, T7 |
 
 ## Non-goals
 

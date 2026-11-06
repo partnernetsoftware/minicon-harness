@@ -59,7 +59,9 @@ STUDY -> STRUCTURE -> PLAN COMPLETION -> ONLY THEN CODE + TESTS
 
 Current phase is **STUDY + STRUCTURE**. No W1/W2 code, no test, no version
 bump and no Release chain is started for 0.0.15. W0 pass 4 completed the
-0.0.15 plan (6/6, `PRD_01_23`); W1 is eligible but not started. The last
+0.0.15 plan (6/6, `PRD_01_23`). W1 then ran on the real desktop (pass 5)
+and its downgrade rule stopped W2; no capability, version bump or Release
+chain started. The last
 shipped version is `v0.0.14`; all four version sources read `0.0.14`.
 
 ## Evidence grades
@@ -102,6 +104,7 @@ binary scores and results from different step budgets are **not comparable**.
 | 2026-11-06 | 4 | local `UIAutomationClient.h` / `.idl` (SDK 10.0.22000.0): CLSID/IID, exact vtable slots, `RECT`, `TreeScope` | O (installed SDK) | `RECT` is left/top/right/bottom, not `[x,y,w,h]`; the header proves slots for this SDK, not for every runtime; raw HRESULTs still needed | T1 P2.4, `plan-0.0.15` |
 | 2026-11-06 | 4 | resource telemetry trust: host-side vs guest-side observability | O / P / S | guest self-report is debugging data, never a security boundary; host-side signals are on the far side of isolation | T3 R9/R10 |
 | 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default was wrongly escalated; owner veto replaces the approval queue | `PRD_01_24`, T8 |
+| 2026-11-06 | 5 | W1 UIA probe verdict on a real Windows desktop | X (this machine) | every COM slot returned S_OK and the desktop root read `0,0,1680,1050`, yet the target WorkBuddy provider gave 8 Pane nodes with 0 non-Pane controls; cold-start RECTs were all zero but four re-runs returned `840,0,1680,1014`. A correct vtable implies neither a useful provider nor a stable first read | `plan-0.0.15`, T1 P2.4, T7 |
 
 ## Findings, 2026-11-06
 
@@ -277,11 +280,49 @@ The fourth pass also recorded the resource-telemetry trust split (host-side
 signals are evidence; guest self-reports are debugging data) in T3 and the
 decision-authority correction in `PRD_01_24` / T8.
 
+## Findings, 2026-11-06 (fifth pass, W1 probe verdict)
+
+`examples/cu_probe_uia.rs` ran on the real Windows desktop (grade **X**, the
+only grade that can support `[v]`). It is a diagnostic, not a shipped
+capability: no `src/` file, version source, capability row, ABI or matrix cell
+changed.
+
+- **The COM surface is correct.** `CoCreateInstance`, `ElementFromHandle`
+  (slot 6), `CreateTrueCondition` (slot 21), `FindAll` (element slot 6),
+  `get_Length` (array slot 3), `GetElement` (array slot 4),
+  `get_CurrentControlType` (21), `get_CurrentName` (23) and
+  `get_CurrentBoundingRectangle` (43) all returned `S_OK`. The desktop root
+  read `RECT=0,0,1680,1050` -> `[0,0,1680,1050]`, proving both the slot and
+  the `left/top/right/bottom` -> `[x,y,w,h]` conversion. Brave (399 nodes),
+  a MiniCon window (639), Sourcetree (438), GVIM (22) and `cmd.exe` (8) all
+  produced named, bounded rows.
+- **The target provider is the failure, not the vtable.** Both WorkBuddy
+  windows returned exactly 8 nodes, all `control_type=50033` (Pane), only one
+  named, and **zero non-Pane controls** — no input box or button to address.
+  The shipped 0.0.11 MSAA tree reads real controls on that same client. The
+  first reads also returned all-zero `RECT`s with `S_OK`; four consecutive
+  re-runs of the same handle returned `840,0,1680,1014` stably. This is the
+  Chromium/provider behaviour recorded above (unrealised / virtualised rows,
+  window or integrity context), now measured on the one window L3 needs — and
+  a cold-start scan that flips from empty to populated without a generation
+  change cannot satisfy the reader's "no guessed tree" rule.
+- **Consequence.** A UIA-first route would *regress* `observe.a11y` for the
+  target while adding a large FFI surface. The mandatory downgrade rule in
+  `plan/plan-0.0.15-uia-probe-and-routing.md` fired on the zero-rectangle
+  reads, and the absence of addressable controls independently rules out the
+  routing. W2 stops, no UIA capability is claimed, no version bump or Release
+  chain runs. The probe remains in the tree as reproducible evidence.
+- **Method note (correcting the first reading).** The all-zero rectangles
+  were the provider's cold-start state, not a permanent refusal: the same
+  handle returned `840,0,1680,1014` on four consecutive re-runs. The durable
+  finding is the **zero non-Pane controls**, not the zero rectangles. A single
+  successful `CoCreateInstance` or a single empty tree is not evidence.
+
 ## Candidate table (upserted, not promised)
 
 | Finding | Repo axis | Candidate | Unlock condition | This cycle |
 |---|---|---|---|---|
-| UIA supersedes MSAA; UIA-aware agents measurably better | A2 / A4 | UIA-first + MSAA fallback in `observe.a11y`, additive `a11y_source` | vtable slots + CLSID/IID verified against the installed SDK (pass 4); still needs a real-desktop Rust probe of `ElementFromHandle` / `CreateTrueCondition` / `FindAll`, raw HRESULTs and the `RECT` -> `[x,y,w,h]` conversion | deferred (gate: probe) |
+| UIA supersedes MSAA; UIA-aware agents measurably better | A2 / A4 | UIA-first + MSAA fallback in `observe.a11y`, additive `a11y_source` | **closed by W0 pass 5**: the probe verified every COM slot and five other apps' trees, but the target WorkBuddy provider gives 8 Pane nodes / 0 non-Pane controls and a cold-start zero-rect window. UIA-first would regress the L3 target; the downgrade rule fired | `[no]` W2 stopped |
 | WGA / PrintWindow black frames, DWM shadow rects | A5 / E | per-window capture router with named reason | image arm + PNG budget decision (A5/D2) | deferred |
 | Cross-platform agents need one normalised node schema | A4 | `a11y_controls[]` gains `state` / `state_names` / `value` plus `a11y_node_schema`; the reader recomputes the bit mask | none (gate open) | **shipped in 0.0.14 W1/W2** |
 | a11y trees are event streams | A4 / D | incremental change subscription | three-OS AT-SPI / AX grants + fixtures; the schema above is its prerequisite | deferred |

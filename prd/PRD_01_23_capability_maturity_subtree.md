@@ -52,13 +52,14 @@ T7 Versions / candidates (state, not a promise)
 ├── V0.0.12  handle-addressed focus + target_hwnd                        [v]
 ├── V0.0.13  bounded observation wait + wait budget                      [v]
 ├── V0.0.14  normalised a11y node schema                                 [v]
-├── V0.0.15  UIA probe-first / mixed routing  **plan complete 6/6**        [_]
-│   ├── W1 Rust UIA diagnostic probe (raw HRESULTs)                      [_] eligible
-│   ├── W2 UIA-first + MSAA fallback, only if W1 passes                  [_]
-│   ├── W3 docs truth                                                     [_]
-│   └── W4 version bump + public signed Release                          [_]
+├── V0.0.15  UIA probe verdict — W1 delivered, W2 stopped             [v] diagnostic
+│   ├── W1 Rust UIA diagnostic probe, run on a real desktop            [v] X-grade
+│   ├── W2 UIA-first + MSAA fallback                                   [no] downgraded
+│   ├── W3 docs truth                                                   [no] not needed
+│   └── W4 version bump + public signed Release                         [no] not started
+│   └── note: no version bump; `v0.0.14` remains the last shipped Release
 ├── Candidate pool (ordered by gate, not by version)                     [study]
-│   ├── C1 UIA mixed routing              gate: real-desktop probe       [_] 
+│   ├── C1 UIA mixed routing              gate: **closed by pass 5 probe** [no]
 │   ├── C2 AT-SPI / AX trees              gate: OS grants + 3-OS fixture [_]
 │   ├── C3 incremental a11y events        gate: schema + 3-OS stream     [_]
 │   ├── C4 per-window capture router      gate: A5/D2 image budget       [_]
@@ -91,7 +92,8 @@ read `0.0.14`. "三思后行" (think three times before acting) and "分而治�
 branch gets its own subtree document and an explicit unlock condition before
 any implementation is considered. W0 pass 4 closed the plan-completeness
 checklist (6/6) by replacing the second-hand vtable claim with the installed
-Windows SDK headers; W1 is eligible but not started. Decision authority is
+Windows SDK headers. W1 then ran on the real desktop and its downgrade rule
+stopped W2, so no version bump or Release chain started. Decision authority is
 T8 (`PRD_01_24`): the controller arranges the cadence itself.
 
 ## Plan-completeness checklist for 0.0.15 — 6/6 passed 2026-11-06
@@ -116,8 +118,9 @@ no source, test, version bump or Release asset changed.
    the four-backend type gate types all four configurations.
 5. `[v]` Non-goals and the G boundary restated; G (a) is a decided
    controller decision (`PRD_01_24`), no `[no]` is lifted.
-6. `[v]` W1 is **eligible, not started**. The controller starts it in its own
-   cadence with no owner choice required.
+6. `[v]` W1 became eligible after 1-5, ran on 2026-11-06, and its verdict
+   closed C1. W2, W3 and W4 are `[no]` for this cycle — the downgrade rule
+   fired on the target WorkBuddy provider's empty rectangles.
 
 ## Learning notes (dated, process not just conclusions)
 
@@ -128,6 +131,7 @@ no source, test, version bump or Release asset changed.
 | 2026-11-06 | 3 | candidate ordering by unlock condition | X + S | ordering is a reason to consider first, never a version commitment | T7 |
 | 2026-11-06 | 3 | owner instruction to slow down before code | owner direction | earlier "implement next" delegation is superseded for this phase | this file, current phase |
 | 2026-11-06 | 4 | installed Windows SDK COM headers, resource-telemetry trust, decision authority | O (installed SDK) / P / S / owner direction | a header proves slots for its SDK, not runtime behaviour; `RECT` != `[x,y,w,h]`; a reversible default was wrongly escalated | `PRD_01_17` pass 4, `PRD_01_24`, this checklist |
+| 2026-11-06 | 5 | W1 probe verdict on the real desktop | X (this machine) | all slots S_OK and the desktop root read a usable RECT, but the target provider withheld all bounds; the downgrade rule stopped W2 | `plan-0.0.15`, T7 |
 
 ## Non-goals
 

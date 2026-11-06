@@ -124,13 +124,15 @@ budget. It is one sleep, not a polling loop or a model turn. This closes the
 measured act/observation timing gap from the L1 trial. `cu-abi 1.0`, the
 12/10/8/0 matrix and the G boundary are unchanged. `v0.0.13` is a public
 signed Release accepted from the owner's view. Contract:
-[`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md). The next
-planned version is 0.0.15 UIA probe + mixed routing — **plan complete (6/6),
-W1 eligible, no code or tests started**
-([`plan/plan-0.0.15-uia-probe-and-routing.md`](plan/plan-0.0.15-uia-probe-and-routing.md)).
-The plan's COM surface was verified against the installed Windows SDK headers
-rather than a secondary binding; the `RECT` -> `[x,y,w,h]` conversion is now a
-named adapter rule with an independent-reader rejection.
+[`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md).
+The 0.0.15 UIA probe verdict: every COM slot and `RECT` conversion were
+verified on a real Windows desktop, but the target WorkBuddy provider exposes
+no addressable (non-Pane) controls and a cold-start zero-rectangle window, so
+the mandatory downgrade rule stopped the UIA-first route before any shipped
+capability, version bump or Release
+([`plan/plan-0.0.15-uia-probe-and-routing.md`](plan/plan-0.0.15-uia-probe-and-routing.md),
+[`examples/cu_probe_uia.rs`](examples/cu_probe_uia.rs)). `v0.0.14` remains
+the last shipped Release.
 The PRD is now a multi-dimensional tree with per-branch subtree documents and
 a dated W0 learning ledger: see the *Document tree* section of
 [`PRD.md`](PRD.md) and
@@ -144,8 +146,8 @@ process / CPU / memory / GPU / device / network) and **keeping dated learning
 notes in the PRD**. Findings are folded into multi-dimensional trees (T1-T8)
 whose large branches have their own indexed subtree documents.
 **Implementation starts only after the plan is complete** (三思后行 /
-分而治之); the 0.0.15 plan is complete (6/6), W1 is eligible and no code or
-tests have started. A research
+分而治之); the 0.0.15 probe was run only after its plan passed 6/6, and its
+downgrade rule stopped the implementation without an owner choice. A research
 finding is not authority: no `[no]`, `cu-abi`, matrix row or G boundary
 changes because an article exists. Ledger, evidence grades and candidate
 table:

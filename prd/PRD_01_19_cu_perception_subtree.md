@@ -33,9 +33,11 @@ T1 Observation / perception
 │   ├── P2.1 Win32 EnumChildWindows + WM_GETTEXT `controls[]`        [v] 0.0.5
 │   ├── P2.2 Windows MSAA / IAccessible read-only tree               [v] 0.0.11
 │   ├── P2.3 normalised node schema (state/value/schema tag)         [v] 0.0.14
-│   ├── P2.4 UIA control-view walker + MSAA fallback                [_] probe gate
-│   │        (vtable + GUIDs verified against installed SDK, pass 4;
-│   │         RECT -> [x,y,w,h] conversion is a named adapter rule)
+│   ├── P2.4 UIA control-view walker + MSAA fallback                [no] W2 stopped
+│   │        (pass 4: vtable + GUIDs verified against installed SDK;
+│   │         pass 5: probe verified every COM slot on 6 windows, but the
+│   │         target WorkBuddy provider gives 8 Pane nodes / 0 non-Pane
+│   │         controls plus a cold-start zero-rect window; W2 stopped)
 │   ├── P2.5 AT-SPI2 (Linux) / AX (macOS) trees                     [_] OS grants
 │   └── P2.6 incremental a11y change subscription                   [_] 3-OS fixture
 ├── P3 hybrid / interface-first routing                            [study]
@@ -100,7 +102,7 @@ T1 Observation / perception
 | Node | What this repo already has | Unlock condition |
 |---|---|---|
 | P1.3 | desktop capture with a named scale; `display_scales[]` | A5/D2 image arm + PNG budget and retention decision |
-| P2.4 | MSAA tree, `a11y_source`, `a11y_reason`; CLSID/IID + exact vtable slots verified from the installed Windows SDK (`PRD_01_17` pass 4) | real-desktop Rust probe printing raw HRESULTs, then its own PRD |
+| P2.4 | MSAA tree, `a11y_source`, `a11y_reason`; CLSID/IID + exact vtable slots verified from the installed Windows SDK (`PRD_01_17` pass 4) | **closed by pass 5**: the target WorkBuddy provider must expose named, non-Pane, stable bounded nodes; the downgrade rule fired and W2 stopped |
 | P2.5 | empty trees + named reasons on Linux / macOS / fallback | OS grants (TCC / AT-SPI bus) and three-OS fixtures |
 | P2.6 | static bounded snapshot (400 rows / depth 12) | event subscription API on three OSes and a staleness contract |
 | P3.1 / P3.2 | no connector; `screen` is the only desktop entrance | a routing PRD and a policy decision; not a version commitment |
@@ -118,6 +120,7 @@ T1 Observation / perception
 | 2026-11-06 | 3 | cross-platform a11y APIs and grants | O / S / V | "Windows needs no grant" holds only at equal integrity level; Wayland needs portals | `PRD_01_22` |
 | 2026-11-06 | 4 | installed Windows SDK `UIAutomationClient.h`/`.idl`: CLSID/IID, exact vtable slots, `RECT`, `TreeScope` | O (installed SDK 10.0.22000.0) | `RECT` = left/top/right/bottom, not `[x,y,w,h]`; a header does not prove runtime provider behaviour; raw HRESULTs still required | `PRD_01_17` pass 4, P2.4, `plan-0.0.15` |
 | 2026-11-06 | 4 | decision authority correction under `/goal` | owner direction | a reversible default must not be escalated; owner keeps a veto | `PRD_01_24`, T8 |
+| 2026-11-06 | 5 | W1 UIA probe on the real desktop | X (this machine) | all slots S_OK + usable desktop root RECT, but the target provider gives 0 non-Pane controls and cold-start reads were all-zero RECTs; a callable interface is not a useful provider, and one read is not stability | `PRD_01_17` pass 5, P2.4 |
 
 ## Non-goals
 

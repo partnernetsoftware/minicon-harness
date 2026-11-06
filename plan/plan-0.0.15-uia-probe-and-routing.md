@@ -1,17 +1,11 @@
-# 0.0.15 — UIA probe first, then mixed structured routing (plan complete 6/6, W1 eligible)
+# 0.0.15 — UIA probe verdict, W2 stopped by the downgrade rule
 
-Status: `[_]` **plan complete 6/6, W1 eligible, not started**, after `v0.0.14`
-was published as a public signed Release and accepted from the owner's view
-on 2026-11-06.
-Under the owner's 2026-11-06 evening direction, this phase is study and
-structure: **no W1/W2 code, no test, no version bump and no Release chain
-until the plan is complete** (三思后行 / 分而治之). W0 pass 4 completed the
-plan on 2026-11-06: the COM surface is verified against the installed
-Windows SDK, and the six-item completeness checklist below is 6/6. **W1 is
-eligible, not started**; the controller starts it in its own cadence
-(`PRD_01_24`), with no owner choice required.
-**No source, version or Release change belongs to this document.** The source
-tree stays at `0.0.14` until this version's W4 runs.
+Status: `[v]` **W1 delivered and run on a real Windows desktop**;
+`[no]` **W2 stopped** by the mandatory downgrade rule below. Version sources
+stay at `0.0.14`, no Release chain is started, and no shipped source path
+changed. W0 pass 4 completed the plan (6/6) on 2026-11-06; W0 pass 5 recorded
+the probe verdict. The controller decided W2's stop itself (`PRD_01_24`, T8)
+and did not offer the choice back to the owner.
 
 Baseline: `v0.0.14` published the normalised a11y node schema on top of the
 0.0.11 Windows MSAA tree. `cu-abi 1.0`, the 12/10/8/0 matrix, the
@@ -91,14 +85,15 @@ mandatory: the slots are known, the provider is not.
    crate) creates `CLSID_CUIAutomation` via `CoCreateInstance` with
    `IID_IUIAutomation`, calls `ElementFromHandle` (slot 6) on a live `hwnd`,
    `CreateTrueCondition` (slot 21) and `FindAll` (element slot 6), then reads
-   one `get_CurrentName` (slot 23) and one `get_CurrentBoundingRectangle`
-   (slot 43). It prints raw HRESULTs, the array length and the converted
-   `[x,y,w,h]`. It is a diagnostic, not a shipped capability.
-2. W2 — only if the probe succeeds on a real Windows desktop, `native::a11y_controls`
-   gains a UIA-first route with the existing MSAA walk as fallback, publishing
-   additive `a11y_source` values. The normalised 0.0.14 node schema is the
-   translation target; no new capability row, no ABI bump, no OS grant.
-3. W3/W4 — docs, version bump and the public signed Release chain as usual.
+   `get_CurrentControlType` (21), `get_CurrentName` (23) and
+   `get_CurrentBoundingRectangle` (43) over a bounded set of elements. It
+   prints raw HRESULTs, the array length and the converted `[x,y,w,h]`.
+   It is a diagnostic, not a shipped capability. **Delivered — see the W1
+   delivery record below.**
+2. W2 — **not started**; the downgrade rule fired on the W1 verdict. What it
+   would have done is recorded below as an unshipped contract, kept for the
+   history of the decision.
+3. W3/W4 — **not started**; no capability means no version bump or Release.
 
 ### Downgrade rule (mandatory)
 
@@ -110,11 +105,19 @@ HRESULTs, name the failing slot and switch to the next W0 candidate
 subscription). Do not guess a vtable slot, do not ship a half-working UIA
 route and do not weaken the independent reader to make a journey green.
 This is the same probe-first shape that de-risked the 0.0.11 MSAA tree.
+**This rule fired on 2026-11-06** (W0 pass 5): the probe returned `S_OK`
+everywhere but all rectangles were empty for the target WorkBuddy window, so
+the zero-rectangle case could not be distinguished from a withheld read at
+the target that matters. W2 therefore stops.
 
-### Reader contract (additive, nothing weakened)
+### Reader contract (unshipped contract, recorded for the decision history)
 
-- W2 adds `a11y_source` values (`uia` / `msaa-fallback`) and a named
-  `a11y_reason` on every failed or refused UIA scan.
+The following was written down before W1 to satisfy checklist item 3. Since
+W2 did not start, none of it ships and no reader assertion was changed or
+weakened:
+
+- W2 would have added `a11y_source` values (`uia` / `msaa-fallback`) and a
+  named `a11y_reason` on every failed or refused UIA scan.
 - Every `a11y_controls[]` row keeps the 0.0.14 schema: `name`, `role`,
   `role_name`, `rect` as exactly four ints `[x,y,w,h]`, `depth`, `child_id`,
   `value`, `state`, `state_names`. The reader recomputes `state_names` from
@@ -124,13 +127,15 @@ This is the same probe-first shape that de-risked the 0.0.11 MSAA tree.
 - Every 0.0.6-0.0.14 reader assertion stays. A UIA row is never allowed to
   weaken a grant, scale, wait, handle-focus or MSAA assertion.
 
-### Three-OS behaviour
+### Three-OS behaviour (unshipped contract)
 
-- Windows: runs the probe; on success publishes UIA rows, otherwise MSAA
-  rows with a named reason. macOS / Linux / fallback keep `a11y_controls: []`
-  with their existing named reasons and contribute no UIA step.
-- The four-backend type gate types all four configurations in the same
-  commit; no new native signature, crate or link-time platform library.
+Had W2 started: Windows would have run the probe and published UIA rows,
+otherwise MSAA rows with a named reason; macOS / Linux / fallback would have
+kept `a11y_controls: []` with their existing named reasons and contributed
+no UIA step. The four-backend type gate would have typed all four
+configurations in the same commit, with no new native signature, crate or
+link-time platform library. **Only the W1 probe ran; the four-backend gate
+was still executed and passed.**
 
 ### Plan-completeness checklist (`PRD_01_23`) — 6/6
 
@@ -143,25 +148,85 @@ This is the same probe-first shape that de-risked the 0.0.11 MSAA tree.
 | 5 | non-goals and G boundary restated | "Non-goals" below | `[v]` plan |
 | 6 | W1 becomes eligible only after 1-5 | this table | `[v]` plan |
 
-**All six items are now written down.** W1 is eligible. The controller
-starts it in its own cadence; no owner choice is required (`PRD_01_24`).
-This checklist passing is a **plan** fact, not a shipped capability: no
-source, test, version or Release change belongs to this document.
+**All six items were written down before W1 started** (W0 pass 4). This
+checklist passing was a **plan** fact, not a shipped capability; W1 then
+produced the W0 pass 5 verdict recorded under "W1 delivery record" below.
 
 ## Work breakdown and gates
 
 ```text
-0.0.15 — UIA probe + mixed routing
-├── [_] W1 — Rust UIA diagnostic probe
-│   invariant: no source change to the shipped path, raw HRESULTs printed,
-│   four cfgs type-check, no new crate, no link-time platform library
-├── [_] W2 — UIA-first + MSAA fallback (only if W1 passes)
-│   invariant: cu-abi 1.0, 11 capability rows, 12/10/8/0 matrix unchanged,
-│   reader recomputes every row under the 0.0.14 schema, named reason on
-│   every UIA failure, MSAA fallback never silently masks a refused scan
-├── [_] W3 — the truth of the docs (radar, PRD, README, release notes)
-└── [_] W4 — version bump and public signed Release
+0.0.15 — UIA probe verdict
+├── [v] W1 — Rust UIA diagnostic probe, run on a real Windows desktop
+│   invariant held: no shipped source change, raw HRESULTs printed for
+│   every call, four cfgs type-check, no new crate, no new platform lib
+├── [no] W2 — UIA-first + MSAA fallback: STOPPED by the downgrade rule
+│   reason: the target WorkBuddy window exposes 8 nodes, 0 non-Pane
+│   controls and 1 name, with a cold-start window where every RECT is zero;
+│   the shipped MSAA tree reads real controls on that same window, so a
+│   UIA-first row would regress the L3 target
+├── [no] W3 / W4 — no docs-truth bump and no Release without a capability
+└── [_] next W0 candidate — AT-SPI / AX trees or incremental a11y events
 ```
+
+## W1 delivery record (2026-11-06, real desktop, grade X)
+
+`examples/cu_probe_uia.rs` is a read-only diagnostic example. It asks the
+repo's own `CuHost::invoke_json({"op":"observe"})` for a live `hwnd`, then
+calls `CoCreateInstance` -> `ElementFromHandle` (slot 6) ->
+`CreateTrueCondition` (slot 21) -> `FindAll` (element slot 6) ->
+`get_Length` (array slot 3) -> `GetElement` (array slot 4) ->
+`get_CurrentControlType` (21) / `get_CurrentName` (23) /
+`get_CurrentBoundingRectangle` (43), printing every raw HRESULT.
+
+**Verification gates:** `cargo check --locked --example cu_probe_uia` clean,
+`cargo test --locked` 119 passed / 3 ignored, `cu-cfg-check.py` four
+configurations OK, `rustfmt --check` clean on the new file. No `src/` file,
+version source, `cu-abi`, capability row or matrix cell changed.
+
+| Handle | Window | Elements | Non-Pane controls | Non-zero rects | Verdict |
+|---|---|---|---|---|---|
+| desktop root | control via `GetRootElement` slot 5 | 1 | — | 1 (`0,0,1680,1050`) | proves slot 43 + `RECT` layout |
+| 33689578 | `WorkBuddy` (Electron, the L3 target), cold start | 8 | 0 / 8 | 0 / 8 | `PROBE_PARTIAL` — all `RECT` zero |
+| 33689578 | same handle, four consecutive re-runs | 8 | **0 / 8** | 8 / 8 (`840,0,1680,1014`) | `PROBE_OK` numerically, but no addressable control |
+| 59771304 | second `WorkBuddy` window | 8 | 0 / 8 | 0 / 8 | `PROBE_PARTIAL` |
+| 269226 | Brave | 399 | 8 / 16 | 10 / 16 | `PROBE_OK` |
+| 2496684 | Electron-style MiniCon window | 639 | — | 14 / 16 | `PROBE_OK` |
+| 66886 | Sourcetree | 438 | 16 / 16 | 16 / 16 | `PROBE_OK` |
+| 15339458 | GVIM | 22 | 15 / 16 | 15 / 16 | `PROBE_OK` |
+| 12390440 / 21564726 | `cmd.exe` | 8 | 8 / 8 | 8 / 8 | `PROBE_OK` |
+
+`UIA_PaneControlTypeId` is 50033; the probe counts any other control type as a
+potentially addressable control.
+
+**Interpretation.** The COM surface is correct: every slot returned `S_OK`,
+the desktop root read a usable rectangle, and five unrelated applications
+produced hundreds of named, bounded, non-Pane nodes. Two distinct facts about
+the **target WorkBuddy provider** then decided the gate:
+
+1. **No addressable controls.** Both WorkBuddy windows expose exactly 8 nodes,
+   all `control_type=50033` (Pane), only one named. Zero non-Pane controls
+   means no input box, button or menu to click or type into — while the
+   shipped 0.0.11 MSAA tree reads real controls on that same client. A
+   UIA-first route would therefore *regress* `observe.a11y` for L3.
+2. **A cold-start zero-rect window.** The first reads of the target returned
+   `S_OK` with all eight `RECT`s zero; four consecutive re-runs of the same
+   handle then returned `840,0,1680,1014` stably. This is the documented
+   provider behaviour in `PRD_01_17` (unrealised / virtualised rows, window
+   or integrity context), and it is a second, independent reason not to ship:
+   a scan that silently flips from empty to non-empty without a generation
+   change cannot satisfy the independent reader's "no guessed tree" rule.
+
+Neither fact is a wrong vtable slot. Shipping UIA-first plus an MSAA fallback
+would still add a large FFI surface whose first row on the L3 target is
+either empty or non-addressable.
+
+**Decision (controller, `PRD_01_24` D2.5):** apply the mandatory downgrade
+rule on the cold-start zero rectangles, and decline UIA-first on the separate
+finding of zero addressable controls. W2 does not start, no UIA capability
+is claimed, no version bump or Release chain runs. The probe stays in the
+tree as reproducible X-grade evidence; the next W0 pass examines the AT-SPI /
+AX and incremental-event candidates. `v0.0.14` remains the last shipped
+version. No owner choice was requested.
 
 ## Non-goals
 

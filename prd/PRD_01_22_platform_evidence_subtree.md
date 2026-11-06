@@ -16,7 +16,7 @@ Legend: `[v]`, `[_]`, `[no]`, `[study]` as in `PRD_01_19`. Evidence grades:
 T4 Platform and grants (12 / 10 / 8 / 0 matrix)
 ├── PL1 Windows                                              [v] 12/12
 │   ├── PL1.1 EnumWindows + GetWindowText + pid + rect          [v]
-│   ├── PL1.2 UIA control-view walker / patterns (external)     [study] probe gate
+│   ├── PL1.2 UIA control-view walker (external)                [no] pass 5 downgrade
 │   ├── PL1.3 MSAA / IAccessible hand-written COM               [v] 0.0.11
 │   ├── PL1.4 SendInput; UIPI equal-or-lower integrity rule    [v] named refusals
 │   ├── PL1.5 UAC secure desktop is not clickable              [study]
@@ -140,6 +140,7 @@ T6 Evidence / verification
 | 2026-11-06 | 3 | `xa11y` / `agent-desktop` grants and privacy notes | O / S / V | Linux "nothing else to grant" assumes GNOME with AT-SPI running | T4 |
 | 2026-11-06 | 3 | OSWorld 2.1 release contract and verifier design | P / O | manifest pins components but disclaims full evaluation; do not quote it as a leaderboard | T6 E5 |
 | 2026-11-06 | 1-3 | this repo's own CI / release chain | X (local + CI runs) | owner-view acceptance is the only claim allowed to become `[v]` | T6 E1-E4 |
+| 2026-11-06 | 5 | UIA provider behaviour across seven real windows | X (local probe) | all slots S_OK + usable desktop root RECT, but the WorkBuddy provider gives 8 Pane nodes / 0 non-Pane controls; cold-start zero RECTs settled to `840,0,1680,1014` on re-run. One successful COM call is neither a usable tree nor a stability claim | `plan-0.0.15`, T4 PL1.2 |
 
 ## Non-goals
 

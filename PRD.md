@@ -60,7 +60,8 @@ plan/
 T1 perception
 ├── P1 pixel arm            [v] bounded PNG + scale disclosure; [no] image arm
 ├── P2 structured controls  [v] Win32 controls, MSAA tree, normalised schema
-│                           [_] UIA routing (probe gate), AT-SPI/AX, events
+│                           [no] UIA routing (pass 5 downgrade);
+│                           [_] AT-SPI/AX, incremental events
 ├── P3 hybrid routing       [study] API -> tree -> pixels; [no] code-first here
 ├── P4 target identity      [v] hwnd focus, target_hwnd, stale refusal
 ├── P5 timing / freshness   [v] bounded wait + ceilings; [no] polling loop
@@ -133,7 +134,7 @@ T6 evidence
 ```text
 T7 versions
 ├── V0.0.1 - V0.0.14   [v] published, accepted signed Releases
-├── V0.0.15            [_] plan complete 6/6, W1 eligible, not started
+├── V0.0.15            [v] W1 diagnostic probe; [no] W2-W4 (downgrade fired)
 ├── candidate pool      [study] ordered by gate, never a version commitment
 └── standing [no]      [no] unchanged by any study pass
 ```
@@ -177,6 +178,7 @@ where the owner actually spoke (e.g. the 0.0.11 a11y lift).
 | 2026-11-06 | 4 | local Windows SDK `UIAutomationClient.h`/`.idl`: CLSID, IIDs, vtable slots, `RECT`, `TreeScope` | O (installed SDK 10.0.22000.0) | `RECT` is left/top/right/bottom, **not** `[x,y,w,h]`; header is authoritative for its SDK, not for the runtime; probe must still print raw HRESULTs |
 | 2026-11-06 | 4 | host-side vs guest-side resource telemetry trust boundary | O/P/S | guest self-report is debugging data, not a security boundary; host-side signals sit on the far side of isolation |
 | 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default must not be escalated; owner keeps a veto, not an approval queue |
+| 2026-11-06 | 5 | W1 UIA probe verdict on the real desktop | X (this machine) | all COM slots S_OK + desktop root `0,0,1680,1050`, yet the target WorkBuddy provider gives 8 Pane nodes / 0 non-Pane controls; cold-start RECTs were zero then stable on re-run. A callable interface is neither a useful provider nor a stable first read |
 
 Evidence grades: **O** official, **B** benchmark board, **P** paper,
 **V** vendor claim, **S** survey / secondary, **X** local measurement. Only
@@ -595,7 +597,8 @@ of this file.
 4. **Complete the plan** — pass the plan-completeness checklist in
    `PRD_01_23`; **only then** implement through W1/W2/W3/W4. A capability is
    claimed from three-OS CI plus the independent journey reader, never from
-   an article. Pass 4 completed the 0.0.15 plan (6/6) on 2026-11-06.
+   an article. Pass 4 completed the 0.0.15 plan (6/6) on 2026-11-06;
+   pass 5 recorded the W1 probe verdict and its downgrade decision.
 
 **Learning is not authority.** `PRD_01_08` still assigns process, CPU,
 memory, GPU and device management outside `screen`; the radar records that
@@ -603,8 +606,8 @@ whole domain as research. The G direction is **decided by the controller on
 2026-11-06**: keep G closed (a), with four explicit reopen triggers for
 read-only telemetry and `[no]` for real resource control
 (`PRD_01_24`). No `[no]` is lifted by a research pass. **Current phase:
-STUDY + STRUCTURE**, not implementation; the 0.0.15 plan is complete (6/6)
-and W1 is eligible but not started.
+STUDY + STRUCTURE**, not a version release; the 0.0.15 W1 diagnostic probe
+ran and its downgrade rule stopped W2 without any owner choice.
 
 First W0 pass (2026-11-06) produced three reusable conclusions: interface-
 first perception with UIA ahead of MSAA on Windows (WAA measured ~57%
@@ -639,34 +642,41 @@ journeys were independently recomputed PASS on all three OSes. `cu-abi 1.0`,
 the 12/10/8/0 matrix, the native signature, every earlier reader assertion
 and the G boundary are unchanged.
 
-UIA-first mixed routing stays a W0 candidate with a probe gate: the installed
-Windows SDK headers now prove the vtable slots, but a real-desktop Rust probe
-must still print raw HRESULTs before any production routing. Resource-domain
-telemetry and control remain behind the G boundary, whose direction (a) is a
-dated controller decision in `PRD_01_24`.
+UIA-first mixed routing was **closed by the W1 probe** (pass 5): the COM
+surface is correct, but the target WorkBuddy provider exposes only Pane nodes
+with no addressable controls and a cold-start zero-rectangle window. Resource-domain telemetry and control remain behind the G
+boundary, whose direction (a) is a dated controller decision in `PRD_01_24`.
 
-## 0.0.15 next plan (plan complete 6/6, W1 eligible, not started)
+## 0.0.15 — W1 probe verdict, W2 stopped (no version bump)
 
-**No code, test, version bump or Release chain is started for 0.0.15.** Under
-the owner's 2026-11-06 evening direction the phase is study and structure;
-W0 pass 4 completed the plan-completeness checklist in `PRD_01_23` (6/6) on
-2026-11-06 and the controller starts W1 in its own cadence (`PRD_01_24`).
-The next planned version is **UIA probe-first, then mixed structured routing**
-(`plan/plan-0.0.15-uia-probe-and-routing.md`).
+**No shipped capability, version bump or Release chain for 0.0.15.**
+`v0.0.14` remains the last shipped Release and all four version sources
+still read `0.0.14`. W0 pass 4 completed the plan-completeness checklist
+(6/6); pass 5 ran `examples/cu_probe_uia.rs` on a real Windows desktop.
 
 Pass 4 replaced the second-hand vtable claim with the **installed Windows SDK
 10.0.22000.0 headers**: `CLSID_CUIAutomation`, three IIDs and the exact
 vtable slots (`ElementFromHandle` 6, `CreateTrueCondition` 21, `FindAll` 6,
 `get_CurrentName` 23, `get_CurrentBoundingRectangle` 43). It also found a new
 trap — `RECT` is left/top/right/bottom while this repo publishes
-`[x,y,width,height]`, so the adapter must convert, and the independent reader
-rejects a negative width/height. Every COM call prints raw HRESULTs; a wrong
-slot is still a process crash. W1 is a Rust diagnostic probe; W2 ships
-UIA-first + MSAA fallback **only if** the probe passes on a real Windows
-desktop. A failed probe stops the version with a diagnosis and a downgrade to
-the next W0 candidate: no guessed slots, no half-working route and no
-weakened reader. `cu-abi 1.0`, the 12/10/8/0 matrix and the G boundary stay
-unchanged; G direction (a) is a decided controller decision, not a choice
+`[x,y,width,height]`.
+
+**Pass 5 verdict (X-grade):** every COM slot returned `S_OK`; the desktop
+root read `RECT=0,0,1680,1050`; Brave (399), MiniCon (639), Sourcetree (438),
+GVIM (22) and `cmd.exe` (8) produced named, bounded, non-Pane rows. But both
+WorkBuddy windows — the L3 self-hosted-orchestration target — returned exactly
+8 Pane nodes, only one named, **zero non-Pane controls**, while the shipped
+0.0.11 MSAA tree reads real controls there. Cold-start reads gave all-zero
+rectangles with `S_OK` before the same handle settled to `840,0,1680,1014`
+across four re-runs. A UIA-first route would regress `observe.a11y` on the
+one window that matters, so the plan's **mandatory downgrade rule fired**:
+W2 does not start, no UIA capability is claimed and no half-working route
+ships. The controller made this decision itself (`PRD_01_24`); the probe
+remains in the tree as reproducible evidence.
+
+The next W0 pass examines AT-SPI / AX three-OS trees and incremental a11y
+change events. `cu-abi 1.0`, the 12/10/8/0 matrix and the G boundary are
+unchanged; G direction (a) is a dated controller decision, not a choice
 offered back to the owner.
 
 ## 0.0.9 frontier (shipped as a public signed Release)
