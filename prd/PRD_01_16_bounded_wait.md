@@ -1,9 +1,10 @@
 # PRD 01.16 — bounded observation wait (0.0.13)
 
-Status: `[v]` W1/W2 delivered in `40276ae`, W3/W4 in the release commit,
-after `v0.0.12` was published as a public signed Release and accepted from
-the owner's view on 2026-11-06. Three-OS CI `42213269581` / `42213269486`
-are success. Owner of the **contract** for 0.0.13;
+Status: `[v]` W1/W2 delivered in `40276ae`, W3/W4 in `59e6fd2`, after
+`v0.0.12` was published as a public signed Release and accepted from the
+owner's view on 2026-11-06. Three-OS CI `42213269581` / `42213269486` and
+`42214274457` / `42214326088` are success, and `v0.0.13` is a published,
+accepted signed Release. Owner of the **contract** for 0.0.13;
 `plan/plan-0.0.13-bounded-wait.md` owns the work breakdown, gates and release
 chain. Nothing here claims a capability that a CI run has not produced.
 

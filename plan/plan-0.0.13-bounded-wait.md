@@ -1,9 +1,10 @@
-# 0.0.13 — bounded observation wait (next planned version)
+# 0.0.13 — bounded observation wait (public signed Release accepted)
 
-Status: `[v]` W1/W2 delivered in `40276ae`; W3/W4 in the release commit,
+Status: `[v]` W1-W4 delivered in `40276ae` (W1/W2) and `59e6fd2` (W3/W4),
 after `v0.0.12` was published as a public signed Release and accepted from
 the owner's view on 2026-11-06. Three-OS CI `42213269581` / `42213269486`
-are success. The source tree stayed at `0.0.12` until W3.
+and `42214274457` / `42214326088` are success. The source tree stayed at
+`0.0.12` until W3.
 
 Baseline: `v0.0.12` published handle-addressed window targeting
 (`act:focus` by `hwnd`, `target_hwnd` readback) with three-OS CI evidence and
@@ -83,7 +84,7 @@ cells are untouched.
 │   invariant: B7b / D4 marked delivered; A5/B8/AT-SPI/AX/F3/C5/C6 and
 │   the model loop stay deferred; the lifted [no] is recorded as an
 │   owner-delegated decision; the W0 learning loop is recorded
-└── [_] W4 — version bump and public signed Release
+└── [v] W4 — version bump and public signed Release
     files: Cargo.toml, Cargo.lock, release-policy.json,
            loader/ape-version.rc, .github/release-notes.md
     invariant: four version sources in ONE commit; dry-run before publish;
@@ -99,10 +100,18 @@ journey reader remains the CI authority.
 
 ## Delivery record
 
-Filled in after the public signed Release is accepted from the owner's view:
-commit SHA, journey / platforms / pack / candidate / signing / dry-run /
-publish run ids, anonymous page and asset status, sidecar recompute,
-signing-cell hashes and the version the downloaded APE prints.
+W1/W2 `40276ae`; W3/W4 `59e6fd2`. Three-OS CI `42213269581` /
+`42213269486` (W1/W2) and `42214274457` / `42214326088` (W3/W4) success.
+The independent reader recomputed the released journeys PASS on Linux 32 /
+macOS 28 / Windows 35 performed steps, including `observe_wait_after_act` and
+the `observe_wait_over_bound` refusal. `v0.0.13` was published at
+2026-11-06T12:17:48Z from pack `42214546620`, candidate `42216049183`,
+signing `42216112607`, dry-run `42216372517`, publish `42216487467`.
+Owner-view acceptance: public page and assets anonymous 200, 15 assets, six
+recomputed sidecars, build/signing receipts matched `59e6fd2` / `0.0.13`,
+three signed assets matched `after_sha256` and were locally `Valid` with
+RFC 3161 timestamps, and the downloaded APE printed
+`minicon-harness 0.0.13`.
 
 ## Risks and downgrade rules
 

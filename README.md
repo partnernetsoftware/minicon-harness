@@ -122,8 +122,11 @@ call, 8000 ms cumulative and 8 calls per `CuHost`; every over-bound request
 is a named refusal before any sleep. `disclose` publishes the remaining
 budget. It is one sleep, not a polling loop or a model turn. This closes the
 measured act/observation timing gap from the L1 trial. `cu-abi 1.0`, the
-12/10/8/0 matrix and the G boundary are unchanged. Contract:
-[`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md).
+12/10/8/0 matrix and the G boundary are unchanged. `v0.0.13` is a public
+signed Release accepted from the owner's view. Contract:
+[`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md). The next
+planned version is 0.0.14 normalised a11y node schema
+([`prd/PRD_01_18_normalised_a11y_nodes.md`](prd/PRD_01_18_normalised_a11y_nodes.md)).
 
 **Continuous frontier learning (W0).** Each version cycle starts by learning
 current computer-use and resource-domain technology (K, V, M, W, S plus

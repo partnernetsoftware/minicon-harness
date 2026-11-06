@@ -369,19 +369,27 @@ takeover/owner-lock, any new crate or runtime, bun/WASM/ujs embedding
 (PRD 31 readiness stays BLOCKED), runtime backend selection, Wayland-native
 protocol and host-resource management (G; `PRD_01_08` owns the boundary).
 
-## 0.0.13 frontier (W1/W2/W3 delivered, W4 pending)
+## 0.0.13 frontier (public signed Release accepted)
 
 **0.0.13 = bounded observation wait.** `op=observe` gains an optional
 `wait_ms` (1..=2000): one bounded sleep, then a fresh snapshot and additive
 `evidence["wait"]` carrying requested, monotonic elapsed, cumulative and
 call-count values plus the new generation. Per-host ceilings (2000 ms per
 call, 8000 ms cumulative, 8 calls) are named refusals before any sleep;
-`disclose` publishes the remaining budget. W1/W2 landed in `40276ae`: the
-four-configuration type gate, examples build and three-OS CI
-`42213269581` / `42213269486` are success. W3 moves the four version sources
-to `0.0.13`; W4 runs the public signed Release chain. `cu-abi 1.0`, the
-12/10/8/0 matrix, every earlier reader assertion and the G boundary are
-unchanged.
+`disclose` publishes the remaining budget. W1/W2 landed in `40276ae` (CI
+`42213269581` / `42213269486` success); W3/W4 landed in `59e6fd2`. The public
+signed Release `v0.0.13` was published at 2026-11-06T12:17:48Z from
+platforms `42214274457`, journey `42214326088`, pack `42214546620`,
+candidate `42216049183`, signing `42216112607`, dry-run `42216372517` and
+publish `42216487467` — all success. Owner-view acceptance: public page and
+assets anonymous 200, 15 assets, six recomputed sidecars, build/signing
+receipts matched `59e6fd2` / `0.0.13`, three signed assets matched
+`after_sha256` and were locally `Valid` with RFC 3161 timestamps, and the
+downloaded APE printed `minicon-harness 0.0.13`. An independent reader
+recompute of the released journeys PASSed on Linux 32 / macOS 28 / Windows
+35 performed steps, including `observe_wait_after_act` and the over-bound
+refusal. `cu-abi 1.0`, the 12/10/8/0 matrix, every earlier reader assertion
+and the G boundary are unchanged.
 
 The measured reason is the L1 hard evidence recorded for B7b: an `observe`
 issued immediately after an `act` captured a pre-reflow Chromium frame, and
@@ -426,8 +434,28 @@ OSWorld-Verified vs 2.0 showing short-task grounding is solved while
 hour-long workflows fail on timing and verification (the same B7b / D4 gap
 this version closes); and the resource-domain ladder from cgroups v2 /
 Landlock / seccomp / MIG to per-task microVMs with four production
-boundaries. The open-gate implementation candidate is UIA-first mixed
-structured observation; resource-domain work stays gated behind G.
+boundaries. The open-gate implementation candidate was the normalised a11y
+node schema (0.0.14 W1/W2); UIA-first routing needs its own COM-vtable probe
+and resource-domain work stays gated behind G.
+
+## 0.0.14 next plan (after `v0.0.13` acceptance)
+
+The next planned version is the **normalised a11y node schema**
+(`PRD_01_18`, `plan/plan-0.0.14-normalised-a11y-nodes.md`), the first
+implementation candidate selected by W0. Each `a11y_controls[]` row gains
+`value`, the raw `STATE_SYSTEM_*` `state` bit mask and `state_names` derived
+from a fixed table; the frame publishes `a11y_node_schema`; the independent
+reader recomputes `state_names` from the published integer and rejects a
+guessed set. W1/W2 are implemented locally (119 passed / 3 ignored, the
+four-configuration type gate and examples build) and await the three-OS CI
+gate. It is additive evidence on `observe`: `cu-abi 1.0`, the 12/10/8/0
+matrix, the native signature, every earlier reader assertion and the G
+boundary are unchanged.
+
+UIA-first mixed routing stays a W0 candidate with a closed gate: a
+hand-written `IUIAutomation` COM vtable with an unverified slot is a crash,
+not a named refusal. Resource-domain telemetry and control remain behind the
+open G decision recorded in `PRD_01_17`.
 
 ## 0.0.9 frontier (shipped as a public signed Release)
 

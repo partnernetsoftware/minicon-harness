@@ -169,6 +169,7 @@ prd/
 ├── PRD_01_14_handle_addressed_targeting.md  [v] 0.0.12 handle targeting
 ├── PRD_01_16_bounded_wait.md                [v] 0.0.13 bounded observation wait
 ├── PRD_01_17_frontier_radar.md              W0 learn -> PRD upsert -> implement
+├── PRD_01_18_normalised_a11y_nodes.md       [v] 0.0.14 a11y node schema
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 

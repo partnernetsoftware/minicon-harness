@@ -135,9 +135,10 @@ The owner's original model includes these; `PRD_01_08` records that they are
 
 | Finding | Repo axis | Candidate | Unlock condition | This cycle |
 |---|---|---|---|---|
-| UIA supersedes MSAA; UIA-aware agents measurably better | A2 / A4 | UIA-first + MSAA fallback in `observe.a11y`, additive `a11y_source` | three-OS reader rule, no new grant, no ABI change | next implementation candidate |
+| UIA supersedes MSAA; UIA-aware agents measurably better | A2 / A4 | UIA-first + MSAA fallback in `observe.a11y`, additive `a11y_source` | hand-written `IUIAutomation` COM vtable verified by a real Windows probe; an unverified slot is a crash, not a refusal | deferred (gate closed) |
 | WGA / PrintWindow black frames, DWM shadow rects | A5 / E | per-window capture router with named reason | image arm + PNG budget decision (A5/D2) | deferred |
-| a11y trees are event streams; normalise node schema | A4 / D | incremental change subscription, one node schema | three-OS AT-SPI / AX grants + fixtures | deferred |
+| Cross-platform agents need one normalised node schema | A4 | `a11y_controls[]` gains `state` / `state_names` / `value` plus `a11y_node_schema`; the reader recomputes the bit mask | none (gate open) | **shipped in 0.0.14 W1/W2** |
+| a11y trees are event streams | A4 / D | incremental change subscription | three-OS AT-SPI / AX grants + fixtures; the schema above is its prerequisite | deferred |
 | Wait before re-observation; budget ceilings | B7b / D4 | `observe.wait_ms` + `evidence["wait"]` | none (gate open) | **shipped in 0.0.13 W1/W2** |
 | Long-horizon verification and independent readers | F3 / L2 | app-level effect evidence | side-effect-free three-OS fixture | deferred |
 | Sandbox isolation ladder, quotas, credential brokerage | G / exec | resource-domain telemetry and control | separate PRD + explicit G decision | **not implemented; G unchanged** |
