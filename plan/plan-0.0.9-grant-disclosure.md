@@ -1,11 +1,6 @@
 # 0.0.9 — grant and environment disclosure: a read-only, non-elevating report
 
-Status: `[v]` **W1, W2 and W3 delivered**; `[_]` W4 (the version bump and the
-public signed Release) is the only open work in this plan. W1's code landed in
-`f28eae53b1490cc6761f9b6e265c4358e1691278`, planned after `v0.0.8` was
-published as a public signed Release, with the compile gate `42164845780` and
-the real-desktop journeys `42164845836` both green. The source tree still reads
-`0.0.8` until W4 runs.
+Status: `[v]` **shipped as a public signed Release**; W1-W4 are closed. Planned after `v0.0.8` was published as a public signed Release and its owner-view acceptance completed; W4 landed in `99ea15729dde762628977077790fbbb1a7e2f44a`.
 
 Baseline: `v0.0.8` widens `act:key` with bounded `hold` / `release`; the
 capability matrix is windows 12/12, linux 10/12, macos 8/12, other 0/12,
@@ -84,7 +79,7 @@ computer use was never granted.
 │   release notes
 │   invariant: E3/E4 marked delivered, B7b/B8 and the 0.7.x chapters still
 │   deferred with unlock conditions, no stale "planned" claim for a shipped arm
-└── [_] W4 — 0.0.9 version bump and public signed Release
+└── [v] W4 — 0.0.9 version bump and public signed Release
     files: Cargo.toml, Cargo.lock, release-policy.json,
            loader/ape-version.rc, .github/release-notes.md
     invariant: four version sources in ONE commit; dry-run before publish;
@@ -179,9 +174,10 @@ locally against the receipt and sidecars, and the downloaded APE printing
 | Journey artifacts | `cu-journey-linux`, `cu-journey-macos`, `cu-journey-windows` (run `42164845836`), each a `cu-journey.json` the independent reader recomputed |
 | W3 docs | swept in the same commit as W4 (this file, `PRD.md`, `README.md`, `PRD_01_03`, `PRD_01_08`, `PRD_01_11`, `.github/release-notes.md`) |
 | W4 version bump | four sources moved to `0.0.9` in that one commit |
-| Release chain | _pending — filled in by W4 below_ |
-| Owner-view acceptance | _pending — anonymous download, re-hash of all 15 assets, APE printing `minicon-harness 0.0.9`_ |
+| Release chain | pack `42166110442` -> candidate `42167224386` -> signing `42167283497` -> dry-run `42167468391` -> publish `42167566196`; every step `success`, one shared `source_sha=99ea157...` |
+| Owner-view acceptance | Release page and asset anonymously HTTP 200; 15 assets downloaded; 6 `.sha256` sidecars recomputed OK; `minicon-harness.com` and both signed Windows cells equal `signing-receipt.json` `after_sha256`; downloaded APE prints `minicon-harness 0.0.9` (exit 0) |
 
-W1/W2/W3 are closed on the runs above; W4 is closed only when the Release page
-is anonymously visible, all 15 assets re-hash against
-`signing-receipt.json`, and the downloaded APE prints `minicon-harness 0.0.9`.
+W1-W4 are closed on the evidence above, including the controller's own
+anonymous download and re-hash. The next version is planned only after this
+public signed Release and its owner-view acceptance: see
+`plan/plan-0.0.10-display-scale-disclosure.md`.

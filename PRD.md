@@ -232,8 +232,9 @@ full form. It is an **acceptance journey for computer use**, not a new verb,
 tool, harness capability or version plan, and it changes no `[v]`, `[_]` or
 `[no]` mark in the tree above.
 
-The candidate pool is now *ordered* by what that loop needs: A5 / D2
-(model-visible image arm) -> B7b + D4 (bounded wait and ceilings) -> A4
+The candidate pool is now *ordered* by what that loop needs: display scale /
+coordinate-basis disclosure (0.0.10) -> A5 / D2 (model-visible image arm)
+-> B7b + D4 (bounded wait and ceilings) -> A4
 (reliable target location; the client is Electron / Chromium, so A2's Win32
 child controls do not reach it) -> F3 (app-level effect evidence) -> C5 / C6
 (safety and hand-off). Ordering is **not** a version commitment: every item
@@ -243,13 +244,50 @@ is published and accepted. Plan 0.0.9 and its frontier are unchanged; E3 / E4
 read-only grant disclosure is the precondition that explains why a click
 cannot land before any of L2 exists.
 
-## 0.0.9 frontier (implemented; public signed Release pending)
+## 0.0.10 frontier (planned, not started)
+
+Planned after `v0.0.9` was published as a public signed Release and accepted
+from the owner's view. **No version bump, no code and no `[v]` claim exists
+here.** The plan is `plan/plan-0.0.10-display-scale-disclosure.md`, the
+contract is `prd/PRD_01_13_display_scale_disclosure.md`.
+
+Why this comes before the image arm: the L1 self-hosted orchestration trial
+drove the WorkBuddy client's own GUI and found that the coordinates a model
+reads from a screenshot are **not** the physical desktop coordinates a click
+needs (about 1.25x on this host). Only a UIA control rectangle located the
+input box. An image arm without a coordinate basis would reproduce the same
+failure at higher bandwidth, so 0.0.10 publishes the scale as structured,
+read-only evidence first.
+
+```text
+0.0.10 — display scale / coordinate-basis disclosure (planned)
+├── [_] E5a `environment.display_scales[]` + `observe.displays[].scale`
+│        read-only DPI/backing-scale probe, four backends, unknown + reason
+│        no new capability row; matrix 12/10/8/0; cu-abi 1.0
+├── [_] A5 / D2 model-visible image arm     unlock: PNG budget/retention
+├── [_] B7b bounded wait + D4 ceilings      unlock: loop/budget decision
+├── [_] A4 accessibility trees              unlock: OS grants + fixtures
+├── [_] F3 app-level effect evidence        unlock: echo-window fixtures
+├── [_] C5 / C6 safety + hand-off           unlock: a policy PRD first
+└── [_] B8 batched actions[]                unlock: admission/stale design
+```
+
+`[no]` carried forward unchanged: plugin host, permission policy engine,
+streaming, MCP, a scripting surface over the desktop, a second model loop,
+takeover/owner-lock, any new crate or runtime, bun/WASM/ujs embedding
+(PRD 31 readiness stays BLOCKED), runtime backend selection, Wayland-native
+protocol and host-resource management (G; `PRD_01_08` owns the boundary).
+
+## 0.0.9 frontier (shipped as a public signed Release)
 
 Planned after `v0.0.8` was published, per the owner's "plan the next version
-after each public release" loop. **W1 (the read-only probe contract) and W2
-(the mandatory journey) are delivered and proven by the three-OS CI runs
-`42164845780` (compile gate) and `42164845836` (real-desktop journeys); the
-version bump and the signed Release are W4.** Direction unchanged: concentrate
+after each public release" loop. **W1-W4 are closed: W1/W2 proven by
+`42164845780` (compile gate) and `42164845836` (three-OS journeys); W3/W4
+landed in `99ea157`, whose public signed Release `v0.0.9` came from pack
+`42166110442` -> candidate `42167224386` -> signing `42167283497` -> dry-run
+`42167468391` -> publish `42167566196`. The controller re-hashed all 15
+downloaded assets and ran the downloaded APE (`minicon-harness 0.0.9`).**
+Direction unchanged: concentrate
 on computer use; harness-side capability work stays deferred. The plan is
 `plan/plan-0.0.9-grant-disclosure.md`, the contract is
 `prd/PRD_01_11_grant_disclosure.md`. A `[_]` is a chapter, **not** a

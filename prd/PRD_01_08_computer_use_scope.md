@@ -164,6 +164,7 @@ prd/
 ├── PRD_01_10_held_key_modifiers.md  [v] 0.0.8 held-key modifiers
 ├── PRD_01_11_grant_disclosure.md    [v] 0.0.9 grant/environment disclosure
 ├── PRD_01_12_self_hosted_orchestration.md  [_] L0-L3 levels + end state
+├── PRD_01_13_display_scale_disclosure.md   [_] 0.0.10 coordinate basis
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 
