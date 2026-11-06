@@ -488,6 +488,82 @@ pub fn foreground_title() -> Option<String> {
     (!title.is_empty()).then_some(title)
 }
 
+/// The coarse session kind, derived from `XDG_SESSION_TYPE` and whether an X11
+/// connection is actually reachable. Only the kind leaves this function: the
+/// `$DISPLAY` value and any other environment value stay inside it.
+fn session_kind(reachable: bool) -> super::SessionKind {
+    if !reachable {
+        return super::SessionKind::Headless;
+    }
+    let declared = std::env::var("XDG_SESSION_TYPE")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if declared == "wayland" {
+        super::SessionKind::WaylandX11Compat
+    } else {
+        super::SessionKind::X11
+    }
+}
+
+/// Why an X11 probe could not be answered, without publishing `$DISPLAY`.
+fn no_display_reason() -> String {
+    format!(
+        "no X11 display is reachable (session={}); a pure Wayland or headless session has no \
+         X11 backend in this cell",
+        session_kind(false).tag()
+    )
+}
+
+/// Read-only environment probe: `XOpenDisplay` is a connection, not an effect,
+/// and every geometry call below it is a pure query.
+pub fn environment() -> super::EnvironmentProbe {
+    let reachable = display().is_ok();
+    let desktop = if reachable { virtual_screen().ok() } else { None };
+    let display_count = if reachable {
+        displays().map(|list| list.len()).unwrap_or(0)
+    } else {
+        0
+    };
+    let foreground_present = if reachable {
+        foreground_title().is_some()
+    } else {
+        false
+    };
+    super::environment_from(
+        PLATFORM,
+        session_kind(reachable),
+        desktop,
+        display_count,
+        foreground_present,
+    )
+}
+
+/// Read-only grant probes. X11 has no per-process grant to request: the only
+/// precondition is a reachable display, and the only extra mechanism is XTest.
+/// A missing library is `unknown` (a fact about the cell), not `denied`.
+pub fn grants() -> Vec<super::GrantProbe> {
+    let reachable = display().is_ok();
+    let xtest = unsafe { super::dynlib::sym::<FnXTestFakeButtonEvent>(XTST, "XTestFakeButtonEvent") };
+    let mut rows = Vec::new();
+    for name in ["screen_capture", "window_enumeration", "x11_display"] {
+        rows.push(if reachable {
+            super::GrantProbe::granted(name)
+        } else {
+            super::GrantProbe::not_applicable(name, no_display_reason())
+        });
+    }
+    rows.push(match (reachable, xtest) {
+        (false, _) => super::GrantProbe::not_applicable("input_posting", no_display_reason()),
+        (true, Ok(_)) => super::GrantProbe::granted("input_posting"),
+        (true, Err(error)) => super::GrantProbe::unknown(
+            "input_posting",
+            format!("{XTST} does not export XTestFakeButtonEvent ({error})"),
+        ),
+    });
+    rows
+}
+
 pub fn windows() -> Result<Vec<WindowInfo>, String> {
     let d = display()?;
     let root = root_window(d)?;

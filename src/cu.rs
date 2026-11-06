@@ -31,9 +31,9 @@
 
 use crate::screen::{
     resolve_control, Act, Actuation, CaptureTarget, ClickButton, ControlInfo, ControlTarget,
-    Modifier, ScreenSnapshot, ScreenTool, WindowInfo, SCREEN_TOOL_HELD_MODIFIERS,
-    SCREEN_TOOL_MAX_CAPTURE_SCALE, SCREEN_TOOL_MAX_HELD_MODIFIERS,
-    SCREEN_TOOL_MAX_TYPE_CHARS,
+    EnvironmentProbe, GrantProbe, Modifier, ScreenSnapshot, ScreenTool, WindowInfo,
+    SCREEN_TOOL_HELD_MODIFIERS, SCREEN_TOOL_MAX_CAPTURE_SCALE,
+    SCREEN_TOOL_MAX_HELD_MODIFIERS, SCREEN_TOOL_MAX_TYPE_CHARS,
 };
 use serde_json::{json, Value};
 use std::sync::Mutex;
@@ -226,6 +226,44 @@ pub fn capability_matrix(caps: &crate::screen::PlatformCapabilities) -> Value {
             .into_iter()
             .map(|(name, implemented)| {
                 json!({ "capability": name, "implemented": implemented })
+            })
+            .collect(),
+    )
+}
+
+/// `evidence["environment"]` for `op=disclose`. Only the coarse session kind
+/// is published: no display number, user name, path or window title ever
+/// leaves the probe.
+pub fn environment_json(probe: &EnvironmentProbe) -> Value {
+    json!({
+        "platform": probe.platform,
+        "session": probe.session.tag(),
+        "display_count": probe.display_count,
+        "virtual_desktop": {
+            "x": probe.virtual_desktop.0,
+            "y": probe.virtual_desktop.1,
+            "width": probe.virtual_desktop.2,
+            "height": probe.virtual_desktop.3,
+        },
+        "foreground_present": probe.foreground_present,
+    })
+}
+
+/// `evidence["grants"]` for `op=disclose`. The rows are already bounded,
+/// sorted and de-duplicated by `screen::normalize_grant_probes`; `reason` is
+/// omitted rather than published as an empty string.
+pub fn grants_json(probes: &[GrantProbe]) -> Value {
+    Value::Array(
+        probes
+            .iter()
+            .map(|probe| {
+                let mut row = json!({ "name": probe.name, "status": probe.status.tag() });
+                if let Some(reason) = &probe.reason {
+                    if let Value::Object(fields) = &mut row {
+                        fields.insert("reason".to_owned(), json!(reason));
+                    }
+                }
+                row
             })
             .collect(),
     )
@@ -1375,8 +1413,45 @@ impl CuHost {
     }
 
     fn disclose(&self, capability: &str, abi_minor: u32) -> CuResult {
+        // The probes run before the host state is locked: a read-only probe
+        // must never hold the receipt log hostage, and a malformed probe set is
+        // a contract violation that publishes no partial disclosure at all.
+        let environment = crate::screen::environment_probe();
+        let grants = crate::screen::grant_probes();
+        self.disclose_with(capability, abi_minor, &environment, grants)
+    }
+
+    /// The disclosure proper, with the probe set supplied. Split out so the
+    /// contract-violation path (a malformed probe set) is unit-testable without
+    /// a backend that can be made to lie.
+    fn disclose_with(
+        &self,
+        capability: &str,
+        abi_minor: u32,
+        environment: &EnvironmentProbe,
+        grants: Result<Vec<GrantProbe>, String>,
+    ) -> CuResult {
+        let grants = match grants {
+            Ok(grants) => grants,
+            Err(reason) => {
+                let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+                return self.result_with_state(
+                    &mut state,
+                    CuVerdict::NotPerformed,
+                    capability,
+                    reason,
+                    json!({ "contract": "grants" }),
+                );
+            }
+        };
         let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
-        let manifest = self.manifest(&state, abi_minor);
+        let mut evidence = self.manifest(&state, abi_minor);
+        if let Value::Object(fields) = &mut evidence {
+            // Additive evidence on the existing `disclose` capability: no new
+            // capability row, no ABI change, and no 0.0.8 key is touched.
+            fields.insert("environment".to_owned(), environment_json(environment));
+            fields.insert("grants".to_owned(), grants_json(&grants));
+        }
         // Qualification comes from the native backend, never from a guess:
         // on an unqualified cell the disclosure says so.
         let mut text = format!(
@@ -1413,6 +1488,29 @@ impl CuHost {
         for (name, implemented) in crate::screen::platform_capabilities().rows() {
             text.push_str(&format!("\nplatform_verb={name} implemented={implemented}"));
         }
+        text.push_str(&format!(
+            "\nenvironment platform={} session={} displays={} desktop={},{} {}x{} foreground={}",
+            environment.platform,
+            environment.session.tag(),
+            environment.display_count,
+            environment.virtual_desktop.0,
+            environment.virtual_desktop.1,
+            environment.virtual_desktop.2,
+            environment.virtual_desktop.3,
+            environment.foreground_present
+        ));
+        for probe in &grants {
+            text.push_str(&format!(
+                "\ngrant name={} status={}{}",
+                probe.name,
+                probe.status.tag(),
+                probe
+                    .reason
+                    .as_ref()
+                    .map(|reason| format!(" reason={reason:?}"))
+                    .unwrap_or_default()
+            ));
+        }
         for receipt in state.receipts.iter().rev().take(CU_MAX_RECEIPTS) {
             text.push('\n');
             text.push_str(&receipt.to_line());
@@ -1427,7 +1525,7 @@ impl CuHost {
             capability: capability.to_owned(),
             generation: state.generation,
             facts_as_of_ms: now_ms(),
-            evidence: manifest,
+            evidence,
             text,
         }
     }
@@ -3142,6 +3240,283 @@ mod tests {
         // A stray button receipt on a keyboard step must never upgrade or
         // downgrade a keyboard verdict through the button checker.
         assert_eq!(verify_actuation(None, None, CuVerdict::Performed), CuVerdict::Performed);
+    }
+
+    /// 0.0.9 / PRD 01.11: the status whitelist is exactly these four values,
+    /// and a string outside it never becomes a status.
+    #[test]
+    fn grant_status_whitelist_is_exactly_four_and_round_trips() {
+        use crate::screen::GrantStatus;
+        let tags: Vec<&str> = GrantStatus::ALL.iter().map(|status| status.tag()).collect();
+        assert_eq!(tags, vec!["granted", "denied", "unknown", "not_applicable"]);
+        assert_eq!(
+            tags.iter().collect::<std::collections::HashSet<_>>().len(),
+            4,
+            "a duplicate tag would make the whitelist ambiguous: {tags:?}"
+        );
+        for status in GrantStatus::ALL {
+            assert_eq!(GrantStatus::parse(status.tag()), Some(status));
+        }
+        for outside in ["", "ok", "granted ", "GRANTED", "maybe", "unavailable"] {
+            assert_eq!(GrantStatus::parse(outside), None, "{outside:?}");
+        }
+        // Only the two non-answers must carry a reason.
+        assert!(!GrantStatus::Granted.needs_reason());
+        assert!(!GrantStatus::Denied.needs_reason());
+        assert!(GrantStatus::Unknown.needs_reason());
+        assert!(GrantStatus::NotApplicable.needs_reason());
+    }
+
+    /// The reason rule: an unanswerable row without a reason is a contract
+    /// violation, and a probe set is refused whole rather than published
+    /// partially.
+    #[test]
+    fn grant_reasons_are_required_sorted_unique_and_bounded() {
+        use crate::screen::{normalize_grant_probes, GrantStatus};
+        let missing = normalize_grant_probes(vec![GrantProbe::unknown("screen_capture", "")])
+            .unwrap_err();
+        assert!(missing.contains("without a reason"), "{missing}");
+        let blank = normalize_grant_probes(vec![GrantProbe {
+            name: "input_posting",
+            status: GrantStatus::NotApplicable,
+            reason: Some("   ".to_owned()),
+        }])
+        .unwrap_err();
+        assert!(blank.contains("without a reason"), "{blank}");
+        // `granted` / `denied` may omit it.
+        assert!(normalize_grant_probes(vec![GrantProbe::granted("screen_capture")]).is_ok());
+        assert!(normalize_grant_probes(vec![GrantProbe::denied("input_posting")]).is_ok());
+
+        // Sorted by name, and a duplicate name is refused, not de-duplicated.
+        let sorted = normalize_grant_probes(vec![
+            GrantProbe::granted("screen_capture"),
+            GrantProbe::granted("accessibility"),
+            GrantProbe::unknown("input_posting", "no symbol"),
+        ])
+        .unwrap();
+        let names: Vec<&str> = sorted.iter().map(|probe| probe.name).collect();
+        assert_eq!(names, vec!["accessibility", "input_posting", "screen_capture"]);
+        let duplicate = normalize_grant_probes(vec![
+            GrantProbe::granted("screen_capture"),
+            GrantProbe::granted("screen_capture"),
+        ])
+        .unwrap_err();
+        assert!(duplicate.contains("published twice"), "{duplicate}");
+
+        // The probe bound is enforced, never silently clipped.
+        let over: Vec<GrantProbe> = crate::screen::GrantStatus::ALL
+            .iter()
+            .flat_map(|_| ["p0", "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"])
+            .take(crate::screen::SCREEN_TOOL_MAX_GRANT_PROBES + 1)
+            .map(GrantProbe::granted)
+            .collect();
+        let too_many = normalize_grant_probes(over).unwrap_err();
+        assert!(too_many.contains("exceed the bound"), "{too_many}");
+        assert!(too_many.contains(&crate::screen::SCREEN_TOOL_MAX_GRANT_PROBES.to_string()));
+    }
+
+    /// A long reason is cut and marked; the marker is inside the bound, so a
+    /// published reason is never longer than the constant.
+    #[test]
+    fn a_long_grant_reason_is_truncated_with_a_marker() {
+        use crate::screen::{
+            truncate_grant_reason, SCREEN_TOOL_GRANT_REASON_MARKER, SCREEN_TOOL_MAX_GRANT_REASON,
+        };
+        let short = "no X11 display is reachable";
+        assert_eq!(truncate_grant_reason(short), short);
+        assert_eq!(truncate_grant_reason("  padded  "), "padded");
+        let long = "x".repeat(SCREEN_TOOL_MAX_GRANT_REASON + 40);
+        let cut = truncate_grant_reason(&long);
+        assert_eq!(cut.chars().count(), SCREEN_TOOL_MAX_GRANT_REASON);
+        assert_eq!(cut.chars().last(), Some(SCREEN_TOOL_GRANT_REASON_MARKER));
+        // A reason of exactly the bound is not marked.
+        let exact: String = "y".repeat(SCREEN_TOOL_MAX_GRANT_REASON);
+        assert_eq!(truncate_grant_reason(&exact), exact);
+    }
+
+    /// The live probe set of whichever backend this test compiled in must
+    /// already satisfy the contract. This is the assertion that catches a
+    /// backend publishing a `denied` with no reason or an unsorted array.
+    #[test]
+    fn this_cells_native_grant_probes_satisfy_the_contract() {
+        use crate::screen::{GrantStatus, SCREEN_TOOL_MAX_GRANT_PROBES};
+        let probes = crate::screen::grant_probes().expect("this cell's probe set is well formed");
+        // The printed rows are the per-OS evidence that each backend answered
+        // its own probes; CI keeps them beside the matrix line above.
+        eprintln!(
+            "cu grants platform={} rows={:?}",
+            crate::screen::platform_name(),
+            probes
+                .iter()
+                .map(|probe| (probe.name, probe.status.tag()))
+                .collect::<Vec<_>>()
+        );
+
+        assert!(!probes.is_empty(), "a disclosure with no grants cannot be recomputed");
+        assert!(probes.len() <= SCREEN_TOOL_MAX_GRANT_PROBES);
+        assert!(probes.len() >= 2, "every cell names at least two probes");
+        let names: Vec<&str> = probes.iter().map(|probe| probe.name).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted, "rows are sorted by name");
+        assert_eq!(
+            names.iter().collect::<std::collections::HashSet<_>>().len(),
+            names.len(),
+            "rows have unique names: {names:?}"
+        );
+        for probe in &probes {
+            assert_eq!(GrantStatus::parse(probe.status.tag()), Some(probe.status));
+            if probe.status.needs_reason() {
+                let reason = probe.reason.as_deref().unwrap_or_default();
+                assert!(!reason.trim().is_empty(), "{} has no reason", probe.name);
+            }
+            if let Some(reason) = &probe.reason {
+                assert!(
+                    reason.chars().count() <= crate::screen::SCREEN_TOOL_MAX_GRANT_REASON,
+                    "{} reason is over the bound",
+                    probe.name
+                );
+            }
+        }
+        // A probe that names an effect this cell implements must never be
+        // reported as something a reader could read as "no permission".
+        if crate::screen::platform_capabilities().capture {
+            let capture = probes
+                .iter()
+                .find(|probe| probe.name == "screen_capture")
+                .expect("a capture-capable cell names screen_capture");
+            assert_ne!(capture.status, GrantStatus::Denied, "{}", capture.name);
+        }
+    }
+
+    /// The environment probe is a shape, not a title: coarse session kind, a
+    /// non-negative geometry and a boolean.
+    #[test]
+    fn the_environment_probe_publishes_shape_not_values() {
+        use crate::screen::{environment_probe, SessionKind};
+        let probe = environment_probe();
+        assert!(!probe.platform.trim().is_empty());
+        assert_eq!(probe.platform, crate::screen::platform_name());
+        assert!(SessionKind::ALL.iter().any(|kind| kind.tag() == probe.session.tag()));
+        let (x, y, width, height) = probe.virtual_desktop;
+        assert!(width >= 0 && height >= 0, "{x},{y} {width}x{height}");
+        // A rect with no area is honest on a headless cell; a made-up one is
+        // not. Only an unreadable geometry may be zero.
+        if probe.display_count > 0 && probe.session != SessionKind::Unavailable {
+            assert!(width > 0 && height > 0, "{width}x{height}");
+        }
+        let value = environment_json(&probe);
+        eprintln!("cu environment platform={} evidence={value}", probe.platform);
+        assert_eq!(value["platform"], json!(probe.platform));
+        assert_eq!(value["session"], json!(probe.session.tag()));
+        assert_eq!(value["display_count"], json!(probe.display_count));
+        assert_eq!(value["virtual_desktop"]["width"], json!(width));
+        assert_eq!(value["virtual_desktop"]["height"], json!(height));
+        assert_eq!(value["foreground_present"], json!(probe.foreground_present));
+        // No field may carry a title, a user name or a path.
+        for key in ["title", "window", "user", "path", "display"] {
+            assert!(value.get(key).is_none(), "{key} must not be published");
+        }
+    }
+
+    /// Disclosure stays available without `--allow-screen`, and it now carries
+    /// both halves: a caller may read its own preconditions before it is
+    /// allowed to act.
+    #[test]
+    fn disclosure_publishes_environment_and_grants_without_a_grant() {
+        let host = host(false);
+        let disclosed = host.invoke_json(&json!({ "op": "disclose" }));
+        assert_eq!(disclosed.verdict, CuVerdict::Performed, "{}", disclosed.text);
+        assert_eq!(disclosed.evidence["grant"], "denied");
+        let environment = disclosed.evidence["environment"]
+            .as_object()
+            .expect("environment is an object");
+        for key in ["platform", "session", "display_count", "virtual_desktop", "foreground_present"] {
+            assert!(environment.contains_key(key), "environment is missing {key}");
+        }
+        let grants = disclosed.evidence["grants"].as_array().expect("grants is an array");
+        assert!(!grants.is_empty());
+        for row in grants {
+            assert!(row["name"].as_str().is_some_and(|name| !name.trim().is_empty()));
+            let status = row["status"].as_str().expect("every row has a status");
+            let parsed = crate::screen::GrantStatus::parse(status)
+                .unwrap_or_else(|| panic!("status {status:?} is outside the whitelist"));
+            if parsed.needs_reason() {
+                assert!(
+                    row["reason"].as_str().is_some_and(|reason| !reason.trim().is_empty()),
+                    "{status:?} row {} has no reason",
+                    row["name"]
+                );
+            }
+        }
+        assert!(
+            disclosed.text.contains("\nenvironment platform="),
+            "{}",
+            disclosed.text
+        );
+        assert!(disclosed.text.contains("\ngrant name="), "{}", disclosed.text);
+        // 0.0.6..0.0.8 evidence keys are untouched by the addition.
+        for absent in ["actuation", "keyboard", "scroll"] {
+            assert!(disclosed.evidence.get(absent).is_none(), "{absent} must stay absent");
+        }
+        assert_eq!(disclosed.evidence["held_keys"], json!([]));
+    }
+
+    /// 0.0.9 adds evidence only: no 13th capability, no ABI bump and no new
+    /// matrix row. This test is the guard the plan names for W1.
+    #[test]
+    fn disclosure_adds_evidence_not_a_capability_row_or_abi() {
+        assert_eq!(CAPABILITIES.len(), 11);
+        assert_eq!((CU_ABI_MAJOR, CU_ABI_MINOR), (1, 0));
+        assert_eq!(crate::screen::platform_capabilities().rows().len(), 12);
+        assert_eq!(
+            act_names(),
+            vec!["focus", "move", "click", "hover", "drag", "type", "key", "scroll", "control"]
+        );
+        let disclose = capability("disclose").unwrap();
+        assert!(disclose.params.is_empty(), "disclose still takes no typed parameter");
+        assert_eq!(disclose.kind, CuKind::Disclose);
+        // The additions are evidence keys, not capability names.
+        for invented in ["environment", "grants", "act:environment", "act:grants"] {
+            assert_eq!(capability(invented), None, "{invented} must not be a capability");
+        }
+        let host = host(false);
+        let disclosed = host.invoke_json(&json!({ "op": "disclose" }));
+        assert_eq!(
+            disclosed.evidence["capabilities"].as_array().unwrap().len(),
+            CAPABILITIES.len()
+        );
+        assert_eq!(
+            disclosed.evidence["platform_capabilities"].as_array().unwrap().len(),
+            12
+        );
+    }
+
+    #[test]
+    fn a_malformed_probe_set_is_not_performed_and_publishes_no_disclosure() {
+        let host = host(false);
+        let environment = crate::screen::environment_probe();
+        let violation = host.disclose_with(
+            "disclose",
+            0,
+            &environment,
+            Err(
+                "screen: refused: grant probe \"screen_capture\" is published twice; a reader \
+                 cannot recompute a disclosure with a duplicated name"
+                    .to_owned(),
+            ),
+        );
+        assert_eq!(violation.verdict, CuVerdict::NotPerformed, "{}", violation.text);
+        assert!(violation.text.contains("published twice"), "{}", violation.text);
+        assert_eq!(violation.evidence["contract"], "grants");
+        // No partial disclosure: a reader that saw `grants` would infer a shape
+        // the host never finished.
+        assert!(violation.evidence.get("grants").is_none());
+        assert!(violation.evidence.get("environment").is_none());
+        // The same host still discloses normally for a well-formed set.
+        let fine = host.disclose_with("disclose", 0, &environment, crate::screen::grant_probes());
+        assert_eq!(fine.verdict, CuVerdict::Performed, "{}", fine.text);
+        assert!(fine.evidence["grants"].as_array().is_some_and(|rows| !rows.is_empty()));
     }
 
     #[test]

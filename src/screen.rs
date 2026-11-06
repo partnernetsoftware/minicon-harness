@@ -1264,6 +1264,242 @@ pub fn platform_name() -> &'static str {
     native::PLATFORM
 }
 
+// ---------------------------------------------------------------------------
+// grant and environment disclosure (0.0.9, prd/PRD_01_11_grant_disclosure.md)
+// ---------------------------------------------------------------------------
+//
+// A probe is pure session state: it reads a precondition and reports a typed
+// status. It never requests a permission, never posts an event and never
+// elevates. `disclose` publishes the result; nothing here can make a verb
+// available that the matrix refuses.
+
+/// Most grant rows one disclosure may publish. More are refused by
+/// [`normalize_grant_probes`], never silently clipped: a reader that saw seven
+/// rows must not be told there were seven when there were nine.
+pub const SCREEN_TOOL_MAX_GRANT_PROBES: usize = 8;
+
+/// Characters of one reason, including the truncation marker. A longer reason
+/// is cut and marked, never published whole: a reason is a short named fact,
+/// not a log line.
+pub const SCREEN_TOOL_MAX_GRANT_REASON: usize = 160;
+
+/// Appended as the last character of a truncated reason. It is a character,
+/// so it is inside [`SCREEN_TOOL_MAX_GRANT_REASON`] rather than after it.
+pub const SCREEN_TOOL_GRANT_REASON_MARKER: char = '…';
+
+/// The four statuses `disclose` may publish, and no others. `unknown` means
+/// "could not be probed safely"; `not_applicable` means "this cell does not
+/// implement the mechanism the probe names". Neither is a soft `denied`, and
+/// `denied` is reported, never escalated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GrantStatus {
+    Granted,
+    Denied,
+    Unknown,
+    NotApplicable,
+}
+
+impl GrantStatus {
+    pub const ALL: [Self; 4] = [Self::Granted, Self::Denied, Self::Unknown, Self::NotApplicable];
+
+    pub fn tag(self) -> &'static str {
+        match self {
+            Self::Granted => "granted",
+            Self::Denied => "denied",
+            Self::Unknown => "unknown",
+            Self::NotApplicable => "not_applicable",
+        }
+    }
+
+    /// The inverse of [`GrantStatus::tag`]. Used by the independent reader
+    /// contract and by tests; an unrecognised string is `None`, never a guess.
+    pub fn parse(tag: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|status| status.tag() == tag)
+    }
+
+    /// A status that cannot answer "does this work?" must say why. `granted`
+    /// and `denied` are answers; the other two are the absence of one.
+    pub fn needs_reason(self) -> bool {
+        matches!(self, Self::Unknown | Self::NotApplicable)
+    }
+}
+
+/// One named probe, as a backend reports it. `name` is a stable snake_case
+/// identifier, spelled identically on every backend that can answer it, so a
+/// reader can compare cells without a per-OS table.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GrantProbe {
+    pub name: &'static str,
+    pub status: GrantStatus,
+    /// Required for `unknown` / `not_applicable`; optional otherwise. It names
+    /// a fact (a library, a symbol, a cell), never a secret.
+    pub reason: Option<String>,
+}
+
+impl GrantProbe {
+    pub fn granted(name: &'static str) -> Self {
+        Self { name, status: GrantStatus::Granted, reason: None }
+    }
+
+    pub fn denied(name: &'static str) -> Self {
+        Self { name, status: GrantStatus::Denied, reason: None }
+    }
+
+    pub fn unknown(name: &'static str, reason: impl Into<String>) -> Self {
+        Self { name, status: GrantStatus::Unknown, reason: Some(reason.into()) }
+    }
+
+    pub fn not_applicable(name: &'static str, reason: impl Into<String>) -> Self {
+        Self { name, status: GrantStatus::NotApplicable, reason: Some(reason.into()) }
+    }
+
+    /// A `granted` / `denied` row with an explanatory reason. Kept separate so
+    /// a status that carries no reason cannot be confused with one that must.
+    pub fn noted(
+        name: &'static str,
+        status: GrantStatus,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self { name, status, reason: Some(reason.into()) }
+    }
+}
+
+/// The coarse session kind. Deliberately not an environment value: no display
+/// number, user name, path or window title is ever published.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SessionKind {
+    Gui,
+    X11,
+    WaylandX11Compat,
+    Headless,
+    Unavailable,
+}
+
+impl SessionKind {
+    pub const ALL: [Self; 5] = [
+        Self::Gui,
+        Self::X11,
+        Self::WaylandX11Compat,
+        Self::Headless,
+        Self::Unavailable,
+    ];
+
+    pub fn tag(self) -> &'static str {
+        match self {
+            Self::Gui => "gui",
+            Self::X11 => "x11",
+            Self::WaylandX11Compat => "wayland-x11-compat",
+            Self::Headless => "headless",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+/// What one read-only environment probe found. A cell that cannot read its own
+/// geometry reports a zero rect and a zero display count instead of inventing
+/// a desktop; `foreground_present` is a boolean, never a title.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnvironmentProbe {
+    pub platform: &'static str,
+    pub session: SessionKind,
+    pub display_count: usize,
+    pub virtual_desktop: (i32, i32, i32, i32),
+    pub foreground_present: bool,
+}
+
+/// One constructor for all four backends, so the rect can never be published
+/// with a negative size: an unreadable geometry is `0x0` at the origin.
+pub fn environment_from(
+    platform: &'static str,
+    session: SessionKind,
+    desktop: Option<(i32, i32, i32, i32)>,
+    display_count: usize,
+    foreground_present: bool,
+) -> EnvironmentProbe {
+    let (x, y, width, height) = desktop.unwrap_or((0, 0, 0, 0));
+    EnvironmentProbe {
+        platform,
+        session,
+        display_count,
+        virtual_desktop: (x, y, width.max(0), height.max(0)),
+        foreground_present,
+    }
+}
+
+/// Cut a reason to the bound, marking the cut. The marker is the last
+/// character of the result, so a truncated reason still fits the bound.
+pub fn truncate_grant_reason(reason: &str) -> String {
+    let trimmed = reason.trim();
+    if trimmed.chars().count() <= SCREEN_TOOL_MAX_GRANT_REASON {
+        return trimmed.to_owned();
+    }
+    let keep = SCREEN_TOOL_MAX_GRANT_REASON - 1;
+    let mut out: String = trimmed.chars().take(keep).collect();
+    out.push(SCREEN_TOOL_GRANT_REASON_MARKER);
+    out
+}
+
+/// The single admission rule for a probe set: bounded, whitelisted, sorted by
+/// name, uniquely named, and every unanswerable row carries a reason. A set
+/// that violates any rule is refused whole -- a disclosure is either a
+/// complete, recomputable snapshot or it is not published at all.
+pub fn normalize_grant_probes(probes: Vec<GrantProbe>) -> Result<Vec<GrantProbe>, String> {
+    if probes.len() > SCREEN_TOOL_MAX_GRANT_PROBES {
+        return Err(format!(
+            "screen: refused: {} grant probes exceed the bound of {}; the disclosure was not \
+             published",
+            probes.len(),
+            SCREEN_TOOL_MAX_GRANT_PROBES
+        ));
+    }
+    let mut rows = Vec::with_capacity(probes.len());
+    for probe in probes {
+        if probe.name.trim().is_empty() {
+            return Err(
+                "screen: refused: a grant probe must name itself; the disclosure was not published"
+                    .to_owned(),
+            );
+        }
+        let reason = probe
+            .reason
+            .as_deref()
+            .map(truncate_grant_reason)
+            .filter(|reason| !reason.is_empty());
+        if probe.status.needs_reason() && reason.is_none() {
+            return Err(format!(
+                "screen: refused: grant probe {:?} is {} without a reason; an unanswerable probe \
+                 must say why, and the disclosure was not published",
+                probe.name,
+                probe.status.tag()
+            ));
+        }
+        rows.push(GrantProbe { name: probe.name, status: probe.status, reason });
+    }
+    rows.sort_by(|left, right| left.name.cmp(right.name));
+    for pair in rows.windows(2) {
+        if pair[0].name == pair[1].name {
+            return Err(format!(
+                "screen: refused: grant probe {:?} is published twice; a reader cannot recompute \
+                 a disclosure with a duplicated name",
+                pair[0].name
+            ));
+        }
+    }
+    Ok(rows)
+}
+
+/// Read-only environment probe for `op=disclose`. No permission is requested
+/// and no event is posted on any backend.
+pub fn environment_probe() -> EnvironmentProbe {
+    native::environment()
+}
+
+/// Read-only grant probes, admitted by [`normalize_grant_probes`] so a
+/// disclosure can never publish a malformed set.
+pub fn grant_probes() -> Result<Vec<GrantProbe>, String> {
+    normalize_grant_probes(native::grants())
+}
+
 pub mod png {
     use super::Captured;
 
@@ -1706,6 +1942,57 @@ mod native {
         let mut title = [0u16; 512];
         let length = unsafe { GetWindowTextW(window, title.as_mut_ptr(), title.len() as Int) };
         (length > 0).then(|| wide(&title[..length as usize + 1]))
+    }
+
+    /// Whether any window owns the foreground right now. The title is never
+    /// published by a disclosure, only this boolean.
+    fn foreground_present() -> bool {
+        !unsafe { GetForegroundWindow() }.is_null()
+    }
+
+    /// Read-only environment probe. `GetSystemMetrics` and
+    /// `EnumDisplayMonitors` are pure geometry queries: no TCC, no UAC, no
+    /// input event.
+    pub fn environment() -> super::EnvironmentProbe {
+        let desktop = virtual_screen().ok();
+        let display_count = displays().map(|list| list.len()).unwrap_or(0);
+        let foreground_present = foreground_present();
+        super::environment_from(
+            PLATFORM,
+            if desktop.is_some() || foreground_present {
+                super::SessionKind::Gui
+            } else {
+                super::SessionKind::Headless
+            },
+            desktop,
+            display_count,
+            foreground_present,
+        )
+    }
+
+    /// Read-only grant probes. Nothing here resolves a privilege: GDI capture
+    /// and `EnumWindows` need no OS grant on Windows, and UIPI is decided per
+    /// target window, so it is reported `unknown` with the reason named rather
+    /// than guessed as `granted`.
+    pub fn grants() -> Vec<super::GrantProbe> {
+        let foreground = foreground_present();
+        vec![
+            super::GrantProbe::granted("screen_capture"),
+            super::GrantProbe::granted("window_enumeration"),
+            super::GrantProbe::unknown(
+                "input_posting",
+                "UIPI decides per target window integrity level; a read-only probe cannot answer \
+                 it and this harness never prompts or elevates",
+            ),
+            if foreground {
+                super::GrantProbe::granted("foreground_window")
+            } else {
+                super::GrantProbe::unknown(
+                    "foreground_window",
+                    "no window owns the foreground in this session",
+                )
+            },
+        ]
     }
 
     /// A requested pointer position must lie in the virtual desktop. Refusing
@@ -2427,6 +2714,29 @@ macro_rules! refusing_backend {
         }
         pub fn foreground_title() -> Option<String> {
             None
+        }
+        /// No backend means no environment can be read. The disclosure names
+        /// the session kind and the cell; it does not invent a desktop.
+        pub fn environment() -> super::EnvironmentProbe {
+            super::environment_from(
+                PLATFORM,
+                super::SessionKind::Unavailable,
+                None,
+                0,
+                false,
+            )
+        }
+        /// Every probe is `not_applicable` with a reason naming this cell, so a
+        /// reader can tell "no backend" from "no permission".
+        pub fn grants() -> Vec<super::GrantProbe> {
+            let reason = format!(
+                "this cell has no computer-use backend in the six-cell matrix ({})",
+                PLATFORM
+            );
+            vec![
+                super::GrantProbe::not_applicable("screen_capture", reason.clone()),
+                super::GrantProbe::not_applicable("input_posting", reason),
+            ]
         }
         pub fn controls(_handle: u64) -> Result<(Vec<ControlInfo>, bool), String> {
             Err(unsupported("observe controls"))

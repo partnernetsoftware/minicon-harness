@@ -266,6 +266,89 @@ def main() -> int:
             check(record.get("evidence", {}).get("held_keys") == [],
                   f"{step}: held_keys is not empty; the session may have a stuck modifier")
 
+    # 3e. 0.0.9 read-only disclosure. `disclose` is pure information: it
+    #     requests no OS grant and posts no input, so a named permission
+    #     boundary must never excuse a missing or partial disclosure.
+    grant_statuses = {"granted", "denied", "unknown", "not_applicable"}
+    session_kinds = {"gui", "x11", "wayland-x11-compat", "headless", "unavailable"}
+    disclosure = by_step.get("disclose_grants")
+    check(disclosure is not None, "disclose_grants: required 0.0.9 step is missing")
+    check(disclosure is not None and disclosure.get("verdict") == "performed",
+          "disclose_grants: disclosure was not performed; BOUNDARY cannot excuse it")
+    if disclosure and disclosure.get("verdict") == "performed":
+        env = disclosure.get("evidence", {}).get("environment")
+        check(isinstance(env, dict), "disclose_grants: no environment evidence")
+        if isinstance(env, dict):
+            check(env.get("platform") == platform,
+                  f"disclose_grants: environment platform={env.get('platform')!r}, "
+                  f"expected {platform!r}")
+            check(env.get("session") in session_kinds,
+                  f"disclose_grants: session={env.get('session')!r} is not a coarse kind")
+            count = env.get("display_count")
+            check(isinstance(count, int) and not isinstance(count, bool) and count > 0,
+                  f"disclose_grants: display_count={count!r}, expected a positive int")
+            rect = env.get("virtual_desktop")
+            check(isinstance(rect, dict) and rect.get("width", 0) > 0
+                  and rect.get("height", 0) > 0,
+                  f"disclose_grants: virtual_desktop has no positive area: {rect!r}")
+            check(isinstance(env.get("foreground_present"), bool),
+                  "disclose_grants: foreground_present is not a boolean")
+            check(not any(key in env for key in ("title", "user", "path", "display")),
+                  "disclose_grants: environment publishes identifying strings")
+        grants = disclosure.get("evidence", {}).get("grants")
+        check(isinstance(grants, list) and len(grants) >= 2,
+              f"disclose_grants: grants={grants!r}, expected at least two named probes")
+        if isinstance(grants, list) and grants:
+            names = []
+            for i, row in enumerate(grants):
+                check(isinstance(row, dict),
+                      f"disclose_grants: grant row {i} is not an object")
+                if not isinstance(row, dict):
+                    continue
+                name = row.get("name")
+                status = row.get("status")
+                names.append(name)
+                check(isinstance(name, str) and name.strip() != "",
+                      f"disclose_grants: grant row {i} has no name")
+                check(status in grant_statuses,
+                      f"disclose_grants: {name!r} status={status!r} outside the whitelist")
+                reason = row.get("reason")
+                if status in ("unknown", "not_applicable"):
+                    check(isinstance(reason, str) and reason.strip() != "",
+                          f"disclose_grants: {name!r} {status} has no reason")
+                if isinstance(reason, str):
+                    check(len(reason) <= 160,
+                          f"disclose_grants: {name!r} reason exceeds the 160-char bound")
+            check(all(isinstance(n, str) for n in names),
+                  f"disclose_grants: probe names are not all strings: {names!r}")
+            if all(isinstance(n, str) for n in names):
+                check(len(names) == len(set(names)),
+                      f"disclose_grants: duplicate probe names {names!r}")
+                check(names == sorted(names),
+                      f"disclose_grants: probe names are not sorted: {names!r}")
+            # A grant row must not contradict an effect performed in the same
+            # session: a successful observe proves the display is reachable.
+            if observed.get("verdict") == "performed" and len(windows) >= 1:
+                for row in grants:
+                    if isinstance(row, dict) and row.get("name") in (
+                            "screen_capture", "x11_display", "window_enumeration"):
+                        check(row.get("status") != "denied",
+                              f"disclose_grants: {row.get('name')!r}=denied contradicts "
+                              f"a performed observe in the same session")
+        # Every other performed disclosure publishes the same additive fields.
+        for step in ("disclose", "disclose_held", "disclose_released", "disclose_final"):
+            rec = by_step.get(step)
+            if rec and rec.get("verdict") == "performed":
+                ev = rec.get("evidence", {})
+                check(isinstance(ev.get("environment"), dict),
+                      f"{step}: performed disclosure has no environment evidence")
+                check(isinstance(ev.get("grants"), list),
+                      f"{step}: performed disclosure has no grants evidence")
+        notes.append(
+            f"DISCLOSURE session={env.get('session') if isinstance(env, dict) else '?'} "
+            f"probes={len(grants) if isinstance(grants, list) else 0}"
+        )
+
     # 4. A performed capture is a real PNG on disk whose IHDR agrees with the
     #    typed evidence. A black/missing image is not a successful capture.
     captured = by_step.get("observe_capture", {})

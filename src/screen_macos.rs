@@ -23,6 +23,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 const CG: &str = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics";
 const CF: &str = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
+/// `AXIsProcessTrusted` lives in HIServices, re-exported by ApplicationServices.
+/// Resolved with dlopen like every other symbol: no framework link.
+const AX: &str = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices";
 
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const K_CF_NUMBER_SINT64: isize = 4;
@@ -133,6 +136,7 @@ type FnCFStringCreateWithCString =
     unsafe extern "C" fn(*const c_void, *const c_char, u32) -> *const c_void;
 type FnCGPreflightScreenCaptureAccess = unsafe extern "C" fn() -> u8;
 type FnCGPreflightPostEventAccess = unsafe extern "C" fn() -> u8;
+type FnAXIsProcessTrusted = unsafe extern "C" fn() -> u8;
 type FnCFArrayGetCount = unsafe extern "C" fn(*const c_void) -> isize;
 type FnCFArrayGetValueAtIndex =
     unsafe extern "C" fn(*const c_void, isize) -> *const c_void;
@@ -468,6 +472,109 @@ pub fn foreground_title() -> Option<String> {
         .into_iter()
         .find(|entry| entry.focused)
         .map(|entry| entry.title)
+}
+
+/// Screen Recording, by preflight only. Neither `CGRequestScreenCaptureAccess`
+/// nor any `...WithOptions` prompt is resolved or called: a grant this
+/// harness must never request is reported, not solicited.
+fn screen_recording_preflight() -> Result<u8, String> {
+    // The public API is CGPreflightScreenCaptureAccess; the PRD's
+    // "CGPreflightScreenRecordingAccess" spelling is tried second so a future
+    // SDK that renames it still answers instead of reporting a stale reason.
+    for symbol in ["CGPreflightScreenCaptureAccess", "CGPreflightScreenRecordingAccess"] {
+        if let Ok(preflight) = sym::<FnCGPreflightScreenCaptureAccess>(CG, symbol) {
+            return Ok(unsafe { preflight() });
+        }
+    }
+    Err(
+        "CoreGraphics exports neither CGPreflightScreenCaptureAccess nor \
+         CGPreflightScreenRecordingAccess, so the Screen Recording grant cannot be read without \
+         a prompt; this harness never prompts"
+            .to_owned(),
+    )
+}
+
+/// Input Monitoring, by preflight only (`CGPreflightPostEventAccess`).
+fn post_event_preflight() -> Result<u8, String> {
+    let preflight: FnCGPreflightPostEventAccess = sym(CG, "CGPreflightPostEventAccess")
+        .map_err(|_| {
+            "CoreGraphics does not export CGPreflightPostEventAccess, so the Input Monitoring \
+             grant cannot be read without a prompt; this harness never prompts"
+                .to_owned()
+        })?;
+    Ok(unsafe { preflight() })
+}
+
+/// Accessibility, by preflight only. `AXIsProcessTrustedWithOptions` is
+/// deliberately never resolved: it can show the TCC dialog.
+fn accessibility_preflight() -> Result<u8, String> {
+    let trusted: FnAXIsProcessTrusted = sym(AX, "AXIsProcessTrusted").map_err(|_| {
+        "ApplicationServices does not export AXIsProcessTrusted, so Accessibility cannot be \
+         read without a prompt; this harness never prompts"
+            .to_owned()
+    })?;
+    Ok(unsafe { trusted() })
+}
+
+/// Read-only environment probe: CG display geometry and the CG window list are
+/// pure queries -- no Screen Recording prompt, no event posted.
+pub fn environment() -> super::EnvironmentProbe {
+    let desktop = virtual_screen().ok();
+    let display_count = displays().map(|list| list.len()).unwrap_or(0);
+    let foreground_present = foreground_title().is_some();
+    super::environment_from(
+        PLATFORM,
+        if desktop.is_some() {
+            super::SessionKind::Gui
+        } else {
+            super::SessionKind::Headless
+        },
+        desktop,
+        display_count,
+        foreground_present,
+    )
+}
+
+/// Read-only grant probes. Every row comes from a preflight call; none of them
+/// can raise a TCC dialog, and a symbol this SDK does not export is `unknown`
+/// with the symbol named rather than a plausible `granted`.
+pub fn grants() -> Vec<super::GrantProbe> {
+    let mut rows = Vec::new();
+    rows.push(match screen_recording_preflight() {
+        Ok(0) => super::GrantProbe::noted(
+            "screen_capture",
+            super::GrantStatus::Denied,
+            "the Screen Recording preflight reports no grant for this process",
+        ),
+        Ok(_) => super::GrantProbe::granted("screen_capture"),
+        Err(reason) => super::GrantProbe::unknown("screen_capture", reason),
+    });
+    rows.push(match post_event_preflight() {
+        Ok(0) => super::GrantProbe::noted(
+            "input_posting",
+            super::GrantStatus::Denied,
+            "the Input Monitoring preflight reports no grant for this process",
+        ),
+        Ok(_) => super::GrantProbe::granted("input_posting"),
+        Err(reason) => super::GrantProbe::unknown("input_posting", reason),
+    });
+    rows.push(match accessibility_preflight() {
+        Ok(0) => super::GrantProbe::noted(
+            "accessibility",
+            super::GrantStatus::Denied,
+            "AXIsProcessTrusted reports no Accessibility grant for this process",
+        ),
+        Ok(_) => super::GrantProbe::granted("accessibility"),
+        Err(reason) => super::GrantProbe::unknown("accessibility", reason),
+    });
+    rows.push(match sym::<FnCGWindowListCopyWindowInfo>(CG, "CGWindowListCopyWindowInfo") {
+        Ok(_) => super::GrantProbe::granted("window_enumeration"),
+        Err(error) => super::GrantProbe::unknown(
+            "window_enumeration",
+            format!("CoreGraphics does not export CGWindowListCopyWindowInfo ({error})"),
+        ),
+    });
+    rows
 }
 
 pub fn find(title: &str) -> Result<WindowInfo, String> {

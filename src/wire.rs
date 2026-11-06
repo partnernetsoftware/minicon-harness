@@ -263,8 +263,14 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                                 a cursor/window/foreground readback (action=control resolves a \
                                 control by name from the last observe); \
                                 op=disclose reports the ABI, the compiled platform backend, \
-                                its per-verb capability matrix, grant, capability manifest and \
-                                evidence receipts. A verb this cell has not implemented is \
+                                its per-verb capability matrix, grant, capability manifest, \
+                                evidence receipts, plus a read-only environment probe \
+                                (platform, coarse session kind, display count, virtual-desktop \
+                                rect, foreground presence) and one typed row per named grant \
+                                probe. Every probe is preflight: it never requests a \
+                                permission, never prompts and never elevates, and an \
+                                unanswerable probe is `unknown` with a reason rather than a \
+                                guessed `granted`. A verb this cell has not implemented is \
                                 refused by name, never as an empty success. Pin `as_of` to the \
                                 generation you reasoned from: a stale generation is refused, \
                                 never replayed. Only granted when the caller passed \

@@ -332,6 +332,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         json!({ "op": "disclose" }),
     );
 
+    // 0.0.9: a read-only, non-elevating disclosure of the session's own
+    // preconditions. It requests no permission, posts no input and publishes
+    // no identifying strings, so it stays required on every OS even when an
+    // OS grant blocks a later effect. The independent reader recomputes the
+    // environment shape and every typed grant row from this record.
+    journey.run(
+        "disclose_grants",
+        "disclose",
+        true,
+        true,
+        json!({ "op": "disclose" }),
+    );
+
     // The writer does not compute a verdict. The independent reader recomputes
     // everything from `records`; `summary` is informational only.
     let performed = journey
