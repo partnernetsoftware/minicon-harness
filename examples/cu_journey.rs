@@ -202,6 +202,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         journey.skip("act_type", "act:type", "verb is not implemented on this cell");
     }
+
+    // 0.0.13: one bounded wait after a real act, then an over-bound refusal.
+    // Both are required on every cell; the reader recomputes elapsed time,
+    // cumulative accounting, generation freshness and the D4 ceilings.
+    journey.run(
+        "observe_wait_after_act",
+        "observe",
+        caps.observe,
+        true,
+        json!({ "op": "observe", "wait_ms": 100 }),
+    );
+    journey.run(
+        "observe_wait_over_bound",
+        "observe",
+        caps.observe,
+        true,
+        json!({ "op": "observe", "wait_ms": 2001 }),
+    );
+
     if caps.act_key {
         journey.run(
             "act_key",

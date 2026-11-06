@@ -38,6 +38,7 @@ use crate::screen::{
 };
 use serde_json::{json, Value};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// Major mismatch is refused before activation. A newer minor level is
 /// accepted but cannot widen authority: unknown optional fields are ignored.
@@ -47,6 +48,14 @@ pub const CU_ABI_MINOR: u32 = 0;
 /// Receipts retained in memory per invocation. A disclosure is a snapshot,
 /// not an unbounded log.
 pub const CU_MAX_RECEIPTS: usize = 32;
+
+/// 0.0.13 D4 ceilings for the bounded `observe.wait_ms` parameter. A single
+/// sleep is bounded, the cumulative budget is per host, and a refused wait
+/// sleeps zero milliseconds.
+const SCREEN_TOOL_MAX_WAIT_MS: u32 = 2000;
+const SCREEN_TOOL_MAX_CUMULATIVE_WAIT_MS: u64 = 8000;
+const SCREEN_TOOL_MAX_WAIT_CALLS: u32 = 8;
+const SCREEN_TOOL_WAIT_OVERHEAD_MS: u64 = 500;
 
 /// Which half of the contract a capability belongs to.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -122,6 +131,7 @@ const P_A11Y: CuParam = CuParam { name: "a11y", ty: CuType::A11yScan, required: 
 const P_CONTROL: CuParam = CuParam { name: "control", ty: CuType::String, required: true };
 const P_PRESS: CuParam = CuParam { name: "press", ty: CuType::Bool, required: false };
 const P_SCALE: CuParam = CuParam { name: "scale", ty: CuType::Int, required: false };
+const P_WAIT_MS: CuParam = CuParam { name: "wait_ms", ty: CuType::Int, required: false };
 const P_WHY: CuParam = CuParam { name: "why", ty: CuType::String, required: true };
 const P_X: CuParam = CuParam { name: "x", ty: CuType::Int, required: true };
 const P_Y: CuParam = CuParam { name: "y", ty: CuType::Int, required: true };
@@ -157,8 +167,8 @@ pub const CAPABILITIES: &[CuCapability] = &[
     CuCapability {
         name: "observe",
         kind: CuKind::Observe,
-        summary: "Read virtual-desktop geometry, displays and windows; optionally publish one bounded PNG or scan one window's typed controls.",
-        params: &[P_WINDOW, P_CAPTURE, P_CONTROLS, P_A11Y, P_SCALE],
+        summary: "Read virtual-desktop geometry, displays and windows; optionally publish one bounded PNG, scan one window's typed controls, or take one bounded wait before a fresh snapshot.",
+        params: &[P_WINDOW, P_CAPTURE, P_CONTROLS, P_A11Y, P_SCALE, P_WAIT_MS],
     },
     CuCapability {
         name: "disclose",
@@ -529,6 +539,7 @@ pub enum CuCall {
         controls: Option<ControlTarget>,
         a11y: Option<A11yTarget>,
         scale: u32,
+        wait_ms: Option<u32>,
     },
     Act {
         why: String,
@@ -575,6 +586,20 @@ struct CuState {
     frame: Option<CuFrame>,
     receipts: Vec<CuReceipt>,
     keyboard: KeyboardState,
+    /// 0.0.13: actual elapsed milliseconds and performed wait calls. These are
+    /// pure host state, never a model loop or a native surface change.
+    wait_cumulative_ms: u64,
+    wait_calls: u32,
+}
+
+/// Evidence for one performed bounded wait. `elapsed_ms` is measured with a
+/// monotonic clock, not copied from the request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct WaitObservation {
+    requested_ms: u32,
+    elapsed_ms: u64,
+    cumulative_ms: u64,
+    wait_calls: u32,
 }
 
 /// PRD 01.10: the held set is owned by the host, not by a native global.
@@ -667,6 +692,51 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// One bounded sleep, measured with a monotonic clock. `thread::sleep`
+/// guarantees at least the requested duration; `max` protects against a
+/// sub-millisecond truncation of `Duration::as_millis()`, never from a short
+/// sleep.
+fn measure_wait(requested_ms: u32) -> u64 {
+    let started = Instant::now();
+    std::thread::sleep(Duration::from_millis(requested_ms as u64));
+    started.elapsed().as_millis().max(requested_ms as u128) as u64
+}
+
+/// Admit one wait and reserve its worst honest cost before any sleep. A
+/// refused wait changes no state and posts no delay.
+fn reserve_wait(state: &mut CuState, requested_ms: u32) -> Result<u32, String> {
+    if state.wait_calls >= SCREEN_TOOL_MAX_WAIT_CALLS {
+        return Err(format!(
+            "screen: refused: the observe wait call budget of {SCREEN_TOOL_MAX_WAIT_CALLS} \
+             calls is exhausted; no sleep was performed"
+        ));
+    }
+    let reserved = requested_ms as u64 + SCREEN_TOOL_WAIT_OVERHEAD_MS;
+    if state
+        .wait_cumulative_ms
+        .saturating_add(reserved)
+        > SCREEN_TOOL_MAX_CUMULATIVE_WAIT_MS
+    {
+        return Err(format!(
+            "screen: refused: wait_ms={requested_ms} would exceed the cumulative observe wait \
+             budget of {SCREEN_TOOL_MAX_CUMULATIVE_WAIT_MS} ms; no sleep was performed"
+        ));
+    }
+    state.wait_calls += 1;
+    state.wait_cumulative_ms += reserved;
+    Ok(state.wait_calls)
+}
+
+/// Replace the reserved worst-case cost with the measured elapsed time.
+fn settle_wait(state: &mut CuState, requested_ms: u32, elapsed_ms: u64) -> u64 {
+    let reserved = requested_ms as u64 + SCREEN_TOOL_WAIT_OVERHEAD_MS;
+    state.wait_cumulative_ms = state
+        .wait_cumulative_ms
+        .saturating_sub(reserved)
+        .saturating_add(elapsed_ms);
+    state.wait_cumulative_ms
+}
+
 impl CuHost {
     pub fn new(tool: ScreenTool) -> Self {
         Self {
@@ -676,6 +746,8 @@ impl CuHost {
                 frame: None,
                 receipts: Vec::new(),
                 keyboard: KeyboardState::default(),
+                wait_cumulative_ms: 0,
+                wait_calls: 0,
             }),
         }
     }
@@ -701,12 +773,20 @@ impl CuHost {
             Ok(request) => self.invoke(request),
             Err(refusal) => {
                 // A typed act refusal still names the capability it belongs to;
-                // "unknown" is reserved for a request with no advertised verb.
+                // an observe/disclose refusal falls back to `op`. "unknown" is
+                // reserved for a request with no advertised verb.
                 let name = arguments
                     .get("action")
                     .and_then(Value::as_str)
                     .map(|action| format!("act:{action}"))
                     .filter(|candidate| capability(candidate).is_some())
+                    .or_else(|| {
+                        arguments
+                            .get("op")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .filter(|candidate| capability(candidate).is_some())
+                    })
                     .unwrap_or_else(|| "unknown".to_owned());
                 self.refusal(&name, refusal)
             }
@@ -935,8 +1015,8 @@ impl CuHost {
         //    a display enumeration must never hold host state hostage.
         drop(state);
         match request.call {
-            CuCall::Observe { window, capture, controls, a11y, scale } => {
-                self.observe(&capability, window, capture, controls, a11y, scale)
+            CuCall::Observe { window, capture, controls, a11y, scale, wait_ms } => {
+                self.observe(&capability, window, capture, controls, a11y, scale, wait_ms)
             }
             CuCall::Act { why, action } => match action {
                 CuAction::Control { control, press, button, double } => {
@@ -959,7 +1039,41 @@ impl CuHost {
         controls: Option<ControlTarget>,
         a11y: Option<A11yTarget>,
         scale: u32,
+        wait_ms: Option<u32>,
     ) -> CuResult {
+        // 0.0.13: one bounded sleep before the fresh snapshot. Ceilings are
+        // admitted under the lock; the sleep itself never holds host state.
+        let wait = match wait_ms {
+            None => None,
+            Some(requested_ms) => {
+                let wait_calls = {
+                    let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+                    match reserve_wait(&mut *state, requested_ms) {
+                        Ok(calls) => calls,
+                        Err(reason) => {
+                            return self.result_with_state(
+                                &mut state,
+                                CuVerdict::Refused,
+                                capability,
+                                reason,
+                                json!({}),
+                            );
+                        }
+                    }
+                };
+                let elapsed_ms = measure_wait(requested_ms);
+                let cumulative_ms = {
+                    let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+                    settle_wait(&mut *state, requested_ms, elapsed_ms)
+                };
+                Some(WaitObservation {
+                    requested_ms,
+                    elapsed_ms,
+                    cumulative_ms,
+                    wait_calls,
+                })
+            }
+        };
         match self.tool.snapshot(window.as_deref(), capture, scale, controls, a11y) {
             Ok(snapshot) => {
                 let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
@@ -969,10 +1083,26 @@ impl CuHost {
                     facts_as_of_ms: now_ms(),
                     snapshot: snapshot.clone(),
                 };
-                let evidence = frame.to_json();
+                let mut evidence = frame.to_json();
                 state.frame = Some(frame);
                 let generation = state.generation;
                 let mut text = snapshot.to_text();
+                if let Some(wait) = &wait {
+                    evidence["wait"] = json!({
+                        "requested_ms": wait.requested_ms,
+                        "elapsed_ms": wait.elapsed_ms,
+                        "cumulative_ms": wait.cumulative_ms,
+                        "wait_calls": wait.wait_calls,
+                        "generation": generation,
+                    });
+                    text.push_str(&format!(
+                        "\nwait: requested_ms={} elapsed_ms={} cumulative_ms={} wait_calls={}",
+                        wait.requested_ms,
+                        wait.elapsed_ms,
+                        wait.cumulative_ms,
+                        wait.wait_calls
+                    ));
+                }
                 text.push_str(&format!(
                     "\ncu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} generation={generation} \
                      verdict=performed capability={capability}"
@@ -1563,6 +1693,19 @@ impl CuHost {
                 environment_json(environment, &scales),
             );
             fields.insert("grants".to_owned(), grants_json(&grants));
+            fields.insert(
+                "wait_budget".to_owned(),
+                json!({
+                    "cumulative_ms": state.wait_cumulative_ms,
+                    "wait_calls": state.wait_calls,
+                    "max_cumulative_ms": SCREEN_TOOL_MAX_CUMULATIVE_WAIT_MS,
+                    "max_wait_calls": SCREEN_TOOL_MAX_WAIT_CALLS,
+                    "remaining_ms": SCREEN_TOOL_MAX_CUMULATIVE_WAIT_MS
+                        .saturating_sub(state.wait_cumulative_ms),
+                    "remaining_calls": SCREEN_TOOL_MAX_WAIT_CALLS
+                        .saturating_sub(state.wait_calls),
+                }),
+            );
         }
         // Qualification comes from the native backend, never from a guess:
         // on an unqualified cell the disclosure says so.
@@ -2049,7 +2192,23 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                         )
                     })?,
             };
-            CuCall::Observe { window, capture, controls, a11y, scale }
+            let wait_ms = match arguments.get("wait_ms") {
+                None => None,
+                Some(value) => Some(
+                    value
+                        .as_u64()
+                        .filter(|ms| *ms >= 1 && *ms <= SCREEN_TOOL_MAX_WAIT_MS as u64)
+                        .map(|ms| ms as u32)
+                        .ok_or_else(|| {
+                            format!(
+                                "screen: refused: wait_ms must be an integer 1..={}, no sleep \
+                                 was performed",
+                                SCREEN_TOOL_MAX_WAIT_MS
+                            )
+                        })?,
+                ),
+            };
+            CuCall::Observe { window, capture, controls, a11y, scale, wait_ms }
         }
         "act" => {
             let why = arguments
@@ -2512,6 +2671,7 @@ mod tests {
                 controls: Some(ControlTarget::Foreground),
                 a11y: None,
                 scale: 0,
+                wait_ms: None,
             }
         );
         let named = parse_request(&json!({ "op": "observe", "controls": "Notepad" })).unwrap();
@@ -3435,6 +3595,8 @@ mod tests {
                 frame: None,
                 receipts: Vec::new(),
                 keyboard: KeyboardState::default(),
+                wait_cumulative_ms: 0,
+                wait_calls: 0,
             },
             0,
         );
@@ -3559,6 +3721,8 @@ mod tests {
                 held: vec![Modifier::Ctrl, Modifier::Shift],
                 foreground: Some("Editor".to_owned()),
             },
+            wait_cumulative_ms: 0,
+            wait_calls: 0,
         };
         let manifest = host.manifest(&state, 0);
         assert_eq!(manifest["held_keys"], json!(["ctrl", "shift"]));
@@ -4277,6 +4441,120 @@ mod tests {
         assert_eq!(violation.evidence["contract"], "display_scales");
         assert!(violation.evidence.get("environment").is_none());
         assert!(violation.evidence.get("grants").is_none());
+    }
+
+    // -- 0.0.13 / PRD 01.16: bounded observation wait ----------------------
+
+    #[test]
+    fn wait_ms_is_an_additive_observe_parameter() {
+        let parsed = parse_request(&json!({ "op": "observe", "wait_ms": 125 })).unwrap();
+        assert!(matches!(
+            parsed.call,
+            CuCall::Observe { wait_ms: Some(125), .. }
+        ));
+        for bad in [
+            json!({ "op": "observe", "wait_ms": 0 }),
+            json!({ "op": "observe", "wait_ms": 2001 }),
+            json!({ "op": "observe", "wait_ms": -1 }),
+            json!({ "op": "observe", "wait_ms": "125" }),
+            json!({ "op": "observe", "wait_ms": Value::Null }),
+        ] {
+            let error = parse_request(&bad).unwrap_err();
+            assert!(error.contains("1..=2000"), "{error}");
+        }
+        let observe = capability("observe").unwrap();
+        assert!(observe.params.iter().any(|p| p.name == "wait_ms"
+            && p.ty == CuType::Int
+            && !p.required));
+        assert_eq!(CAPABILITIES.len(), 11);
+        assert_eq!((CU_ABI_MAJOR, CU_ABI_MINOR), (1, 0));
+        let definitions = crate::wire::tool_definitions();
+        let screen = definitions
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["function"]["name"] == "screen")
+            .expect("screen tool definition");
+        assert_eq!(
+            screen["function"]["parameters"]["properties"]["wait_ms"]["type"],
+            "integer"
+        );
+    }
+
+    #[test]
+    fn wait_refusals_name_observe_and_publish_no_wait_evidence() {
+        let junk = host(false).invoke_json(&json!({ "op": "observe", "wait_ms": 2001 }));
+        assert_eq!(junk.verdict, CuVerdict::Refused);
+        assert_eq!(junk.capability, "observe");
+        assert!(junk.text.contains("1..=2000"), "{}", junk.text);
+        assert!(junk.evidence.get("wait").is_none());
+
+        let calls = host(true);
+        {
+            let mut state = calls.state.lock().unwrap();
+            state.wait_calls = SCREEN_TOOL_MAX_WAIT_CALLS;
+        }
+        let refused = calls.invoke_json(&json!({ "op": "observe", "wait_ms": 1 }));
+        assert_eq!(refused.verdict, CuVerdict::Refused);
+        assert!(refused.text.contains("call budget"), "{}", refused.text);
+        assert!(refused.evidence.get("wait").is_none());
+
+        let cumulative = host(true);
+        {
+            let mut state = cumulative.state.lock().unwrap();
+            state.wait_cumulative_ms = SCREEN_TOOL_MAX_CUMULATIVE_WAIT_MS;
+        }
+        let refused = cumulative.invoke_json(&json!({ "op": "observe", "wait_ms": 1 }));
+        assert_eq!(refused.verdict, CuVerdict::Refused);
+        assert!(refused.text.contains("cumulative"), "{}", refused.text);
+        assert!(refused.evidence.get("wait").is_none());
+    }
+
+    #[test]
+    fn bounded_wait_accounting_is_pure_host_state() {
+        let mut state = CuState {
+            generation: 0,
+            frame: None,
+            receipts: Vec::new(),
+            keyboard: KeyboardState::default(),
+            wait_cumulative_ms: 0,
+            wait_calls: 0,
+        };
+        let calls1 = reserve_wait(&mut state, 5).unwrap();
+        let elapsed1 = measure_wait(5);
+        let cumulative1 = settle_wait(&mut state, 5, elapsed1);
+        assert_eq!(calls1, 1);
+        assert!(elapsed1 >= 5 && elapsed1 <= 5 + SCREEN_TOOL_WAIT_OVERHEAD_MS);
+        assert_eq!(cumulative1, elapsed1);
+
+        let calls2 = reserve_wait(&mut state, 5).unwrap();
+        let elapsed2 = measure_wait(5);
+        let cumulative2 = settle_wait(&mut state, 5, elapsed2);
+        assert_eq!(calls2, 2);
+        assert!(elapsed2 >= 5 && elapsed2 <= 5 + SCREEN_TOOL_WAIT_OVERHEAD_MS);
+        assert_eq!(cumulative2, elapsed1 + elapsed2);
+        assert_eq!(state.wait_cumulative_ms, elapsed1 + elapsed2);
+
+        state.wait_calls = SCREEN_TOOL_MAX_WAIT_CALLS;
+        let too_many = reserve_wait(&mut state, 1).unwrap_err();
+        assert!(too_many.contains("call budget"), "{too_many}");
+        state.wait_calls = 0;
+        state.wait_cumulative_ms = SCREEN_TOOL_MAX_CUMULATIVE_WAIT_MS;
+        let too_long = reserve_wait(&mut state, 1).unwrap_err();
+        assert!(too_long.contains("cumulative"), "{too_long}");
+    }
+
+    #[test]
+    fn disclose_publishes_the_initial_wait_budget() {
+        let result = host(false).invoke_json(&json!({ "op": "disclose" }));
+        assert_eq!(result.verdict, CuVerdict::Performed);
+        let budget = &result.evidence["wait_budget"];
+        assert_eq!(budget["cumulative_ms"], 0);
+        assert_eq!(budget["wait_calls"], 0);
+        assert_eq!(budget["max_cumulative_ms"], SCREEN_TOOL_MAX_CUMULATIVE_WAIT_MS);
+        assert_eq!(budget["max_wait_calls"], SCREEN_TOOL_MAX_WAIT_CALLS);
+        assert_eq!(budget["remaining_ms"], SCREEN_TOOL_MAX_CUMULATIVE_WAIT_MS);
+        assert_eq!(budget["remaining_calls"], SCREEN_TOOL_MAX_WAIT_CALLS);
     }
 
 }

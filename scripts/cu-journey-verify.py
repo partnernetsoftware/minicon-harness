@@ -6,9 +6,10 @@ decide its own success. This script recomputes every claim from `records`:
 declared capability matrix, performed verdicts, pointer readbacks, actuation
 receipts, PNG bytes, generation ordering, the 0.0.9 environment/grant rows,
 the 0.0.10 display-scale rows (six-value set, exact
-physical = logical * scale relation, reason rule), the 0.0.11 a11y tree and
-the 0.0.12 handle-addressed focus readback. A green `cargo check` is
-evidence of shape; this is evidence of a desktop effect.
+physical = logical * scale relation, reason rule), the 0.0.11 a11y tree,
+the 0.0.12 handle-addressed focus readback and the 0.0.13 bounded wait
+evidence. A green `cargo check` is evidence of shape; this is evidence of a
+desktop effect.
 
 A macOS OS-grant refusal (`permission:...`) is a *named boundary*, not a pass
 and not a silent failure: it is recorded as such and never upgraded to `[v]`.
@@ -75,6 +76,17 @@ FOCUS_REQUIRED_STEPS = (
     "observe_focus_readback", "act_focus_by_handle",
     "observe_handle_focus_readback", "act_focus_stale_handle",
 )
+# 0.0.13: bounded observation wait. A performed wait must publish a
+# monotonic elapsed time, cumulative accounting, a call count and a fresh
+# generation; an over-bound request must be a named refusal with no wait
+# evidence. The reader recomputes all of it from the records.
+MAX_WAIT_MS = 2000
+MAX_CUMULATIVE_WAIT_MS = 8000
+MAX_WAIT_CALLS = 8
+WAIT_OVERHEAD_MS = 500
+WAIT_PERFORMED_STEPS = ("observe_wait_after_act",)
+WAIT_CEILING_STEP = "observe_wait_over_bound"
+WAIT_REQUIRED_STEPS = WAIT_PERFORMED_STEPS + (WAIT_CEILING_STEP,)
 TOLERANCE = 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -142,9 +154,10 @@ def main() -> int:
     by_step = {record["step"]: record for record in records}
 
     # 1. A required step is performed, or (macOS only) a named permission
-    #    boundary. Nothing else counts as a desktop journey. 0.0.12 adds two
-    #    named exceptions: a stale-handle refusal and a capability boundary
-    #    where the published matrix declares act:focus unsupported.
+    #    boundary. Nothing else counts as a desktop journey. 0.0.12 adds a
+    #    stale-handle refusal and a capability boundary where the published
+    #    matrix declares act:focus unsupported; 0.0.13 adds one over-bound
+    #    wait refusal. Each exception is named, never a silent skip.
     for record in records:
         step = record["step"]
         verdict = record["verdict"]
@@ -165,8 +178,14 @@ def main() -> int:
             and verdict in ("stale", "not_performed", "refused")
             and "observe again" in text
         )
+        wait_ceiling_refusal = (
+            step == WAIT_CEILING_STEP
+            and verdict == "refused"
+            and "1..=2000" in text
+        )
         if record.get("required") and not (
             boundary or focus_capability_boundary or stale_focus_refusal
+            or wait_ceiling_refusal
         ):
             check(
                 verdict == "performed",
@@ -186,6 +205,8 @@ def main() -> int:
             notes.append(f"BOUNDARY {step}: act:focus is not declared on {platform}")
         elif stale_focus_refusal:
             notes.append(f"REFUSAL {step}: stale hwnd was named, not guessed")
+        elif wait_ceiling_refusal:
+            notes.append(f"REFUSAL {step}: over-bound wait was named, no sleep")
 
     # 2. The observation is real: at least one window, one display, positive
     #    virtual desktop. A refusal or an empty list is not an observation.
@@ -420,7 +441,7 @@ def main() -> int:
     #     physical_rect == logical_rect * scale relation, the unknown/reason
     #     rule, the 16-row bound, zero-based continuous indices and the
     #     160-char reason bound. Any contradiction is not_performed and fails
-    #     the journey. No earlier 0.0.6-0.0.11 assertion is weakened here.
+    #     the journey. No earlier 0.0.6-0.0.12 assertion is weakened here.
     # 0.0.11: recompute the structured accessibility scan. A refused scan
     # must publish an empty tree plus a named reason; a successful scan must
     # publish real rows whose rectangles, roles, depths and bound are all
@@ -555,6 +576,111 @@ def main() -> int:
         if declared.get("act:focus") is True:
             check(stale.get("verdict") in ("stale", "not_performed", "refused"),
                   "act_focus_stale_handle: a stale handle must be a named refusal")
+
+    # 0.0.13: recompute the bounded observation wait. A performed wait must
+    # publish monotonic elapsed time, exact cumulative accounting, a call
+    # count and a generation greater than the previous performed observation.
+    # The over-bound step must be a named refusal with no wait evidence and
+    # no budget change. No earlier 0.0.6-0.0.12 assertion is weakened here.
+    for step in WAIT_REQUIRED_STEPS:
+        check(step in by_step, f"{step}: required 0.0.13 wait step is missing")
+    ordered_observations = [
+        record for record in records
+        if record["step"].startswith("observe")
+        and record.get("verdict") == "performed"
+    ]
+    wait_rows = []
+    for step in WAIT_PERFORMED_STEPS:
+        record = by_step.get(step)
+        check(record is not None and record.get("verdict") == "performed",
+              f"{step}: required wait observation was not performed")
+        if not record or record.get("verdict") != "performed":
+            continue
+        request = record.get("request", {})
+        evidence_wait = record.get("evidence", {}).get("wait")
+        check(isinstance(evidence_wait, dict),
+              f"{step}: missing wait evidence")
+        if not isinstance(evidence_wait, dict):
+            continue
+        requested = request.get("wait_ms")
+        elapsed = evidence_wait.get("elapsed_ms")
+        cumulative = evidence_wait.get("cumulative_ms")
+        calls = evidence_wait.get("wait_calls")
+        check(isinstance(requested, int) and not isinstance(requested, bool)
+              and 1 <= requested <= MAX_WAIT_MS,
+              f"{step}: wait_ms={requested!r} is outside 1..{MAX_WAIT_MS}")
+        check(evidence_wait.get("requested_ms") == requested,
+              f"{step}: requested_ms does not match the request")
+        check(isinstance(elapsed, int) and not isinstance(elapsed, bool)
+              and elapsed > 0,
+              f"{step}: elapsed_ms={elapsed!r} is not a positive integer")
+        if isinstance(requested, int) and isinstance(elapsed, int):
+            check(requested <= elapsed <= requested + WAIT_OVERHEAD_MS,
+                  f"{step}: elapsed_ms={elapsed} outside "
+                  f"{requested}..{requested + WAIT_OVERHEAD_MS}")
+        check(isinstance(cumulative, int) and not isinstance(cumulative, bool)
+              and 0 <= cumulative <= MAX_CUMULATIVE_WAIT_MS,
+              f"{step}: cumulative_ms={cumulative!r} is outside the D4 budget")
+        check(isinstance(calls, int) and not isinstance(calls, bool)
+              and 1 <= calls <= MAX_WAIT_CALLS,
+              f"{step}: wait_calls={calls!r} is outside the D4 budget")
+        check(evidence_wait.get("generation") == record.get("generation"),
+              f"{step}: wait generation does not match the result generation")
+        wait_rows.append((step, requested, elapsed, cumulative, calls, record))
+    for index, row in enumerate(wait_rows, start=1):
+        step, requested, elapsed, cumulative, calls, record = row
+        expected_cumulative = sum(entry[2] for entry in wait_rows[:index])
+        check(cumulative == expected_cumulative,
+              f"{step}: cumulative_ms={cumulative} != "
+              f"sum of elapsed waits {expected_cumulative}")
+        check(calls == index,
+              f"{step}: wait_calls={calls}, expected {index}")
+        position = next(
+            (i for i, observation in enumerate(ordered_observations)
+             if observation["step"] == step),
+            None,
+        )
+        check(position is not None and position > 0,
+              f"{step}: no preceding performed observation")
+        if position is not None and position > 0:
+            previous = ordered_observations[position - 1]
+            check(record.get("generation", 0) > previous.get("generation", 0),
+                  f"{step}: wait generation {record.get('generation')} did not "
+                  f"advance past {previous['step']} generation "
+                  f"{previous.get('generation')}")
+    over_bound = by_step.get(WAIT_CEILING_STEP)
+    if over_bound:
+        check(over_bound.get("verdict") == "refused",
+              f"{WAIT_CEILING_STEP}: an over-bound wait must be refused")
+        check(over_bound.get("request", {}).get("wait_ms") == MAX_WAIT_MS + 1,
+              f"{WAIT_CEILING_STEP}: request must use wait_ms={MAX_WAIT_MS + 1}")
+        check("1..=2000" in over_bound.get("text", ""),
+              f"{WAIT_CEILING_STEP}: refusal did not name the 1..=2000 bound")
+        check("wait" not in over_bound.get("evidence", {}),
+              f"{WAIT_CEILING_STEP}: a refused wait published wait evidence")
+    final = by_step.get("disclose_final")
+    check(final is not None and final.get("verdict") == "performed",
+          "disclose_final: required final disclosure is missing")
+    if final and final.get("verdict") == "performed":
+        budget = final.get("evidence", {}).get("wait_budget")
+        check(isinstance(budget, dict),
+              "disclose_final: missing wait_budget evidence")
+        if isinstance(budget, dict):
+            expected_cumulative = sum(row[2] for row in wait_rows)
+            check(budget.get("cumulative_ms") == expected_cumulative,
+                  "disclose_final: cumulative_ms does not match the waits")
+            check(budget.get("wait_calls") == len(wait_rows),
+                  "disclose_final: wait_calls does not match the waits")
+            check(budget.get("max_cumulative_ms") == MAX_CUMULATIVE_WAIT_MS,
+                  "disclose_final: wrong cumulative ceiling")
+            check(budget.get("max_wait_calls") == MAX_WAIT_CALLS,
+                  "disclose_final: wrong wait-call ceiling")
+            check(budget.get("remaining_ms")
+                  == MAX_CUMULATIVE_WAIT_MS - expected_cumulative,
+                  "disclose_final: wrong remaining_ms")
+            check(budget.get("remaining_calls")
+                  == MAX_WAIT_CALLS - len(wait_rows),
+                  "disclose_final: wrong remaining_calls")
 
     scale_disclosure = by_step.get("disclose_scales")
     check(scale_disclosure is not None,

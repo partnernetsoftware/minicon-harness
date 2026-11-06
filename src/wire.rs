@@ -363,6 +363,16 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                                             factor that fits the 16 MiB bound. The chosen factor \
                                             and the resulting image size are reported back."
                         },
+                        "wait_ms": {
+                            "type": "integer",
+                            "description": "For op=observe only: one bounded sleep of 1..2000 \
+                                            ms before a fresh snapshot. The host enforces an \
+                                            8000 ms cumulative budget and at most 8 wait calls; \
+                                            over-bound or over-budget requests are named \
+                                            refusals before any sleep. evidence.wait reports \
+                                            requested_ms, elapsed_ms, cumulative_ms, \
+                                            wait_calls and the fresh generation."
+                        },
                         "action": {
                             "type": "string",
                             "enum": ["focus", "move", "click", "hover", "drag", "type", "key", "scroll", "control"],
