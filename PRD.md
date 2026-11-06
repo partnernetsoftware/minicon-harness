@@ -193,7 +193,8 @@ minicon-harness computer use
 │   │        delivered in 0.0.10; additive evidence, not a capability row
 │   ├── [v] E5c structured `a11y_controls[]` in `observe`
 │   │        delivered in 0.0.11; Windows MSAA, other cells unknown+reason
-│   ├── [_] E5b `act:focus` hwnd + `target_hwnd`   deferred to 0.0.12
+│   ├── [v] E5b `act:focus` hwnd + `target_hwnd`   delivered in 0.0.12
+│   │        three-OS CI, handle identity is an act target, not a scan arm
 │   └── [no] E5 Wayland-native protocol, runtime backend selection
 ├── F Verification and delivery
 │   ├── [v] F1 CI compile gate + three-OS real-desktop journeys + independent
@@ -339,17 +340,19 @@ Release at 2026-11-06T10:19Z and accepted from the owner's view (15 assets,
 six recomputed sidecars, a valid signed receipt chain and an anonymous APE
 run printing `minicon-harness 0.0.11`).
 
-## 0.0.12 next plan (after `v0.0.11` acceptance)
+## 0.0.12 frontier (W1/W2/W3 delivered, W4 pending)
 
-The next planned version is **handle-addressed window targeting**
-(`PRD_01_14`, `plan/plan-0.0.12-handle-addressed-targeting.md`): `act:focus`
-gains an optional `hwnd`, mutually exclusive with `window`; every call
-re-validates the live handle; focus readback publishes `target_hwnd` from
-the desktop. The measured motive is unchanged: two WorkBuddy windows share
-the title `WorkBuddy`, so a title is not an identity. `cu-abi 1.0`, the
-12/10/8/0 matrix, every earlier reader assertion and every `[no]` stay
-unchanged. The controller implements this version directly; the CU wire
-orchestration driver remains an L1 experiment, not a release gate.
+**0.0.12 = handle-addressed window targeting.** `act:focus` gains an optional
+`hwnd`, mutually exclusive with `window`; every call re-validates the live
+handle; focus evidence and readback publish `target_hwnd` from the desktop,
+while `actuation` stays `null`. The measured motive is unchanged: two
+WorkBuddy windows share the title `WorkBuddy`, so a title is not an identity.
+W1/W2 landed in `e843715`: 116 tests (113 passed, 3 ignored), the
+four-configuration type gate, three-OS CI `42205711217` / `42205711264`
+success and an independent reader recompute PASS on Linux 31 / macOS 27 /
+Windows 34 performed steps. `cu-abi 1.0`, the 12/10/8/0 matrix, every earlier
+reader assertion and every `[no]` stay unchanged. W3 moves the four version
+sources to `0.0.12`; W4 runs the public signed Release chain.
 
 `[no]` carried forward unchanged: plugin host, permission policy engine,
 streaming, MCP, a scripting surface over the desktop, a second model loop,

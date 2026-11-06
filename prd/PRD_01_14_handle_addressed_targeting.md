@@ -1,10 +1,12 @@
 # PRD 01.14 — handle-addressed window targeting (0.0.12)
 
-Status: `[_]` the next planned version after `v0.0.11` was published as a
-public signed Release and accepted from the owner's view on 2026-11-06.
-**Not implemented**; no source, version or Release change belongs to this
-document. It was deferred from 0.0.11 by the owner's decision to build
-structured control disclosure first. Owner of the **contract** for 0.0.12;
+Status: `[v]` W1/W2 landed in `e843715`; W3 moves the four version sources to
+`0.0.12`. `v0.0.11` was published as a public signed Release and accepted
+from the owner's view on 2026-11-06; this version's W4 is pending.
+Three-OS CI `42205711217` / `42205711264` are success and the independent
+reader recomputes all three journeys PASS; the public signed Release is W4.
+It was deferred from 0.0.11 by the owner's decision to build structured
+control disclosure first. Owner of the **contract** for 0.0.12;
 `plan/plan-0.0.12-handle-addressed-targeting.md` owns the work breakdown,
 gates and release chain. Nothing here claims a capability that a CI run has
 not produced.

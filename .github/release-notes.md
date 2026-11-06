@@ -40,63 +40,69 @@ with an RFC 3161 timestamp. `signing-receipt.json` records the before/after
 SHA-256 of each signed file, while `build-receipt.json` and the `.sha256`
 sidecars bind every other asset to the packed source.
 
-## VERSION: structured control disclosure
+## VERSION: handle-addressed window targeting
 
-`op=observe` gains an optional `a11y` arm. `a11y: true` scans the foreground
-window; `a11y: <hwnd>` scans exactly that live window, which is the only
-unambiguous identity when two windows share a title. Each scan publishes
-`evidence["a11y_controls"]` — a bounded, read-only tree of `name`, MSAA
-`role`, coarse `role_name`, `rect` in virtual-desktop coordinates (the same
-basis as `windows[]` and the PNG arm), `depth` and `child_id` — together with
-`a11y_source`, `a11y_truncated` and `a11y_role_basis`.
+`op=act` with `action:"focus"` gains an optional `hwnd`: a positive integer
+taken from a prior `observe.windows[]` row. It is mutually exclusive with the
+existing `window` title; giving both, neither, a non-integer handle or zero is
+a named refusal before any native effect. Every call re-resolves the handle
+against a fresh live window list and re-checks the resolved window's current
+title. A stale, reused or mismatched handle is a named `stale` refusal, never
+a silent fallback to whatever happens to be in the foreground.
 
-The reason is measured. The existing typed `controls[]` arm is Win32
-`EnumChildWindows` + `WM_GETTEXT`; against a Chromium/Electron window it
-reports one `Chrome_RenderWidgetHostHWND` with `role=unknown`, so a controller
-cannot read the input box or the send button and falls back to screenshots
-plus a vision read of pixel coordinates. That is slow, expensive and is not
-evidence produced by the CU contract. This version adds the structured read
-that was missing.
+Focus evidence and readback now publish `target_hwnd`: the desktop's focused
+window handle at dispatch time, read from the live window list and never
+echoed from the request. The existing title-target spelling still publishes
+it, so old callers gain identity evidence without changing their calls. Focus
+posts no button event, so `evidence["actuation"]` stays `null`;
+`target_hwnd` is separate typed evidence, not a fabricated button receipt. A
+session that exposes no foreground window publishes `null` with a named
+`target_hwnd_reason`, never a plausible handle.
 
-On Windows the tree comes from hand-written, read-only MSAA/IAccessible COM
-bindings (`oleacc`/`ole32`): no new crate, no new OS grant, no elevation, no
-dialog, no write to the target process. The Win64 `VARIANT` is 24 bytes; the
-implementation and the four-configuration type gate both enforce that. The
-scan is bounded at 400 rows and depth 12, and hitting either bound publishes
-`a11y_truncated` rather than a silent cut. Roles come from a fixed coarse
-table; an unrecognised role is `unknown`, never guessed.
+The reason is measured. In the L1 self-hosted orchestration trial two
+WorkBuddy client windows were both titled `WorkBuddy`; `act:focus` resolved a
+window by unique title, so the controller could not name the sub-session
+window it wanted and fell back to clicking pixel coordinates. A coordinate
+basis cannot fix an ambiguous identity: the same rectangle can belong to
+either window. The 0.0.11 `observe.a11y` arm made a handle a *scan* target;
+this version makes it an *act* target and reads the focused handle back.
 
-Linux, macOS and the unlisted-OS fallback do **not** implement AT-SPI or AX
-trees in this version. They publish an empty `a11y_controls[]` plus a named
-`a11y_reason`; they never present a Win32-style inventory as an
-accessibility tree. A stale `hwnd` is re-validated against a fresh live
-window list on every call and becomes a named reason, never a silent best
-effort.
+`native::window_by_handle(handle: u64) -> Option<WindowInfo>` is added with
+the same signature on Windows, macOS, Linux and the fallback cell. Windows
+resolves through the existing `EnumWindows` list and `IsWindow`; macOS and
+Linux resolve through their existing window enumerations; the fallback returns
+`None`. `scripts/cu-cfg-check.py` type-checks all four configurations in the
+same commit. No new crate, no link-time platform library, no OS grant, no
+window-manager behaviour and no process or memory authority: the G boundary
+in `PRD_01_08` is unchanged.
 
-This is additive evidence on the existing `observe` capability: `cu-abi 1.0`,
-the wire action enum and the capability matrix (windows 12/12, linux 10/12,
-macos 8/12, other 0/12) are unchanged, as are `controls[]` and every earlier
-reader assertion. `a11y` is a typed optional parameter, not a new capability
-row. The `act:focus` by `hwnd` / `target_hwnd` contract remains deferred to
-0.0.12; the `a11y` handle is a scan target, not an act target.
+This is additive evidence on the existing `act:focus` capability: `cu-abi
+1.0`, the wire action enum and the capability matrix (windows 12/12, linux
+10/12, macos 8/12, other 0/12) are unchanged. `hwnd` is a typed optional
+parameter, not a new capability row. A cell whose published matrix declares
+`act:focus` unsupported produces a named `unsupported` boundary for the two
+handle steps; it never claims a performed focus.
 
-An owner decision on 2026-11-06 lifted the older "a11y trees" non-goal for
-this bounded Windows read-only subset only. The model-visible image arm,
-explicit `wait`, batched actions, app-level effect evidence and safety policy
-remain non-goals with their unlock conditions.
+The model-visible image arm, explicit `wait`, batched actions, AT-SPI / AX
+a11y trees, app-level effect evidence and safety policy remain non-goals
+with their unlock conditions. The bounded Windows MSAA read-only subset
+shipped in 0.0.11 is unchanged.
 
 ## Verification
 
-CI makes the tree a required step rather than a claim:
-`.github/workflows/cu-journeys.yml` drives `observe_a11y` on all three OSes,
-addressed by a live `hwnd`, and the independent reader recomputes every row's
-role whitelist, depth bound, name, integer rectangle and the 400-row bound,
-plus the empty-tree-plus-reason rule for cells without an a11y API — on top
-of every 0.0.6-0.0.10 assertion (receipts, `path_points`, both scroll axes,
-held keys, `grants[]`, `environment`, `display_scales[]`, generations, live
-final frame, declared-but-skipped rule, BOUNDARY). A `BOUNDARY` note excuses
-nothing. `scripts/cu-cfg-check.py` type-checks all four backend
-configurations so a signature drift cannot hide behind a `cfg`.
+CI makes the handle a required step rather than a claim:
+`.github/workflows/cu-journeys.yml` drives `observe_focus_readback`,
+`act_focus_by_handle`, `observe_handle_focus_readback` and
+`act_focus_stale_handle` on all three OSes. The independent reader recomputes
+that every performed title- or handle-target focus publishes a positive
+`target_hwnd`, that the readback carries the same integer, that it equals the
+focused window in the very next observation, that the stale handle is absent
+from the live window list, and that a matrix-declared `act:focus=false` cell
+only produces a named capability boundary — on top of every 0.0.6-0.0.11
+assertion (receipts, `path_points`, both scroll axes, held keys, `grants[]`,
+`environment`, `display_scales[]`, the a11y tree, generations, live final
+frame, declared-but-skipped rule, BOUNDARY). A `BOUNDARY` note excuses
+nothing else.
 
 `.github/workflows/cu-platforms.yml` builds, tests and release-links all
 three OSes; `.github/workflows/cu-journeys.yml` drives a real desktop on each

@@ -1,10 +1,11 @@
-# 0.0.12 — handle-addressed window targeting (next planned version)
+# 0.0.12 — handle-addressed window targeting (W1/W2/W3 delivered)
 
-Status: `[_]` next planned version after `v0.0.11` was published as a public
-signed Release and accepted from the owner's view on 2026-11-06. Scope is
-unchanged from the version deferred out of 0.0.11. **No source, version or
-Release change belongs to this document.** The source tree stays at `0.0.11`
-until this version's W4 runs.
+Status: `[v]` W1/W2 delivered in `e843715` after `v0.0.11` was published as a
+public signed Release and accepted from the owner's view on 2026-11-06.
+Three-OS CI `42205711217` / `42205711264` are success and the independent
+reader recomputes Linux 31 / macOS 27 / Windows 34 performed steps PASS.
+W3 moves the four version sources to `0.0.12`; W4 runs the public signed
+Release chain. The source tree stayed at `0.0.11` until W3.
 
 Baseline: `v0.0.11` published bounded Windows MSAA structured control
 disclosure (`observe.a11y`, `a11y_controls[]`) with three-OS CI evidence and
@@ -68,13 +69,13 @@ The capability matrix still does not grow: `hwnd` is an additive parameter and
 
 ```text
 0.0.12 — handle-addressed window targeting
-├── [_] W1 — the handle-target contract
+├── [v] W1 — the handle-target contract
 │   files: src/cu.rs, src/wire.rs, src/screen.rs, src/screen_linux.rs,
 │          src/screen_macos.rs, scripts/cu-cfg-check.py
 │   invariant: cu-abi 1.0, 12-row matrix unchanged, four cfgs type-check,
 │   cargo test --locked green (116 tests, 113 passed / 3 ignored), no new
 │   capability row, no new grant
-├── [_] W2 — a real handle-target journey in CI
+├── [v] W2 — a real handle-target journey in CI
 │   files: examples/cu_journey.rs, scripts/cu-journey-verify.py,
 │          .github/workflows/cu-journeys.yml
 │   invariant: required observe_focus_readback / act_focus_by_handle /
@@ -82,7 +83,7 @@ The capability matrix still does not grow: `hwnd` is an additive parameter and
 │   a declared focus cell performs handle targeting and names a stale refusal,
 │   a matrix-declared unsupported cell names a capability boundary; reader
 │   recomputes target_hwnd against the focused window in the next observation
-├── [_] W3 — the truth of the docs
+├── [v] W3 — the truth of the docs
 │   files: PRD.md, README.md, PRD_01_08, PRD_01_12, PRD_01_14,
 │   this plan, release notes
 │   invariant: E5b marked delivered, A5/B7b/A4/F3/C5/C6/B8 still deferred
