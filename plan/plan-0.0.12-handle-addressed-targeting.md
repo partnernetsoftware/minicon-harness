@@ -1,21 +1,21 @@
-# 0.0.12 — handle-addressed window targeting (deferred from 0.0.11)
+# 0.0.12 — handle-addressed window targeting (next planned version)
 
-Status: `[_]` planned. On 2026-11-06 the owner required structured control
-disclosure to be built into 0.0.11 instead; this plan was moved to 0.0.12
-unchanged in scope. **No source, version or Release change belongs to this
-document.** The source tree stays at the version of the last published
-Release until this version's W4 runs.
+Status: `[_]` next planned version after `v0.0.11` was published as a public
+signed Release and accepted from the owner's view on 2026-11-06. Scope is
+unchanged from the version deferred out of 0.0.11. **No source, version or
+Release change belongs to this document.** The source tree stays at `0.0.11`
+until this version's W4 runs.
 
-Baseline: `v0.0.10` published the coordinate basis (`display_scales[]` in
-`disclose`, `scale` in `observe.displays[]`) with three-OS CI evidence and
-corrected the earlier ~1.25x rationale. `cu-abi 1.0`, the 12/10/8/0 matrix
-and the four-backend type-check are unchanged. Five consecutive versions
-(0.0.6-0.0.10) delivered desktop evidence without declaring a new capability
+Baseline: `v0.0.11` published bounded Windows MSAA structured control
+disclosure (`observe.a11y`, `a11y_controls[]`) with three-OS CI evidence and
+an accepted public signed Release. `cu-abi 1.0`, the 12/10/8/0 matrix and the
+four-backend type-check are unchanged. Six consecutive versions
+(0.0.6-0.0.11) delivered desktop evidence without declaring a new capability
 row.
 
 ## Decision
 
-0.0.11 gives the W (window target binding) axis a **handle arm**: a caller can
+0.0.12 gives the W (window target binding) axis a **handle arm**: a caller can
 name a window by the `hwnd` that `observe.windows[]` already publishes, and
 the host reports the handle of the foreground window in its readback.
 
@@ -32,7 +32,7 @@ windows, so handle targeting precedes the image arm.
 |---|---|
 | A5 / D2 model-visible image arm | separate PRD + PNG budget/retention decision |
 | B7b `wait` + D4 ceilings | loop/budget decision, not a desktop verb; would add a 13th capability row. Hard L1 evidence: `observe` immediately after an `act` captured a pre-reflow Chromium frame, and `type` plus its send click had to be split into separate runs |
-| A4 accessibility trees | OS grants + three-OS fixtures. Hard L1 evidence: the new-session welcome page's input box could not take CU keyboard focus at all |
+| A4 AT-SPI / AX trees (full three-OS a11y) | OS grants + three-OS fixtures. The bounded Windows MSAA subset shipped in 0.0.11; hard L1 evidence: the new-session welcome page's input box could not take CU keyboard focus at all |
 | F3 app-level effect evidence / held-key effect evidence | side-effect-free echo fixture on three OSes |
 | C5 / C6 safety + hand-off, B8 batched actions | policy PRD / admission+stale design |
 
@@ -58,14 +58,14 @@ The capability matrix still does not grow: `hwnd` is an additive parameter and
 - One function set, four configurations: `native::window_by_handle()` changes
   together on Windows, macOS, Linux and fallback; `cu-cfg-check.py` types all
   four.
-- Every 0.0.6-0.0.10 reader assertion stays. The new reader rule recomputes
+- Every 0.0.6-0.0.11 reader assertion stays. The new reader rule recomputes
   that `target_hwnd` equals the focused window in the same observation and
   rejects a missing or mismatched field.
 
 ## Work breakdown and gates
 
 ```text
-0.0.11 — handle-addressed window targeting
+0.0.12 — handle-addressed window targeting
 ├── [_] W1 — the handle-target contract
 │   files: src/cu.rs, src/wire.rs, src/screen.rs, src/screen_linux.rs,
 │          src/screen_macos.rs, scripts/cu-cfg-check.py
@@ -87,13 +87,14 @@ The capability matrix still does not grow: `hwnd` is an additive parameter and
     the four release invariants must not regress
 ```
 
-The controller owns W3/W4 planning, the three-OS CI gate, the independent
-journey recompute, the release gate and the owner-view acceptance. **The
-implementation work is dispatched to a sub-session through the client GUI**,
-with a per-stage progress file; the controller only polls, verifies and
-decides. This is the L1 division that `PRD_01_12` records. The GUI dispatch
-itself must use the CU wire driver (`examples/cu_orchestrate.rs`), never a
-hand-written desktop automation script.
+The controller owns W1/W2 implementation, W3/W4 planning, the three-OS CI
+gate, the independent journey recompute, the release gate and the owner-view
+acceptance. The owner's 2026-11-06 direction cancelled the sub-session
+dispatch experiment: 0.0.12 is planned and implemented by the controller
+directly. The CU wire orchestration driver (`examples/cu_orchestrate.rs`)
+remains an L1 acceptance tool, not a release gate and not a hand-written
+desktop automation script. No temporary `.py` patch script is used; the
+repository's independent journey reader remains the CI authority.
 
 ## Risks and downgrade rules
 
@@ -102,17 +103,18 @@ hand-written desktop automation script.
   named refusal, never a silent fallback to another window.
 - **No reader assertion is weakened.** If a backend cannot resolve handles, it
   publishes `unknown` with a named reason in the journey record.
-- **Scope creep**: no image arm, no a11y tree, no `wait`, no new crate, no
+- **Scope creep**: no image arm, no new a11y tree, no `wait`, no new crate, no
   link-time platform library, no ABI bump, no policy engine. If W1/W2 needs
   one, split it into a separate PRD.
 
 ## Non-goals
 
-- `[no]` image arm, explicit `wait`, batched actions, a11y trees, app-level
-  effect evidence and safety policy in this version.
+- `[no]` image arm, explicit `wait`, batched actions, AT-SPI / AX a11y
+  trees, app-level effect evidence and safety policy in this version. The
+  bounded Windows MSAA subset shipped in 0.0.11 under `PRD_01_15`.
 - `[no]` window-manager product behaviour (minimise, tile, virtual desktops);
   that belongs to `minicon-winmgr`, not `screen`.
 - `[no]` requesting or changing an OS grant, display mode or DPI setting.
 - `[no]` widening `screen` into host control; the G boundary in `PRD_01_08`
   is unchanged.
-- `[no]` re-publishing or overwriting any shipped v0.0.4-v0.0.10 asset.
+- `[no]` re-publishing or overwriting any shipped v0.0.4-v0.0.11 asset.

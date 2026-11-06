@@ -290,7 +290,7 @@ were not a DPI scale.
 ├── [_] B8 batched actions[]                unlock: admission/stale design
 ```
 
-## 0.0.11 frontier (W1/W2 delivered, W3/W4 pending)
+## 0.0.11 frontier (public signed Release accepted)
 
 **0.0.11 = structured control disclosure.** The L1 self-hosted trial drove
 WorkBuddy through CU and found that `observe.controls[]` (Win32
@@ -315,7 +315,7 @@ W1/W2 landed in `f0433d6`: 109 unit tests, four-configuration type gate,
 three-OS `observe_a11y` step and independent reader recompute.
 
 ```text
-0.0.11 — structured control disclosure (W1/W2 delivered)
+0.0.11 — structured control disclosure (delivered, public signed Release)
 ├── [v] E5c `observe.a11y` + `a11y_controls[]` / `a11y_reason`
 │        Windows MSAA read-only tree; handle-addressed scan; additive row
 │        no new capability row; matrix 12/10/8/0; cu-abi 1.0
@@ -333,6 +333,23 @@ three-OS `observe_a11y` step and independent reader recompute.
 Ordering is not a version commitment. The controller implements, polls CI,
 independently recomputes the journey artifacts, decides the release gate and
 accepts from the owner's view.
+
+W3/W4 landed in `cf4fe27`; `v0.0.11` was published as a public signed
+Release at 2026-11-06T10:19Z and accepted from the owner's view (15 assets,
+six recomputed sidecars, a valid signed receipt chain and an anonymous APE
+run printing `minicon-harness 0.0.11`).
+
+## 0.0.12 next plan (after `v0.0.11` acceptance)
+
+The next planned version is **handle-addressed window targeting**
+(`PRD_01_14`, `plan/plan-0.0.12-handle-addressed-targeting.md`): `act:focus`
+gains an optional `hwnd`, mutually exclusive with `window`; every call
+re-validates the live handle; focus readback publishes `target_hwnd` from
+the desktop. The measured motive is unchanged: two WorkBuddy windows share
+the title `WorkBuddy`, so a title is not an identity. `cu-abi 1.0`, the
+12/10/8/0 matrix, every earlier reader assertion and every `[no]` stay
+unchanged. The controller implements this version directly; the CU wire
+orchestration driver remains an L1 experiment, not a release gate.
 
 `[no]` carried forward unchanged: plugin host, permission policy engine,
 streaming, MCP, a scripting surface over the desktop, a second model loop,

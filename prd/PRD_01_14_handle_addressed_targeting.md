@@ -1,16 +1,18 @@
 # PRD 01.14 — handle-addressed window targeting (0.0.12)
 
-Status: `[_]` specified after `v0.0.10` was published as a public signed
-Release, **not implemented**, and deferred from 0.0.11 to 0.0.12 by the
-owner's 2026-11-06 decision to build structured control disclosure first.
-Owner of the **contract** for 0.0.12;
+Status: `[_]` the next planned version after `v0.0.11` was published as a
+public signed Release and accepted from the owner's view on 2026-11-06.
+**Not implemented**; no source, version or Release change belongs to this
+document. It was deferred from 0.0.11 by the owner's decision to build
+structured control disclosure first. Owner of the **contract** for 0.0.12;
 `plan/plan-0.0.12-handle-addressed-targeting.md` owns the work breakdown,
 gates and release chain. Nothing here claims a capability that a CI run has
 not produced.
 
-`PRD_01_15` (0.0.11) already gives `observe.a11y` an `hwnd` scan target. That
-is an observation target only; it is not `act:focus` by handle and does not
-publish `target_hwnd`. This PRD remains the contract for the act arm.
+`PRD_01_15` (shipped in `v0.0.11`) already gives `observe.a11y` an `hwnd`
+scan target. That is an observation target only; it is not `act:focus` by
+handle and does not publish `target_hwnd`. This PRD remains the contract for
+the act arm.
 
 Legend: `[v]` delivered with evidence, `[_]` planned, `[no]` explicit
 non-goal.
@@ -109,7 +111,7 @@ native::window_by_handle(handle: u64) -> Option<WindowInfo>
 
 - `src/cu.rs`: unit tests for mutual exclusion, stale-handle refusal, the
   readback field, the reason rule, the ungranted path and the absence of a new
-  capability row. All 0.0.6-0.0.10 tests stay.
+  capability row. All 0.0.6-0.0.11 tests stay.
 - Three-OS CI journeys add a required `focus_by_handle` step plus a
   stale-handle refusal; the independent reader recomputes `target_hwnd` plus
   all earlier assertions.
@@ -120,8 +122,8 @@ native::window_by_handle(handle: u64) -> Option<WindowInfo>
 - `[no]` model-visible image arm, `wait`, batched actions,
   app-level effect evidence, safety policy or Wayland-native protocol.
   Note: the older "a11y trees" non-goal was lifted by the owner on
-  2026-11-06 for the bounded Windows MSAA read-only subset in 0.0.11
-  (`PRD_01_15`); AT-SPI / AX trees remain deferred.
+  2026-11-06 for the bounded Windows MSAA read-only subset shipped in
+  `v0.0.11` (`PRD_01_15`); AT-SPI / AX trees remain deferred.
 - `[no]` window-manager product behaviour; `minicon-winmgr` owns it.
 - `[no]` requesting or changing an OS grant, display mode or DPI setting.
 - `[no]` new crate, runtime, engine, plugin host, bun/WASM/ujs embedding.

@@ -1,11 +1,12 @@
 # 0.0.11 — structured control disclosure
 
-Status: `[v]` W1/W2 delivered in commit `f0433d6`; W3/W4 run after the
-three-OS CI gate. **The source tree stays at `0.0.10` until W4 runs.**
+Status: `[v]` public signed Release `v0.0.11` published and accepted from
+the owner's view on 2026-11-06. W1/W2 landed in `f0433d6`; W3/W4 in
+`cf4fe27`. All four version sources read `0.0.11`; `cu-abi 1.0`, the
+12/10/8/0 matrix and the four-backend type-check are unchanged.
 
-Baseline: `v0.0.10` is a public signed Release and was accepted from the
-owner's view. `cu-abi 1.0`, the 12/10/8/0 matrix and the four-backend
-type-check are unchanged.
+Baseline: `v0.0.10` was the previous public signed Release. The source tree
+stayed at `0.0.10` until W4 ran; no shipped v0.0.10 asset was touched.
 
 ## Decision
 
@@ -48,12 +49,12 @@ motivation for that follow-up.
 │          .github/workflows/cu-journeys.yml
 │   invariant: observe_a11y required on all three OSes; cells without an
 │   a11y API publish empty tree + named reason; reader recomputes every row
-├── [_] W3 — the truth of the docs
+├── [v] W3 — the truth of the docs
 │   files: PRD.md, README.md, PRD_01_08, PRD_01_12, PRD_01_14, PRD_01_15,
 │   this plan, release notes
 │   invariant: the lifted [no] is recorded as an owner decision; every other
 │   [no] and the G boundary are unchanged
-└── [_] W4 — version bump and public signed Release
+└── [v] W4 — version bump and public signed Release
     files: Cargo.toml, Cargo.lock, release-policy.json,
            loader/ape-version.rc, .github/release-notes.md
     invariant: four version sources in ONE commit; dry-run before publish;
@@ -62,10 +63,16 @@ motivation for that follow-up.
 
 ## Delivery record
 
-Filled in after the public signed Release is accepted from the owner's view:
-commit SHA, pack / candidate / signing / dry-run / publish run ids, anonymous
-page and asset status, sidecar recompute, signing-cell hashes and the version
-the downloaded APE prints.
+`v0.0.11` was published from `cf4fe27d2706c49bfcb5f87d32db86d53dd1a99e`:
+pack `42198429691`, candidate `42201308325`, signing `42201375022`,
+dry-run `42201575434`, publish `42201636146` — all success. The public page
+returned HTTP 200; 15 assets were downloaded anonymously; all six `.sha256`
+sidecars recomputed OK; `build-receipt.json` and `signing-receipt.json`
+matched `cf4fe27` / `0.0.11`; the three signed assets' `after_sha256`
+matched the published bytes and their local Authenticode status was `Valid`
+with an RFC 3161 timestamp. The downloaded APE printed
+`minicon-harness 0.0.11`. The first pack attempt `42194876289` failed only
+at a GitHub artifact-finalize transient and was not reused.
 
 ## Risks and downgrade rules
 
@@ -85,4 +92,4 @@ the downloaded APE prints.
 - `[no]` window-manager product behaviour; that belongs to `minicon-winmgr`.
 - `[no]` requesting or changing an OS grant, display mode or DPI setting.
 - `[no]` widening `screen` into host control; `PRD_01_08`'s G boundary stands.
-- `[no]` re-publishing or overwriting any shipped v0.0.4-v0.0.10 asset.
+- `[no]` re-publishing or overwriting any shipped v0.0.4-v0.0.11 asset.
