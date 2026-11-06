@@ -220,6 +220,29 @@ Two directions of the gap, kept separate on purpose:
   0.0.8 as additive verbs with their own evidence. The remaining candidates
   are not debts: each needs its own PRD, gate and owner decision.
 
+## Capability levels and the self-hosted orchestration target
+
+`prd/PRD_01_12_self_hosted_orchestration.md` defines four levels — L0
+read-only observation, L1 evidenced interaction, L2 self-sustained loop, L3
+self-hosted orchestration — and records the owner's end state: this session
+acts as controller, using `screen` to create, dispatch, read and retire
+sub-task sessions in the WorkBuddy client's own GUI, then aggregate their
+results. L2 is the lowest level at which that loop closes on its own; L3 is the
+full form. It is an **acceptance journey for computer use**, not a new verb,
+tool, harness capability or version plan, and it changes no `[v]`, `[_]` or
+`[no]` mark in the tree above.
+
+The candidate pool is now *ordered* by what that loop needs: A5 / D2
+(model-visible image arm) -> B7b + D4 (bounded wait and ceilings) -> A4
+(reliable target location; the client is Electron / Chromium, so A2's Win32
+child controls do not reach it) -> F3 (app-level effect evidence) -> C5 / C6
+(safety and hand-off). Ordering is **not** a version commitment: every item
+still needs its own PRD, its own gate, an owner decision and a version plan
+that carries the gate. The next version is planned only after the previous one
+is published and accepted. Plan 0.0.9 and its frontier are unchanged; E3 / E4
+read-only grant disclosure is the precondition that explains why a click
+cannot land before any of L2 exists.
+
 ## 0.0.9 frontier (planned, not started)
 
 Planned after `v0.0.8` was published, per the owner's "plan the next version
