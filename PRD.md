@@ -438,7 +438,7 @@ boundaries. The open-gate implementation candidate was the normalised a11y
 node schema (0.0.14 W1/W2); UIA-first routing needs its own COM-vtable probe
 and resource-domain work stays gated behind G.
 
-## 0.0.14 frontier (W1/W2/W3 delivered, W4 pending)
+## 0.0.14 frontier (public signed Release accepted)
 
 **0.0.14 = normalised a11y node schema**, the first implementation candidate
 selected by W0 (`PRD_01_18`,
@@ -446,19 +446,38 @@ selected by W0 (`PRD_01_18`,
 gains `value`, the raw `STATE_SYSTEM_*` `state` bit mask and `state_names`
 derived from a fixed table; the frame publishes `a11y_node_schema`; the
 independent reader recomputes `state_names` from the published integer and
-rejects a guessed set. W1/W2 landed in `31e257d`: 122 tests (119 passed,
-3 ignored), the four-configuration type gate, examples build, three-OS CI
-`42217541734` / `42217725863` success and an independent reader recompute
-PASS on all three OSes with the new schema assertions. W3 moves the four
-version sources to `0.0.14`; W4 runs the public signed Release chain. It is
-additive evidence on `observe`: `cu-abi 1.0`, the 12/10/8/0 matrix, the
-native signature, every earlier reader assertion and the G boundary are
-unchanged.
+rejects a guessed set. W1/W2 landed in `31e257d` (122 tests: 119 passed,
+3 ignored; three-OS CI `42217541734` / `42217725863` success); W3/W4 landed
+in `efe96a2`. The public signed Release `v0.0.14` was published at
+2026-11-06T12:43:47Z from platforms `42218173775`, journey `42218235696`,
+pack `42218406807`, candidate `42219432928`, signing `42219503249`, dry-run
+`42219748983` and publish `42219817323` — all success. Owner-view acceptance:
+public page and assets anonymous 200, 15 assets, six recomputed sidecars,
+build/signing receipts matched `efe96a2` / `0.0.14`, three signed assets
+matched `after_sha256` and were locally `Valid` with RFC 3161 timestamps,
+and the downloaded APE printed `minicon-harness 0.0.14`. The released
+journeys were independently recomputed PASS on all three OSes. `cu-abi 1.0`,
+the 12/10/8/0 matrix, the native signature, every earlier reader assertion
+and the G boundary are unchanged.
 
 UIA-first mixed routing stays a W0 candidate with a closed gate: a
 hand-written `IUIAutomation` COM vtable with an unverified slot is a crash,
 not a named refusal. Resource-domain telemetry and control remain behind the
 open G decision recorded in `PRD_01_17`.
+
+## 0.0.15 next plan (after `v0.0.14` acceptance)
+
+The next planned version is **UIA probe-first, then mixed structured routing**
+(`plan/plan-0.0.15-uia-probe-and-routing.md`). The second W0 pass published
+the `IUIAutomation` vtable order and three real traps — a four-int `RECT` is
+not a four-double `UiaRect`, a swallowed HRESULT hides a failed read, and UIA
+bounds are physical pixels that must be reconciled with the `v0.0.10` scale
+basis — but a wrong COM slot is still a process crash. W1 is a Rust
+diagnostic probe printing raw HRESULTs; W2 ships UIA-first + MSAA fallback
+**only if** the probe passes on a real Windows desktop. A failed probe stops
+the version with a diagnosis and a downgrade to the next W0 candidate: no
+guessed slots, no half-working route and no weakened reader. `cu-abi 1.0`,
+the 12/10/8/0 matrix and the G boundary stay unchanged.
 
 ## 0.0.9 frontier (shipped as a public signed Release)
 

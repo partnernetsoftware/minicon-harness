@@ -1,9 +1,10 @@
 # PRD 01.18 — normalised a11y node schema (0.0.14)
 
-Status: `[v]` W1/W2 delivered in `31e257d`; W3/W4 in the release commit,
-after `v0.0.13` was published as a public signed Release and accepted from
-the owner's view. Three-OS CI `42217541734` / `42217725863` are success.
-Owner of the **contract** for 0.0.14; `plan/plan-0.0.14-normalised-a11y-nodes.md` owns the
+Status: `[v]` W1/W2 delivered in `31e257d`; W3/W4 in `efe96a2`, after
+`v0.0.13` was published as a public signed Release and accepted from the
+owner's view. Three-OS CI `42217541734` / `42217725863` and `42218173775` /
+`42218235696` are success; `v0.0.14` is a published, accepted signed
+Release. Owner of the **contract** for 0.0.14; `plan/plan-0.0.14-normalised-a11y-nodes.md` owns the
 work breakdown, gates and release chain. Nothing here claims a capability a
 CI run has not produced.
 

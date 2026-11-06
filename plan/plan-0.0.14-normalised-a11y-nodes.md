@@ -1,10 +1,10 @@
-# 0.0.14 — normalised a11y node schema (W1/W2/W3 delivered)
+# 0.0.14 — normalised a11y node schema (public signed Release accepted)
 
-Status: `[v]` W1/W2 delivered in `31e257d`; W3/W4 in the release commit,
+Status: `[v]` W1-W4 delivered in `31e257d` (W1/W2) and `efe96a2` (W3/W4),
 after `v0.0.13` was published as a public signed Release and accepted from
-the owner's view. Three-OS CI `42217541734` / `42217725863` are success and
-the independent reader recomputes all three journeys PASS. The source tree
-stayed at `0.0.13` until W3.
+the owner's view. Three-OS CI `42217541734` / `42217725863` and
+`42218173775` / `42218235696` are success; `v0.0.14` is a published,
+accepted signed Release. The source tree stayed at `0.0.13` until W3.
 
 Baseline: `v0.0.13` closed B7b / D4 with a bounded observation wait. `v0.0.11`
 shipped the read-only Windows MSAA tree, `v0.0.12` handle-addressed focus.
@@ -57,7 +57,7 @@ no new crate, no native signature change and no G boundary change.
 ├── [v] W3 — the truth of the docs
 │   files: PRD.md, README.md, PRD_01_08, PRD_01_17, PRD_01_18,
 │   this plan, release notes
-└── [_] W4 — version bump and public signed Release
+└── [v] W4 — version bump and public signed Release
     files: Cargo.toml, Cargo.lock, release-policy.json,
            loader/ape-version.rc, .github/release-notes.md
     invariant: four version sources in ONE commit; dry-run before publish

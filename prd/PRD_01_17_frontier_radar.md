@@ -131,11 +131,46 @@ The owner's original model includes these; `PRD_01_08` records that they are
   cleanup on normal exit, crash, timeout and forced stop. This is the same
   owner-view rule this repo already applies to public Releases.
 
+## Findings, 2026-11-06 (second pass, UIA gate)
+
+A second W0 pass targeted the one candidate whose gate was closed for a
+technical reason rather than a policy one: hand-written UIA COM.
+
+- **The `IUIAutomation` vtable order is public.** The Go `w32uiautomation`
+  binding publishes `IUIAutomationVtbl` in full: after the three `IUnknown`
+  slots come `CompareElements`, `CompareRuntimeIds`, `GetRootElement`,
+  `ElementFromHandle` (slot 6), `ElementFromPoint`, `GetFocusedElement`, the
+  four `*BuildCache` variants, `CreateTreeWalker`, the three view walkers,
+  the three view conditions, `CreateCacheRequest`, `CreateTrueCondition`
+  (slot 21), `CreateFalseCondition`, `CreatePropertyCondition`, the
+  and/or/not condition combinators, the event handlers, and finally
+  `ElementFromIAccessible` / `*BuildCache`. `IUIAutomationElement` exposes
+  `FindAll`, `FindFirst`, `Get_CurrentName`, `Get_CurrentBoundingRectangle`,
+  `Get_CurrentControlType`, `Get_CurrentNativeWindowHandle`, `SetFocus` and
+  cached equivalents.
+- **Three real failure modes are documented, not guessed** (Microsoft Q&A
+  and Windows-MCP / UIA wrappers): `get_CurrentBoundingRectangle` returns a
+  `RECT` of four 32-bit integers (left/top/right/bottom), **not** the
+  four-double `UiaRect`; swallowing a failed HRESULT into a default
+  zero-sized rectangle makes a read failure indistinguishable from a real
+  empty box; UIA bounds are physical pixels, so they must be reconciled with
+  the DPI basis this repo already discloses in `v0.0.10`. Virtualised lists
+  expose only realised rows, and providers expose less when a window is
+  minimised, locked or in another integrity/session context.
+- **The practical route is a probe first** (same shape as the 0.0.11 MSAA
+  probe): a small Rust example that creates `CLSID_CUIAutomation`, calls
+  `ElementFromHandle` + `CreateTrueCondition` + `FindAll`, reads one name and
+  one `RECT`, prints the raw HRESULTs and exits — before any production
+  routing. A wrong slot is still a crash, not a named refusal.
+
+**Gate status:** moved from *vtable unknown* to *vtable order published,
+real-desktop probe still required*. No UIA code ships in 0.0.14.
+
 ## Candidate table (upserted, not promised)
 
 | Finding | Repo axis | Candidate | Unlock condition | This cycle |
 |---|---|---|---|---|
-| UIA supersedes MSAA; UIA-aware agents measurably better | A2 / A4 | UIA-first + MSAA fallback in `observe.a11y`, additive `a11y_source` | hand-written `IUIAutomation` COM vtable verified by a real Windows probe; an unverified slot is a crash, not a refusal | deferred (gate closed) |
+| UIA supersedes MSAA; UIA-aware agents measurably better | A2 / A4 | UIA-first + MSAA fallback in `observe.a11y`, additive `a11y_source` | vtable order now published (second pass); still needs a real-desktop Rust probe of `ElementFromHandle` / `CreateTrueCondition` / `FindAll`, raw HRESULTs and `RECT` semantics | deferred (gate: probe) |
 | WGA / PrintWindow black frames, DWM shadow rects | A5 / E | per-window capture router with named reason | image arm + PNG budget decision (A5/D2) | deferred |
 | Cross-platform agents need one normalised node schema | A4 | `a11y_controls[]` gains `state` / `state_names` / `value` plus `a11y_node_schema`; the reader recomputes the bit mask | none (gate open) | **shipped in 0.0.14 W1/W2** |
 | a11y trees are event streams | A4 / D | incremental change subscription | three-OS AT-SPI / AX grants + fixtures; the schema above is its prerequisite | deferred |

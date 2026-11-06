@@ -125,7 +125,9 @@ measured act/observation timing gap from the L1 trial. `cu-abi 1.0`, the
 12/10/8/0 matrix and the G boundary are unchanged. `v0.0.13` is a public
 signed Release accepted from the owner's view. Contract:
 [`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md). The next
-planned version is 0.0.14 normalised a11y node schema
+planned version is 0.0.15 UIA probe + mixed routing
+([`plan/plan-0.0.15-uia-probe-and-routing.md`](plan/plan-0.0.15-uia-probe-and-routing.md)).
+`v0.0.14` is a public signed Release accepted from the owner's view
 ([`prd/PRD_01_18_normalised_a11y_nodes.md`](prd/PRD_01_18_normalised_a11y_nodes.md)).
 
 **Continuous frontier learning (W0).** Each version cycle starts by learning

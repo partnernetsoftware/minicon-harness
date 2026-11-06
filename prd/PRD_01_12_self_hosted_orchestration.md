@@ -125,9 +125,12 @@ human-supervised sequence of single acts, which is what L1 already is.
   coordinate basis (E5a), `v0.0.11` delivered bounded Windows MSAA structured
   control disclosure (E5c), and `v0.0.12` delivered handle-addressed window
   targeting (E5b); all are published, accepted signed Releases. `v0.0.13`
-  delivers bounded observation wait (`PRD_01_16`); all four version sources
-  read `0.0.13`. Later versions are **not planned**: the W0 frontier radar
-  (`PRD_01_17`) upserts candidates without promising a version.
+  delivers bounded observation wait (`PRD_01_16`) and `v0.0.14` the
+  normalised a11y node schema (`PRD_01_18`); both are published, accepted
+  signed Releases and all four version sources read `0.0.14`. Later versions
+  are **not planned** as commitments: the W0 frontier radar (`PRD_01_17`)
+  upserts candidates with unlock conditions, and `plan/plan-0.0.15-uia-probe-and-routing.md`
+  records the next probe-first version.
 - The candidate pool stays *ordered* by what the L2/L3 loop needs: A5 / D2 ->
   B7b + D4 -> A4 -> F3 -> C5 / C6, with B8 and the other 0.7.x chapters
   keeping their recorded unlock conditions. B7b leads with the hard evidence
