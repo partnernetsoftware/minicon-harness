@@ -251,11 +251,17 @@ pub const SCREEN_TOOL_MAX_A11Y_DEPTH: usize = 12;
 
 /// One node of a read-only MSAA/IAccessible tree. Coordinates are virtual
 /// desktop pixels, the same basis as `windows[]` and the PNG capture arm.
+/// 0.0.14 adds the raw `STATE_SYSTEM_*` bit mask and `accValue` so a node
+/// carries the normalised `role / name / state / value / bounds / depth`
+/// schema a cross-platform agent needs; the raw integer is always kept so an
+/// independent reader can recompute `state_names` from it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct A11yControl {
     pub name: String,
+    pub value: String,
     pub role: i32,
     pub role_name: &'static str,
+    pub state: i32,
     pub x: i32,
     pub y: i32,
     pub width: i32,
@@ -290,6 +296,36 @@ pub fn a11y_role_name(role: i32) -> &'static str {
         50 => "tabitem",
         _ => "unknown",
     }
+}
+
+/// MSAA `STATE_SYSTEM_*` bits -> a fixed, bounded vocabulary. The table is
+/// pure so the independent journey reader can recompute it from the published
+/// integer on every cell, including cells that never qualify a desktop.
+/// Unknown bits stay in `state` but are never named by guess.
+pub fn a11y_state_names(state: i32) -> Vec<&'static str> {
+    const BITS: [(i32, &str); 16] = [
+        (0x2, "selected"),
+        (0x4, "focused"),
+        (0x8, "pressed"),
+        (0x10, "checked"),
+        (0x20, "mixed"),
+        (0x40, "readonly"),
+        (0x100, "default"),
+        (0x200, "expanded"),
+        (0x400, "collapsed"),
+        (0x800, "busy"),
+        (0x8000, "invisible"),
+        (0x10000, "offscreen"),
+        (0x100000, "focusable"),
+        (0x200000, "selectable"),
+        (0x400000, "linked"),
+        (0x4000_0000, "haspopup"),
+    ];
+    BITS
+        .iter()
+        .filter(|(bit, _)| state & bit != 0)
+        .map(|(_, name)| *name)
+        .collect()
 }
 
 /// Win32 class name -> a coarse role. Deliberately a fixed table: no UIA, no
@@ -2830,6 +2866,36 @@ mod native {
             }
         }
 
+        /// `IAccessible::get_accValue` (vtable slot 11) returns a BSTR, the
+        /// same shape as `get_accName`. A missing value is an empty string,
+        /// never a guessed one.
+        unsafe fn value(object: *mut c_void, child: Variant) -> String {
+            type F = unsafe extern "system" fn(*mut c_void, Variant, *mut *mut u16) -> i32;
+            let function: F = std::mem::transmute(slot(object, 11));
+            let mut bstr: *mut u16 = std::ptr::null_mut();
+            if function(object, child, &mut bstr) != 0 || bstr.is_null() {
+                return String::new();
+            }
+            let bytes = *((bstr as *const u8).offset(-4) as *const u32) as usize;
+            let text = std::slice::from_raw_parts(bstr, (bytes / 2).min(256));
+            String::from_utf16_lossy(text)
+        }
+
+        /// `IAccessible::get_accState` (vtable slot 14) returns a VT_I4
+        /// `STATE_SYSTEM_*` bit mask. The raw integer is published so the
+        /// independent reader can recompute the names; a failed call is zero,
+        /// which means "no state bits reported", not "no state".
+        unsafe fn state(object: *mut c_void, child: Variant) -> i32 {
+            type F = unsafe extern "system" fn(*mut c_void, Variant, *mut Variant) -> i32;
+            let function: F = std::mem::transmute(slot(object, 14));
+            let mut result = Variant::empty();
+            if function(object, child, &mut result) != 0 || result.vt != VT_I4 {
+                0
+            } else {
+                result.i4_value()
+            }
+        }
+
         unsafe fn rect(object: *mut c_void, child: Variant) -> [i32; 4] {
             type F = unsafe extern "system" fn(
                 *mut c_void,
@@ -2881,8 +2947,10 @@ mod native {
             let [x, y, width, height] = rect(object, child);
             out.rows.push(A11yControl {
                 name: name(object, child),
+                value: value(object, child),
                 role: role_value,
                 role_name: a11y_role_name(role_value),
+                state: state(object, child),
                 x,
                 y,
                 width,

@@ -501,6 +501,45 @@ def main() -> int:
                       f"observe_a11y: row {i} rect is not an int rect: "
                       f"{rect!r}")
 
+    # 0.0.14: recompute the normalised a11y node schema. The reader derives
+    # state_names from the published raw MSAA bit mask itself; a host that
+    # publishes a guessed set, a missing value or a wrong schema fails here.
+    # No earlier 0.0.6-0.0.13 assertion is weakened.
+    a11y_state_bits = (
+        (0x2, "selected"), (0x4, "focused"), (0x8, "pressed"),
+        (0x10, "checked"), (0x20, "mixed"), (0x40, "readonly"),
+        (0x100, "default"), (0x200, "expanded"), (0x400, "collapsed"),
+        (0x800, "busy"), (0x8000, "invisible"), (0x10000, "offscreen"),
+        (0x100000, "focusable"), (0x200000, "selectable"),
+        (0x400000, "linked"), (0x40000000, "haspopup"),
+    )
+    a11y_state_names = {name for _, name in a11y_state_bits}
+    if a11y and a11y.get("verdict") == "performed":
+        ev14 = a11y.get("evidence", {})
+        check(ev14.get("a11y_node_schema") == "role-name-state-value-bounds-depth",
+              "observe_a11y: normalised node schema is missing or wrong")
+        rows14 = ev14.get("a11y_controls")
+        if isinstance(rows14, list):
+            for i, row in enumerate(rows14):
+                if not isinstance(row, dict):
+                    continue
+                state = row.get("state")
+                check(isinstance(state, int) and not isinstance(state, bool)
+                      and state >= 0,
+                      f"observe_a11y: row {i} state={state!r} is not a bit mask")
+                if not isinstance(state, int) or isinstance(state, bool):
+                    continue
+                expected = [name for bit, name in a11y_state_bits if state & bit]
+                names = row.get("state_names")
+                check(names == expected,
+                      f"observe_a11y: row {i} state_names={names!r} "
+                      f"!= recomputed {expected!r}")
+                check(isinstance(names, list)
+                      and all(n in a11y_state_names for n in names),
+                      f"observe_a11y: row {i} state_names has a non-whitelist value")
+                check(isinstance(row.get("value"), str),
+                      f"observe_a11y: row {i} value is not a string")
+
     # 0.0.12: recompute handle-addressed focus. A performed title or handle
     # focus must publish a desktop-read target_hwnd; the handle steps must be
     # required on every cell, and the stale handle must be absent from the live

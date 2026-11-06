@@ -349,10 +349,13 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                                             window's structured accessibility controls, or \
                                             give a live window hwnd (integer from a prior \
                                             observe) to scan exactly that window when titles \
-                                            are ambiguous. Each row publishes name, MSAA role, \
-                                            role_name, rect in virtual-desktop coordinates, \
-                                            depth and child_id. Read-only, bounded, and never \
-                                            an OS grant request. On cells without the platform \
+                                            are ambiguous. Each row publishes name, value, \
+                                            MSAA role, role_name, the raw state bit mask, \
+                                            state_names, rect in virtual-desktop coordinates, \
+                                            depth and child_id under the normalised \
+                                            role-name-state-value-bounds-depth schema. \
+                                            Read-only, bounded, and never an OS grant request. \
+                                            On cells without the platform \
                                             accessibility API the scan publishes an empty list \
                                             plus a named a11y_reason, never a guessed tree."
                         },

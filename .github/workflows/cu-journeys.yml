@@ -14,6 +14,9 @@
 # all three OSes: a declared focus cell must perform handle targeting and name
 # a stale-handle refusal, while a cell whose matrix declares act:focus
 # unsupported may only produce a named capability boundary for those steps.
+# The 0.0.14 normalised a11y node schema is recomputed by the reader: every
+# row's state_names must equal the names derived from its published raw state
+# bit mask, its value must be a string and the frame must name the schema.
 # The 0.0.13 observe_wait_after_act and observe_wait_over_bound steps are
 # required on all three OSes: the wait must publish monotonic elapsed time,
 # cumulative accounting, a call count and a fresh generation, while the

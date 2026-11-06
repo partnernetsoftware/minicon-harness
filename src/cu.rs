@@ -418,6 +418,7 @@ impl CuFrame {
             "a11y_reason": self.snapshot.a11y_reason,
             "a11y_truncated": self.snapshot.a11y_truncated,
             "a11y_role_basis": "msaa-role",
+            "a11y_node_schema": "role-name-state-value-bounds-depth",
             "capture": self.snapshot.capture.as_ref().map(|outcome| json!({
                 "path": outcome.path, "bytes": outcome.bytes,
                 "width": outcome.width, "height": outcome.height,
@@ -440,8 +441,11 @@ fn control_json(control: &ControlInfo) -> Value {
 fn a11y_control_json(control: &crate::screen::A11yControl) -> Value {
     json!({
         "name": control.name,
+        "value": control.value,
         "role": control.role,
         "role_name": control.role_name,
+        "state": control.state,
+        "state_names": crate::screen::a11y_state_names(control.state),
         "rect": [control.x, control.y, control.width, control.height],
         "depth": control.depth,
         "child_id": control.child_id,
@@ -4555,6 +4559,50 @@ mod tests {
         assert_eq!(budget["max_wait_calls"], SCREEN_TOOL_MAX_WAIT_CALLS);
         assert_eq!(budget["remaining_ms"], SCREEN_TOOL_MAX_CUMULATIVE_WAIT_MS);
         assert_eq!(budget["remaining_calls"], SCREEN_TOOL_MAX_WAIT_CALLS);
+    }
+
+    #[test]
+    fn a11y_state_names_are_a_fixed_bit_table_not_a_guess() {
+        assert!(crate::screen::a11y_state_names(0).is_empty());
+        assert_eq!(
+            crate::screen::a11y_state_names(0x4 | 0x10),
+            vec!["focused", "checked"]
+        );
+        assert_eq!(
+            crate::screen::a11y_state_names(0x4000_0000 | 0x100000),
+            vec!["focusable", "haspopup"]
+        );
+        // An unknown bit stays in the raw integer but is never named.
+        assert!(crate::screen::a11y_state_names(0x1).is_empty());
+    }
+
+    #[test]
+    fn a11y_node_json_publishes_the_normalised_schema() {
+        let control = crate::screen::A11yControl {
+            name: "Send".to_owned(),
+            value: "send".to_owned(),
+            role: 43,
+            role_name: "button",
+            state: 0x4 | 0x100000,
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+            depth: 1,
+            child_id: 0,
+        };
+        let row = a11y_control_json(&control);
+        assert_eq!(row["name"], "Send");
+        assert_eq!(row["value"], "send");
+        assert_eq!(row["role"], 43);
+        assert_eq!(row["role_name"], "button");
+        assert_eq!(row["state"], 0x4 | 0x100000);
+        assert_eq!(row["state_names"], json!(["focused", "focusable"]));
+        assert_eq!(row["rect"], json!([1, 2, 3, 4]));
+        assert_eq!(row["depth"], 1);
+        assert_eq!(row["child_id"], 0);
+        assert_eq!(CAPABILITIES.len(), 11);
+        assert_eq!((CU_ABI_MAJOR, CU_ABI_MINOR), (1, 0));
     }
 
 }
