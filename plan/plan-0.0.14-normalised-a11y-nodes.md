@@ -1,8 +1,10 @@
-# 0.0.14 — normalised a11y node schema (next planned version)
+# 0.0.14 — normalised a11y node schema (W1/W2/W3 delivered)
 
-Status: `[_]` W1/W2 implemented locally after `v0.0.13` was published as a
-public signed Release and accepted from the owner's view. W3/W4 run after the
-three-OS CI gate. **The source tree stays at `0.0.13` until W4 runs.**
+Status: `[v]` W1/W2 delivered in `31e257d`; W3/W4 in the release commit,
+after `v0.0.13` was published as a public signed Release and accepted from
+the owner's view. Three-OS CI `42217541734` / `42217725863` are success and
+the independent reader recomputes all three journeys PASS. The source tree
+stayed at `0.0.13` until W3.
 
 Baseline: `v0.0.13` closed B7b / D4 with a bounded observation wait. `v0.0.11`
 shipped the read-only Windows MSAA tree, `v0.0.12` handle-addressed focus.
@@ -52,7 +54,7 @@ no new crate, no native signature change and no G boundary change.
 │   invariant: every a11y row's state_names equals the reader's own bit-mask
 │   derivation; value is a string; the frame names the schema; no earlier
 │   0.0.6-0.0.13 assertion is weakened
-├── [_] W3 — the truth of the docs
+├── [v] W3 — the truth of the docs
 │   files: PRD.md, README.md, PRD_01_08, PRD_01_17, PRD_01_18,
 │   this plan, release notes
 └── [_] W4 — version bump and public signed Release

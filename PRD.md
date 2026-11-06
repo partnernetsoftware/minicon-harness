@@ -438,19 +438,22 @@ boundaries. The open-gate implementation candidate was the normalised a11y
 node schema (0.0.14 W1/W2); UIA-first routing needs its own COM-vtable probe
 and resource-domain work stays gated behind G.
 
-## 0.0.14 next plan (after `v0.0.13` acceptance)
+## 0.0.14 frontier (W1/W2/W3 delivered, W4 pending)
 
-The next planned version is the **normalised a11y node schema**
-(`PRD_01_18`, `plan/plan-0.0.14-normalised-a11y-nodes.md`), the first
-implementation candidate selected by W0. Each `a11y_controls[]` row gains
-`value`, the raw `STATE_SYSTEM_*` `state` bit mask and `state_names` derived
-from a fixed table; the frame publishes `a11y_node_schema`; the independent
-reader recomputes `state_names` from the published integer and rejects a
-guessed set. W1/W2 are implemented locally (119 passed / 3 ignored, the
-four-configuration type gate and examples build) and await the three-OS CI
-gate. It is additive evidence on `observe`: `cu-abi 1.0`, the 12/10/8/0
-matrix, the native signature, every earlier reader assertion and the G
-boundary are unchanged.
+**0.0.14 = normalised a11y node schema**, the first implementation candidate
+selected by W0 (`PRD_01_18`,
+`plan/plan-0.0.14-normalised-a11y-nodes.md`). Each `a11y_controls[]` row
+gains `value`, the raw `STATE_SYSTEM_*` `state` bit mask and `state_names`
+derived from a fixed table; the frame publishes `a11y_node_schema`; the
+independent reader recomputes `state_names` from the published integer and
+rejects a guessed set. W1/W2 landed in `31e257d`: 122 tests (119 passed,
+3 ignored), the four-configuration type gate, examples build, three-OS CI
+`42217541734` / `42217725863` success and an independent reader recompute
+PASS on all three OSes with the new schema assertions. W3 moves the four
+version sources to `0.0.14`; W4 runs the public signed Release chain. It is
+additive evidence on `observe`: `cu-abi 1.0`, the 12/10/8/0 matrix, the
+native signature, every earlier reader assertion and the G boundary are
+unchanged.
 
 UIA-first mixed routing stays a W0 candidate with a closed gate: a
 hand-written `IUIAutomation` COM vtable with an unverified slot is a crash,
