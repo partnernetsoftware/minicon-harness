@@ -122,16 +122,22 @@ human-supervised sequence of single acts, which is what L1 already is.
 - `v0.0.9` is a published, accepted signed Release. Its E3 / E4 read-only
   disclosure is a precondition of the end state: without a typed grant status,
   a controller cannot tell why a click did not land. `v0.0.10` delivered the
-  coordinate basis (E5a) and `v0.0.11` delivered bounded Windows MSAA
-  structured control disclosure (E5c); both are published, accepted signed
-  Releases. All four version sources read `0.0.11`. `0.0.12` is the next
-  planned version in `PRD.md`: handle-addressed window targeting
-  (`PRD_01_14`); later versions are **not planned**.
+  coordinate basis (E5a), `v0.0.11` delivered bounded Windows MSAA structured
+  control disclosure (E5c), and `v0.0.12` delivered handle-addressed window
+  targeting (E5b); all are published, accepted signed Releases. All four
+  version sources read `0.0.12`. `0.0.13` is the next planned version in
+  `PRD.md`: bounded observation wait (`PRD_01_16`); later versions are
+  **not planned**.
 - The candidate pool stays *ordered* by what the L2/L3 loop needs: A5 / D2 ->
   B7b + D4 -> A4 -> F3 -> C5 / C6, with B8 and the other 0.7.x chapters
   keeping their recorded unlock conditions. B7b leads with the hard evidence
-  above, not with a model-capability claim. Ordering is a reason to consider
-  an item first, **not a version commitment**.
+  above, not with a model-capability claim. On 2026-11-06 the controller,
+  under the standing `/goal` delegation, selected B7b + D4 for 0.0.13 ahead
+  of A5: the measured failure is act/observation sequencing, not a lack of
+  pixels. This lifts the older `explicit wait` non-goal only for the bounded
+  read-only `observe.wait_ms` parameter in `PRD_01_16`; A5 / D2, B8, AT-SPI /
+  AX trees, F3 and C5 / C6 remain deferred. Ordering is a reason to consider
+  an item first, **not a version commitment**. L2 is still not reached.
 - Each candidate still needs its own PRD, its own gate, an owner decision and a
   version plan that carries the gate before it enters a version. The next
   version is planned only after the previous one is published as a public

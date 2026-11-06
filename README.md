@@ -110,9 +110,11 @@ from `observe.windows[]`, mutually exclusive with `window`; a stale handle is
 a named refusal. Focus evidence and readback publish `target_hwnd` read from
 the live foreground window, and `actuation` stays `null` because no button
 event was posted. Four backends expose `window_by_handle`; `cu-abi 1.0` and
-the 12/10/8/0 matrix are unchanged. W1/W2/W3 are delivered on three-OS CI;
-the public signed Release is W4. Contract:
+the 12/10/8/0 matrix are unchanged. `v0.0.12` is a public signed Release
+accepted from the owner's view. Contract:
 [`prd/PRD_01_14_handle_addressed_targeting.md`](prd/PRD_01_14_handle_addressed_targeting.md).
+The next planned version is 0.0.13 bounded observation wait
+([`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md)).
 
 Above the mechanisms sits a **versioned host capability contract**
 (`src/cu.rs`, `prd/PRD_01_04_cu_base.md`): cu-abi 1.0, a discoverable

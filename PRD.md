@@ -340,7 +340,7 @@ Release at 2026-11-06T10:19Z and accepted from the owner's view (15 assets,
 six recomputed sidecars, a valid signed receipt chain and an anonymous APE
 run printing `minicon-harness 0.0.11`).
 
-## 0.0.12 frontier (W1/W2/W3 delivered, W4 pending)
+## 0.0.12 frontier (public signed Release accepted)
 
 **0.0.12 = handle-addressed window targeting.** `act:focus` gains an optional
 `hwnd`, mutually exclusive with `window`; every call re-validates the live
@@ -350,15 +350,48 @@ WorkBuddy windows share the title `WorkBuddy`, so a title is not an identity.
 W1/W2 landed in `e843715`: 116 tests (113 passed, 3 ignored), the
 four-configuration type gate, three-OS CI `42205711217` / `42205711264`
 success and an independent reader recompute PASS on Linux 31 / macOS 27 /
-Windows 34 performed steps. `cu-abi 1.0`, the 12/10/8/0 matrix, every earlier
-reader assertion and every `[no]` stay unchanged. W3 moves the four version
-sources to `0.0.12`; W4 runs the public signed Release chain.
+Windows 34 performed steps. W3/W4 landed in `e1887f8`; the public signed
+Release `v0.0.12` was published at 2026-11-06T11:22:38Z from
+journey `42208042397`, platforms `42207927764`, pack `42208244759`,
+candidate `42209382249`, signing `42209452910`, dry-run `42209665726` and
+publish `42209730386` — all success. Owner-view acceptance: public page and
+assets anonymous 200, 15 assets, six recomputed sidecars, build/signing
+receipts matched `e1887f8` / `0.0.12`, three signed assets matched
+`after_sha256` and were locally `Valid` with RFC 3161 timestamps, and the
+downloaded APE printed `minicon-harness 0.0.12`. `cu-abi 1.0`, the 12/10/8/0
+matrix, every earlier reader assertion and every `[no]` stay unchanged.
 
 `[no]` carried forward unchanged: plugin host, permission policy engine,
 streaming, MCP, a scripting surface over the desktop, a second model loop,
 takeover/owner-lock, any new crate or runtime, bun/WASM/ujs embedding
 (PRD 31 readiness stays BLOCKED), runtime backend selection, Wayland-native
 protocol and host-resource management (G; `PRD_01_08` owns the boundary).
+
+## 0.0.13 next plan (after `v0.0.12` acceptance)
+
+The next planned version is **bounded observation wait** (`PRD_01_16`,
+`plan/plan-0.0.13-bounded-wait.md`): `op=observe` gains an optional
+`wait_ms` that sleeps for a bounded interval before taking a fresh snapshot
+and publishes `evidence["wait"]` with the requested, elapsed and cumulative
+milliseconds plus the new generation. It is an additive observe parameter,
+not a new verb or capability row: `cu-abi 1.0`, the 12/10/8/0 matrix, the
+four-backend surface and every earlier reader assertion stay unchanged.
+
+The measured reason is the L1 hard evidence already recorded for B7b: an
+`observe` issued immediately after an `act` captured a pre-reflow Chromium
+frame, and `type` plus its send click had to be split into separate runs.
+A coordinate basis, a11y tree and a window handle do not fix stale timing.
+D4 ceilings are part of the same gate: per-call, cumulative and call-count
+bounds, with named refusals before any sleep. This is still not a model loop
+and does not claim L2.
+
+Under the standing `/goal` delegation, the controller lifts the older
+`explicit wait` non-goal for this bounded read-only observe parameter only.
+A5 / D2 image arm, B8 batched actions, AT-SPI / AX a11y trees, F3 app-level
+effect evidence, C5 / C6 safety and window-manager behaviour remain `[no]`
+with their unlock conditions. Contract owner:
+`prd/PRD_01_16_bounded_wait.md`; work breakdown:
+`plan/plan-0.0.13-bounded-wait.md`.
 
 ## 0.0.9 frontier (shipped as a public signed Release)
 

@@ -1,11 +1,10 @@
-# 0.0.12 — handle-addressed window targeting (W1/W2/W3 delivered)
+# 0.0.12 — handle-addressed window targeting (public signed Release accepted)
 
-Status: `[v]` W1/W2 delivered in `e843715` after `v0.0.11` was published as a
-public signed Release and accepted from the owner's view on 2026-11-06.
-Three-OS CI `42205711217` / `42205711264` are success and the independent
-reader recomputes Linux 31 / macOS 27 / Windows 34 performed steps PASS.
-W3 moves the four version sources to `0.0.12`; W4 runs the public signed
-Release chain. The source tree stayed at `0.0.11` until W3.
+Status: `[v]` public signed Release `v0.0.12` published and accepted from
+the owner's view on 2026-11-06. W1/W2 landed in `e843715`; W3/W4 in
+`e1887f8`. All four version sources read `0.0.12`; `cu-abi 1.0`, the
+12/10/8/0 matrix and every earlier reader assertion are unchanged. The
+source tree stayed at `0.0.11` until W3.
 
 Baseline: `v0.0.11` published bounded Windows MSAA structured control
 disclosure (`observe.a11y`, `a11y_controls[]`) with three-OS CI evidence and
@@ -87,12 +86,24 @@ The capability matrix still does not grow: `hwnd` is an additive parameter and
 │   files: PRD.md, README.md, PRD_01_08, PRD_01_12, PRD_01_14,
 │   this plan, release notes
 │   invariant: E5b marked delivered, A5/B7b/A4/F3/C5/C6/B8 still deferred
-└── [_] W4 — version bump and public signed Release
+└── [v] W4 — version bump and public signed Release
     files: Cargo.toml, Cargo.lock, release-policy.json,
            loader/ape-version.rc, .github/release-notes.md
     invariant: four version sources in ONE commit; dry-run before publish;
     the four release invariants must not regress
 ```
+
+## Delivery record
+
+`v0.0.12` was published from `e1887f85406da4f3c1a74fe2a56dcbdc04b13f44`:
+journey `42208042397`, platforms `42207927764`, pack `42208244759`,
+candidate `42209382249`, signing `42209452910`, dry-run `42209665726`,
+publish `42209730386` — all success. The public page returned HTTP 200; 15
+assets were downloaded anonymously; all six `.sha256` sidecars recomputed OK;
+`build-receipt.json` and `signing-receipt.json` matched `e1887f8` /
+`0.0.12`; the three signed assets' `after_sha256` matched the published bytes
+and their local Authenticode status was `Valid` with an RFC 3161 timestamp.
+The downloaded APE printed `minicon-harness 0.0.12`.
 
 The controller owns W1/W2 implementation, W3/W4 planning, the three-OS CI
 gate, the independent journey recompute, the release gate and the owner-view
@@ -108,8 +119,10 @@ repository's independent journey reader remains the CI authority.
 - **Handles are not stable identities.** A handle may be reused after a window
   closes; every call re-validates against the live list, and a mismatch is a
   named refusal, never a silent fallback to another window.
-- **No reader assertion is weakened.** If a backend cannot resolve handles, it
-  publishes `unknown` with a named reason in the journey record.
+- **No reader assertion is weakened.** If a backend cannot resolve a handle,
+  it publishes a named `stale` refusal in the journey record; a cell whose
+  matrix declares `act:focus` unsupported publishes a named `unsupported`
+  capability boundary, never a silent skip.
 - **Scope creep**: no image arm, no new a11y tree, no `wait`, no new crate, no
   link-time platform library, no ABI bump, no policy engine. If W1/W2 needs
   one, split it into a separate PRD.
@@ -124,4 +137,4 @@ repository's independent journey reader remains the CI authority.
 - `[no]` requesting or changing an OS grant, display mode or DPI setting.
 - `[no]` widening `screen` into host control; the G boundary in `PRD_01_08`
   is unchanged.
-- `[no]` re-publishing or overwriting any shipped v0.0.4-v0.0.11 asset.
+- `[no]` re-publishing or overwriting any shipped v0.0.4-v0.0.12 asset.
