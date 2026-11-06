@@ -4,9 +4,10 @@
 # uses Xvfb and a titled X client, macOS uses the runner GUI session, Windows
 # uses a Notepad window. Each job writes cu-journey.json and an independent
 # reader recomputes the verdict from those records. The three 0.0.7 richer
-# actuation steps (act_drag_path, act_scroll_x, act_scroll_y) are required on
-# every OS that declares the verb; the reader recomputes the path's last
-# point, path_points and both wheel axes without weakening any 0.0.6 check.
+# actuation steps (act_drag_path, act_scroll_x, act_scroll_y) and the five
+# 0.0.8 held-key steps are required on every OS that declares the verb; the
+# reader recomputes the path's last point, path_points, both wheel axes and
+# the host's held-key state, without weakening any 0.0.6 check.
 name: Cross-platform CU desktop journeys
 
 on:

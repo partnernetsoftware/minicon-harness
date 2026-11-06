@@ -195,6 +195,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         journey.skip("act_key", "act:key", "verb is not implemented on this cell");
     }
 
+    // 0.0.8 held-key modifiers: hold one whitelisted modifier, read the
+    // host's own state back, release it, and prove the set is empty again.
+    // A modifier is keyboard state, never a button actuation receipt.
+    if caps.act_key {
+        let held_steps: Vec<(&str, &str, Value)> = vec![
+            ("act_key_hold", "act:key", json!({ "op": "act", "why": "CU journey: hold one modifier", "action": "key", "keys": "ctrl", "hold": true })),
+            ("disclose_held", "disclose", json!({ "op": "disclose" })),
+            ("act_key_release", "act:key", json!({ "op": "act", "why": "CU journey: release held modifiers", "action": "key", "keys": "ctrl", "release": true })),
+            ("disclose_released", "disclose", json!({ "op": "disclose" })),
+        ];
+        for (step, capability, request) in held_steps {
+            journey.run(step, capability, true, true, request);
+        }
+    } else {
+        for step in ["act_key_hold", "disclose_held", "act_key_release", "disclose_released"] {
+            journey.skip(step, "act:key", "verb is not implemented on this cell");
+        }
+    }
+
     if caps.act_focus {
         if let Some(window) = &title {
             journey.run(
@@ -301,6 +320,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         caps.observe,
         true,
         json!({ "op": "observe" }),
+    );
+
+    // The journey must end with an empty held set, not with a modifier stuck
+    // on a shared CI runner. `CuHost::drop` releases again after this read.
+    journey.run(
+        "disclose_final",
+        "disclose",
+        true,
+        true,
+        json!({ "op": "disclose" }),
     );
 
     // The writer does not compute a verdict. The independent reader recomputes

@@ -100,6 +100,48 @@ pub const SCREEN_TOOL_MAX_DRAG_STEPS: i64 = 12;
 /// clamp the native backends already applied to the single vertical delta.
 pub const SCREEN_TOOL_MAX_SCROLL_DELTA: i32 = 1440;
 
+/// The four modifiers a CU host may hold across calls (PRD 01.10). A held
+/// modifier is keyboard state, never a button actuation receipt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum Modifier {
+    Ctrl,
+    Shift,
+    Alt,
+    Win,
+}
+
+impl Modifier {
+    pub const ALL: [Modifier; 4] = [Self::Ctrl, Self::Shift, Self::Alt, Self::Win];
+
+    /// Wire aliases are accepted here, but evidence always uses `tag()` so the
+    /// independent reader sees exactly one spelling on every OS.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => Some(Self::Ctrl),
+            "shift" => Some(Self::Shift),
+            "alt" | "option" => Some(Self::Alt),
+            "win" | "cmd" | "command" | "super" | "meta" => Some(Self::Win),
+            _ => None,
+        }
+    }
+
+    pub fn tag(self) -> &'static str {
+        match self {
+            Self::Ctrl => "ctrl",
+            Self::Shift => "shift",
+            Self::Alt => "alt",
+            Self::Win => "win",
+        }
+    }
+}
+
+/// Most modifiers one host may hold at once. A fifth is a named refusal,
+/// never a silently dropped key.
+pub const SCREEN_TOOL_MAX_HELD_MODIFIERS: usize = 4;
+
+/// The disclosed whitelist, in canonical spelling.
+pub const SCREEN_TOOL_HELD_MODIFIERS: [&str; 4] = ["ctrl", "shift", "alt", "win/cmd"];
+
 /// Timeout for one cross-process `WM_GETTEXT`. A hung foreign window must not
 /// be able to stall a harness invocation that only wanted to *observe* it.
 pub const SCREEN_TOOL_CONTROL_TIMEOUT_MS: u32 = 200;
@@ -1098,7 +1140,26 @@ pub struct Captured {
 /// and after the input. Losing the foreground entirely is a failure; a window
 /// that changed as a *result* of the key (Enter opening a dialog) is reported,
 /// not refused, because the input did reach the original target.
-fn foreground_evidence(before: Option<String>, after: Option<String>) -> Result<String, String> {
+/// Hold or release exactly one whitelisted modifier. `CuHost` owns the held
+/// set; the backend only posts the symmetric native event.
+pub fn set_modifier(key: Modifier, down: bool) -> Result<(), String> {
+    native::set_modifier(key, down)
+}
+
+/// Release every modifier, whether or not the host believes it is held.
+/// Idempotent on every backend: an extra key-up cannot leave a stuck key.
+pub fn release_all_modifiers() -> Result<(), String> {
+    native::release_all_modifiers()
+}
+
+/// The foreground title as the native backend reads it right now.
+pub fn foreground_title() -> Option<String> {
+    native::foreground_title()
+}
+
+/// Shared by atomic `act:key` and the held-key state machine so the 0.0.6
+/// foreground assertion keeps exactly one shape.
+pub(crate) fn foreground_evidence(before: Option<String>, after: Option<String>) -> Result<String, String> {
     match (&before, &after) {
         (Some(title), None) => Err(format!(
             "screen: failed: the foreground window {title:?} disappeared during input; nothing \
@@ -1299,9 +1360,9 @@ mod native {
     //! the harness process talks to the desktop and exits.
 
     use super::{
-        control_role, ButtonDispatch, Captured, ClickButton, ControlInfo, PlatformCapabilities,
-        ScrollDispatch, WindowInfo, SCREEN_TOOL_CONTROL_TIMEOUT_MS, SCREEN_TOOL_MAX_CONTROLS,
-        SCREEN_TOOL_MAX_CONTROL_TEXT, SCREEN_TOOL_MAX_DRAG_STEPS,
+        control_role, ButtonDispatch, Captured, ClickButton, ControlInfo, Modifier,
+        PlatformCapabilities, ScrollDispatch, WindowInfo, SCREEN_TOOL_CONTROL_TIMEOUT_MS,
+        SCREEN_TOOL_MAX_CONTROLS, SCREEN_TOOL_MAX_CONTROL_TEXT, SCREEN_TOOL_MAX_DRAG_STEPS,
     };
     use std::ffi::c_void;
 
@@ -2145,6 +2206,30 @@ mod native {
         Ok(())
     }
 
+    /// Virtual keys for the four held modifiers. `key_event(code, up)` uses
+    /// `up=true` for key-up, so `set_modifier(.., down)` posts `!down`.
+    const HELD_MODIFIER_CODES: [(Modifier, u16); 4] = [
+        (Modifier::Ctrl, 0x11),
+        (Modifier::Shift, 0x10),
+        (Modifier::Alt, 0x12),
+        (Modifier::Win, 0x5B),
+    ];
+
+    pub fn set_modifier(key: Modifier, down: bool) -> Result<(), String> {
+        let (_, code) = HELD_MODIFIER_CODES
+            .iter()
+            .find(|(candidate, _)| *candidate == key)
+            .ok_or_else(|| format!("screen: refused: unknown modifier {key:?}"))?;
+        key_event(*code, !down)
+    }
+
+    pub fn release_all_modifiers() -> Result<(), String> {
+        for (_, code) in HELD_MODIFIER_CODES {
+            key_event(code, true)?;
+        }
+        Ok(())
+    }
+
     fn key_event(code: u16, up: bool) -> Result<(), String> {
         let input = Input {
             kind: INPUT_KEYBOARD,
@@ -2316,7 +2401,7 @@ mod dynlib;
 macro_rules! refusing_backend {
     ($platform:expr, $hint:expr) => {
         use super::{
-            ButtonDispatch, Captured, ClickButton, ControlInfo, DisplayInfo,
+            ButtonDispatch, Captured, ClickButton, ControlInfo, DisplayInfo, Modifier,
             PlatformCapabilities, ScrollDispatch, WindowInfo,
         };
 
@@ -2381,6 +2466,12 @@ macro_rules! refusing_backend {
         }
         pub fn press_key(_combo: &str) -> Result<(), String> {
             Err(unsupported("act:key"))
+        }
+        pub fn set_modifier(_key: Modifier, _down: bool) -> Result<(), String> {
+            Err(unsupported("act:key hold"))
+        }
+        pub fn release_all_modifiers() -> Result<(), String> {
+            Err(unsupported("act:key release"))
         }
         pub fn capture_desktop(_scale: u32) -> Result<Captured, String> {
             Err(unsupported("capture desktop"))

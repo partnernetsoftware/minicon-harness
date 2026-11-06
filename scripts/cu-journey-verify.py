@@ -49,6 +49,12 @@ REQUIRED_INTERACTIONS = (
     "act_drag_path", "act_scroll_x", "act_scroll_y",
 )
 SCROLL_STEPS = ("act_scroll", "act_scroll_x", "act_scroll_y")
+# 0.0.8: a held modifier must be disclosed, released and never mistaken for
+# a button event. The independent reader recomputes the whole sequence.
+KEYBOARD_STEPS = (
+    "act_key_hold", "disclose_held", "act_key_release", "disclose_released",
+    "disclose_final",
+)
 TOLERANCE = 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
@@ -207,6 +213,58 @@ def main() -> int:
     if platform == "windows":
         check("act_control_press" in by_step,
               "windows: required act_control_press step is missing")
+
+    # 3d. Held-key modifiers: the host's own state machine is recomputed from
+    #     the requests, the keyboard evidence and the disclosures. A named OS
+    #     grant boundary must never excuse a stuck modifier.
+    for step in KEYBOARD_STEPS:
+        check(step in by_step, f"{step}: required 0.0.8 held-key step is missing")
+        record = by_step.get(step)
+        if not record:
+            continue
+        check(record["verdict"] == "performed",
+              f"{step}: held-key step verdict={record['verdict']} is not a journey")
+        evidence = record.get("evidence", {})
+        check(evidence.get("actuation") is None,
+              f"{step}: keyboard step carries a button actuation receipt")
+    hold = by_step.get("act_key_hold", {})
+    if hold.get("verdict") == "performed":
+        request = hold.get("request") or {}
+        wanted = request.get("keys")
+        keyboard = hold.get("evidence", {}).get("keyboard")
+        check(request.get("hold") is True, "act_key_hold: request did not ask to hold")
+        check(isinstance(keyboard, dict), "act_key_hold: no keyboard evidence")
+        if isinstance(keyboard, dict):
+            check(keyboard.get("held") == [wanted],
+                  f"act_key_hold: held={keyboard.get('held')!r}, expected [{wanted!r}]")
+            check(keyboard.get("released") == [],
+                  f"act_key_hold: released={keyboard.get('released')!r}, expected []")
+        check(hold.get("evidence", {}).get("held_keys") == [wanted],
+              f"act_key_hold: held_keys disagrees with the request {wanted!r}")
+    disclosed_held = by_step.get("disclose_held", {})
+    if disclosed_held.get("verdict") == "performed":
+        check(disclosed_held.get("evidence", {}).get("held_keys")
+              == [(hold.get("request") or {}).get("keys")],
+              "disclose_held: disclosure does not report the requested held modifier")
+    release = by_step.get("act_key_release", {})
+    if release.get("verdict") == "performed":
+        request = release.get("request") or {}
+        keyboard = release.get("evidence", {}).get("keyboard")
+        check(request.get("release") is True, "act_key_release: request did not ask to release")
+        check(isinstance(keyboard, dict), "act_key_release: no keyboard evidence")
+        if isinstance(keyboard, dict):
+            released = keyboard.get("released")
+            check(isinstance(released, list) and len(released) > 0,
+                  f"act_key_release: released={released!r}, expected a non-empty list")
+            check(keyboard.get("held") == [],
+                  f"act_key_release: held={keyboard.get('held')!r}, expected []")
+        check(release.get("evidence", {}).get("held_keys") == [],
+              "act_key_release: held_keys is not empty after the release")
+    for step in ("disclose_released", "disclose_final", "disclose"):
+        record = by_step.get(step)
+        if record and record.get("verdict") == "performed":
+            check(record.get("evidence", {}).get("held_keys") == [],
+                  f"{step}: held_keys is not empty; the session may have a stuck modifier")
 
     # 4. A performed capture is a real PNG on disk whose IHDR agrees with the
     #    typed evidence. A black/missing image is not a successful capture.

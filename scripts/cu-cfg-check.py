@@ -9,9 +9,10 @@ between macOS, Linux, an unlisted OS and the Windows implementation, without
 pretending a compile check qualifies a desktop journey.
 
 The Windows FFI is hand-written and needs no foreign SDK to type-check, so
-`windows` is a fourth cfg-rewrite here. `drag`/`scroll` change signature on
-all four configurations in the same commit; this gate is what catches a
-backend that was left behind.
+`windows` is a fourth cfg-rewrite here. `drag`/`scroll` and the 0.0.8
+`set_modifier`/`release_all_modifiers` change signature on all four
+configurations in the same commit; this gate is what catches a backend that
+was left behind.
 
 Run after `cargo test --locked` (the serde_json rlib must exist).
 """
@@ -67,6 +68,16 @@ CONFIGS = {
 def main() -> int:
     screen = SRC.read_text()
     cu = CU.read_text()
+    # A backend that forgot the keyboard surface must fail here, not only in
+    # a cfg configuration where the code is compiled but never called.
+    sources = {"screen.rs": screen}
+    for extra in EXTRA:
+        sources[extra.name] = extra.read_text()
+    for signature in ("pub fn set_modifier", "pub fn release_all_modifiers"):
+        for name in ("screen.rs", "screen_linux.rs", "screen_macos.rs"):
+            if signature not in sources[name]:
+                print(f"{name}: missing {signature}", file=sys.stderr)
+                return 2
     rlibs = sorted(DEPS.glob("libserde_json-*.rlib"))
     if not rlibs:
         print("no serde_json rlib; run cargo test --locked first", file=sys.stderr)

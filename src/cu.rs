@@ -31,7 +31,8 @@
 
 use crate::screen::{
     resolve_control, Act, Actuation, CaptureTarget, ClickButton, ControlInfo, ControlTarget,
-    ScreenSnapshot, ScreenTool, WindowInfo, SCREEN_TOOL_MAX_CAPTURE_SCALE,
+    Modifier, ScreenSnapshot, ScreenTool, WindowInfo, SCREEN_TOOL_HELD_MODIFIERS,
+    SCREEN_TOOL_MAX_CAPTURE_SCALE, SCREEN_TOOL_MAX_HELD_MODIFIERS,
     SCREEN_TOOL_MAX_TYPE_CHARS,
 };
 use serde_json::{json, Value};
@@ -136,6 +137,9 @@ const P_DELTA: CuParam = CuParam { name: "delta", ty: CuType::Int, required: fal
 const P_DELTA_X: CuParam = CuParam { name: "delta_x", ty: CuType::Int, required: false };
 const P_DELTA_Y: CuParam = CuParam { name: "delta_y", ty: CuType::Int, required: false };
 const P_PATH: CuParam = CuParam { name: "path", ty: CuType::Path, required: false };
+// `hold` / `release` are additive parameters of `act:key`, not new verbs.
+const P_HOLD: CuParam = CuParam { name: "hold", ty: CuType::Bool, required: false };
+const P_RELEASE: CuParam = CuParam { name: "release", ty: CuType::Bool, required: false };
 
 /// The single source of truth for what computer use can do here. The wire
 /// tool definition's action enum is tested against this table so the two
@@ -192,8 +196,8 @@ pub const CAPABILITIES: &[CuCapability] = &[
     CuCapability {
         name: "act:key",
         kind: CuKind::Act,
-        summary: "Press one key combination; evidence is the foreground before and after.",
-        params: &[P_WHY, P_KEYS],
+        summary: "Press one key combination; `hold` keeps a whitelisted modifier down across calls and `release` lets it go. Keyboard state is disclosed and is never a button receipt.",
+        params: &[P_WHY, P_KEYS, P_HOLD, P_RELEASE],
     },
     CuCapability {
         name: "act:scroll",
@@ -378,7 +382,8 @@ pub enum CuAction {
         path: Option<Vec<(i32, i32)>>,
     },
     Type { text: String },
-    Key { keys: String },
+    /// `hold`/`release` are mutually exclusive; see `KeyboardState`.
+    Key { keys: String, hold: bool, release: bool },
     Scroll { x: i32, y: i32, delta_x: i32, delta_y: i32 },
     /// Resolve a control from the current frame **by name**; see
     /// [`CuHost::act_control`]. `press` is opt-in so a semantic target can be
@@ -454,6 +459,83 @@ struct CuState {
     generation: u64,
     frame: Option<CuFrame>,
     receipts: Vec<CuReceipt>,
+    keyboard: KeyboardState,
+}
+
+/// PRD 01.10: the held set is owned by the host, not by a native global.
+/// Pure data, so every bound and the foreground-loss rule is unit-testable
+/// without posting a real keystroke on a CI runner.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct KeyboardState {
+    held: Vec<Modifier>,
+    /// Foreground title when the last hold was posted. `None` on a fresh host.
+    foreground: Option<String>,
+}
+
+impl KeyboardState {
+    fn tags(&self) -> Vec<String> {
+        let mut tags: Vec<String> = self.held.iter().map(|key| key.tag().to_owned()).collect();
+        tags.sort();
+        tags
+    }
+
+    fn hold(&mut self, key: Modifier) -> Result<(), String> {
+        if !self.held.contains(&key) {
+            if self.held.len() >= SCREEN_TOOL_MAX_HELD_MODIFIERS {
+                return Err(format!(
+                    "screen: refused: at most {SCREEN_TOOL_MAX_HELD_MODIFIERS} held modifiers are allowed ({}); release one first",
+                    SCREEN_TOOL_HELD_MODIFIERS.join(", ")
+                ));
+            }
+            self.held.push(key);
+        }
+        Ok(())
+    }
+
+    fn release(&mut self) -> Vec<String> {
+        let released = self.tags();
+        self.held.clear();
+        self.foreground = None;
+        released
+    }
+
+    /// Before every call: a changed foreground, a lost grant or an unknown
+    /// baseline releases everything held. Returns what was let go.
+    fn reconcile(&mut self, current_foreground: &str, grant_lost: bool) -> Vec<String> {
+        if self.held.is_empty() {
+            return Vec::new();
+        }
+        let changed = self.foreground.as_deref() != Some(current_foreground);
+        if changed || grant_lost {
+            self.release()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+/// Canonical foreground identity for the keyboard state machine. A session
+/// with no foreground window is still a stable target, never a guess.
+fn keyboard_foreground() -> String {
+    crate::screen::foreground_title()
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or_else(|| "desktop session".to_owned())
+}
+
+/// Evidence for a keyboard state change. It is deliberately separate from
+/// `PRD_01_07`'s button actuation receipt: `actuation` is always null here.
+fn keyboard_evidence(readback: &str, generation: u64, held: &[String], released: &[String]) -> Value {
+    json!({
+        "action": "key",
+        "window": Value::Null,
+        "readback": readback,
+        "verdict": "performed",
+        "generation": generation,
+        "actuation": Value::Null,
+        "scroll": Value::Null,
+        "keyboard": { "held": held, "released": released },
+        "held_keys": held,
+    })
 }
 
 /// The host side of the contract. It owns the grant and the native tool; a
@@ -478,12 +560,23 @@ impl CuHost {
                 generation: 0,
                 frame: None,
                 receipts: Vec::new(),
+                keyboard: KeyboardState::default(),
             }),
         }
     }
 
     pub fn granted(&self) -> bool {
         self.tool.enabled()
+    }
+
+    /// Teardown releases every modifier, whether or not the caller did.
+    /// `release_all_modifiers` is idempotent on all four backends; an error
+    /// (no display, no OS grant) is deliberately ignored here because there
+    /// is no further effect to protect after the host is gone.
+    fn release_on_teardown(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.keyboard.release();
+        let _ = crate::screen::release_all_modifiers();
     }
 
     /// The JSON-facing entrance a dynamic-logic module would bind to. Parse
@@ -593,6 +686,29 @@ impl CuHost {
         //    information: a caller may discover what it is *not* allowed to
         //    do even when computer use was never granted.
         let kind = advertised.map(|entry| entry.kind).unwrap_or(CuKind::Act);
+        // 3a. PRD 01.10: before every call, a foreground change or a lost
+        //     grant releases everything held and publishes an `unknown`
+        //     result. No new effect is delivered in that call.
+        let auto_released = state.keyboard.reconcile(
+            &keyboard_foreground(),
+            !self.tool.enabled(),
+        );
+        if !auto_released.is_empty() {
+            return self.result_with_state(
+                &mut state,
+                CuVerdict::Unknown,
+                &capability,
+                format!(
+                    "cu: unknown: the foreground changed or the grant was lost while modifiers were held; released {} and no new effect was delivered",
+                    auto_released.join(", ")
+                ),
+                json!({
+                    "keyboard": { "held": [], "released": auto_released },
+                    "held_keys": [],
+                    "actuation": Value::Null,
+                }),
+            );
+        }
         if kind != CuKind::Disclose && !self.tool.enabled() {
             return self.result_with_state(
                 &mut state,
@@ -700,6 +816,9 @@ impl CuHost {
             CuCall::Act { why, action } => match action {
                 CuAction::Control { control, press, button, double } => {
                     self.act_control(&capability, why, control, press, button, double)
+                }
+                CuAction::Key { keys, hold, release } if hold || release => {
+                    self.act_key_modifier(&capability, why, keys, release)
                 }
                 action => self.act(&capability, why, action),
             },
@@ -833,6 +952,162 @@ impl CuHost {
         );
         CuResult {
             verdict,
+            capability: capability.to_owned(),
+            generation,
+            facts_as_of_ms: now_ms(),
+            evidence,
+            text,
+        }
+    }
+
+    /// One `act:key` call that holds or releases whitelisted modifiers.
+    /// It never goes through `Act::Key` (one atomic down/up pair) and never
+    /// produces a button actuation receipt: its evidence is the host's own
+    /// keyboard state after the native effect.
+    fn act_key_modifier(
+        &self,
+        capability: &str,
+        why: String,
+        keys: String,
+        release: bool,
+    ) -> CuResult {
+        let before = crate::screen::foreground_title();
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+
+        let modifier = if release {
+            None
+        } else {
+            match Modifier::parse(keys.trim()) {
+                Some(key) => Some(key),
+                None => {
+                    return self.result_with_state(
+                        &mut state,
+                        CuVerdict::Refused,
+                        capability,
+                        format!(
+                            "screen: refused: `hold` accepts exactly one whitelisted modifier ({}); got {keys:?}",
+                            SCREEN_TOOL_HELD_MODIFIERS.join(", ")
+                        ),
+                        json!({ "bound": "SCREEN_TOOL_HELD_MODIFIERS", "keys": keys }),
+                    )
+                }
+            }
+        };
+        if let Some(key) = modifier {
+            if !state.keyboard.held.contains(&key)
+                && state.keyboard.held.len() >= SCREEN_TOOL_MAX_HELD_MODIFIERS
+            {
+                let held_before = state.keyboard.tags();
+                return self.result_with_state(
+                    &mut state,
+                    CuVerdict::Refused,
+                    capability,
+                    format!(
+                        "screen: refused: at most {SCREEN_TOOL_MAX_HELD_MODIFIERS} held modifiers are allowed; release one first"
+                    ),
+                    json!({ "bound": "SCREEN_TOOL_MAX_HELD_MODIFIERS", "held": held_before }),
+                );
+            }
+        }
+
+        let outcome = match modifier {
+            Some(key) => crate::screen::set_modifier(key, true),
+            None => crate::screen::release_all_modifiers(),
+        };
+        if let Err(error) = outcome {
+            // A failed release is still reported with an empty host set; the
+            // next teardown retries. Nothing is claimed as held.
+            let released = state.keyboard.release();
+            let _ = crate::screen::release_all_modifiers();
+            let (verdict, reason) = classify(error);
+            return self.result_with_state(
+                &mut state,
+                verdict,
+                capability,
+                reason,
+                json!({
+                    "keyboard": { "held": [], "released": released },
+                    "held_keys": [],
+                    "actuation": Value::Null,
+                }),
+            );
+        }
+
+        let released = if release {
+            state.keyboard.release()
+        } else {
+            // The bound was checked above; holding the same modifier twice is
+            // idempotent and does not post a second native key-down.
+            let _ = state.keyboard.hold(modifier.unwrap());
+            Vec::new()
+        };
+        let held = state.keyboard.tags();
+        let after = crate::screen::foreground_title();
+        let foreground = match crate::screen::foreground_evidence(before, after) {
+            Ok(text) => text,
+            Err(error) => {
+                let auto = state.keyboard.release();
+                let _ = crate::screen::release_all_modifiers();
+                return self.result_with_state(
+                    &mut state,
+                    CuVerdict::Unknown,
+                    capability,
+                    error,
+                    json!({
+                        "keyboard": { "held": [], "released": auto },
+                        "held_keys": [],
+                        "actuation": Value::Null,
+                    }),
+                );
+            }
+        };
+        if foreground.contains("changed during input") {
+            let auto = state.keyboard.release();
+            let _ = crate::screen::release_all_modifiers();
+            return self.result_with_state(
+                &mut state,
+                CuVerdict::Unknown,
+                capability,
+                format!("cu: unknown: the foreground changed during a keyboard effect; {foreground}; all held modifiers were released"),
+                json!({
+                    "keyboard": { "held": [], "released": auto },
+                    "held_keys": [],
+                    "actuation": Value::Null,
+                }),
+            );
+        }
+        if !release {
+            state.keyboard.foreground = Some(keyboard_foreground());
+        }
+        let released_text = if released.is_empty() {
+            "no held modifiers".to_owned()
+        } else {
+            released.join(", ")
+        };
+        let readback = if release {
+            format!("released {released_text} {foreground}")
+        } else {
+            format!("pressed {keys} (held) {foreground}")
+        };
+        let generation = state.generation;
+        let evidence = keyboard_evidence(&readback, generation, &held, &released);
+        let mut text = format!("why: {why}\nscreen: act=key {readback}\nheld_keys={}", held.join(","));
+        text.push_str(&format!(
+            "\ncu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} generation={generation} verdict=performed \
+             capability={capability}"
+        ));
+        self.record(
+            &mut state,
+            CuReceipt {
+                generation,
+                capability: capability.to_owned(),
+                verdict: CuVerdict::Performed,
+                facts_as_of_ms: now_ms(),
+                readback: readback.clone(),
+            },
+        );
+        CuResult {
+            verdict: CuVerdict::Performed,
             capability: capability.to_owned(),
             generation,
             facts_as_of_ms: now_ms(),
@@ -1073,7 +1348,15 @@ impl CuHost {
                 path: path.clone(),
             },
             CuAction::Type { text } => Act::Type { text },
-            CuAction::Key { keys } => Act::Key { keys: keys.clone() },
+            CuAction::Key { keys, hold: false, release: false } => {
+                Act::Key { keys: keys.clone() }
+            }
+            CuAction::Key { .. } => {
+                return Err(
+                    "screen: refused: held-key requests must go through the host keyboard state machine"
+                        .to_owned(),
+                )
+            }
             CuAction::Scroll { x, y, delta_x, delta_y } => Act::Scroll {
                 x: *x, y: *y, delta_x: *delta_x, delta_y: *delta_y,
             },
@@ -1098,13 +1381,14 @@ impl CuHost {
         // on an unqualified cell the disclosure says so.
         let mut text = format!(
             "cu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} platform={} qualified={} grant={} \
-             generation={} capabilities={} receipts={}",
+             generation={} capabilities={} receipts={} held_keys={}",
             crate::screen::platform_name(),
             crate::screen::platform_qualified(),
             if self.tool.enabled() { "granted" } else { "denied" },
             state.generation,
             CAPABILITIES.len(),
-            state.receipts.len()
+            state.receipts.len(),
+            state.keyboard.tags().join(",")
         );
         for entry in CAPABILITIES {
             let params: Vec<String> = entry
@@ -1177,6 +1461,7 @@ impl CuHost {
             "platform": crate::screen::platform_name(),
             "platform_capabilities": capability_matrix(&crate::screen::platform_capabilities()),
             "grant": if self.tool.enabled() { "granted" } else { "denied" },
+            "held_keys": state.keyboard.tags(),
             "generation": state.generation,
             "frame": state.frame.as_ref().map(CuFrame::to_json),
             "capabilities": capabilities,
@@ -1262,6 +1547,12 @@ impl CuHost {
             let excess = state.receipts.len() - CU_MAX_RECEIPTS;
             state.receipts.drain(..excess);
         }
+    }
+}
+
+impl Drop for CuHost {
+    fn drop(&mut self) {
+        self.release_on_teardown();
     }
 }
 
@@ -1419,6 +1710,18 @@ fn parse_drag_path(arguments: &Value) -> Result<Option<Vec<(i32, i32)>>, String>
 /// JSON adapter: the wire codec is the only place raw `Value` enters. Every
 /// refusal here names the missing or mistyped field, so a model can correct
 /// the call instead of probing blindly.
+/// A typed boolean flag: absent or null is false, anything else but a bool
+/// is a named refusal before any native effect.
+fn bool_flag(name: &str, value: Option<&Value>) -> Result<bool, String> {
+    match value {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(flag)) => Ok(*flag),
+        Some(other) => Err(format!(
+            "screen: refused: {name} must be a boolean, got {other}"
+        )),
+    }
+}
+
 pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
     let abi_major = match arguments.get("abi_major") {
         None => CU_ABI_MAJOR,
@@ -1598,17 +1901,45 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                         })?
                         .to_owned(),
                 },
-                "key" => CuAction::Key {
-                    keys: arguments
-                        .get("keys")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| {
-                            "screen: refused: action \"key\" needs a `keys` argument, e.g. \
-                             \"ctrl+s\" or \"win+left\""
+                "key" => {
+                    let hold = bool_flag("hold", arguments.get("hold"))?;
+                    let release = bool_flag("release", arguments.get("release"))?;
+                    if hold && release {
+                        return Err(
+                            "screen: refused: `hold` and `release` cannot be supplied in one call; they are opposite keyboard effects"
+                                .to_owned(),
+                        );
+                    }
+                    let keys = match arguments.get("keys") {
+                        Some(value) => value.as_str().ok_or_else(|| {
+                            "screen: refused: action \"key\" needs a string `keys` argument"
                                 .to_owned()
-                        })?
-                        .to_owned(),
-                },
+                        })?.to_owned(),
+                        None if release => String::new(),
+                        None => {
+                            return Err(
+                                "screen: refused: action \"key\" needs a `keys` argument, e.g. \
+                                 \"ctrl+s\" or \"win+left\""
+                                    .to_owned(),
+                            )
+                        }
+                    };
+                    if hold
+                        && (keys.contains('+') || Modifier::parse(keys.trim()).is_none())
+                    {
+                        return Err(format!(
+                            "screen: refused: `hold` accepts exactly one whitelisted modifier ({}); got {keys:?}",
+                            SCREEN_TOOL_HELD_MODIFIERS.join(", ")
+                        ));
+                    }
+                    if release && keys.contains('+') {
+                        return Err(
+                            "screen: refused: `release` takes no key combination; it releases every held modifier"
+                                .to_owned(),
+                        );
+                    }
+                    CuAction::Key { keys, hold, release }
+                }
                 "scroll" => {
                     let alias = arguments.get("delta").filter(|value| !value.is_null());
                     let explicit_y = arguments.get("delta_y").filter(|value| !value.is_null());
@@ -2668,6 +2999,7 @@ mod tests {
                 generation: 0,
                 frame: None,
                 receipts: Vec::new(),
+                keyboard: KeyboardState::default(),
             },
             0,
         );
@@ -2679,4 +3011,163 @@ mod tests {
         );
         assert_eq!(manifest["minor_degraded"], false);
     }
+
+    #[test]
+    fn held_modifier_whitelist_is_small_and_canonical() {
+        assert_eq!(
+            Modifier::parse("ctrl"),
+            Some(Modifier::Ctrl)
+        );
+        assert_eq!(
+            Modifier::parse("control"),
+            Some(Modifier::Ctrl)
+        );
+        assert_eq!(
+            Modifier::parse("option"),
+            Some(Modifier::Alt)
+        );
+        assert_eq!(
+            Modifier::parse("cmd"),
+            Some(Modifier::Win)
+        );
+        assert_eq!(Modifier::parse("enter"), None);
+        assert_eq!(Modifier::parse("ctrl+s"), None);
+        assert_eq!(Modifier::ALL.len(), SCREEN_TOOL_MAX_HELD_MODIFIERS);
+        assert_eq!(SCREEN_TOOL_HELD_MODIFIERS, ["ctrl", "shift", "alt", "win/cmd"]);
+    }
+
+    #[test]
+    fn held_key_state_bounds_four_modifiers_and_is_idempotent() {
+        let mut state = KeyboardState::default();
+        for key in Modifier::ALL {
+            state.hold(key).unwrap();
+        }
+        state.hold(Modifier::Ctrl).unwrap(); // holding twice is not a fifth
+        assert_eq!(state.tags(), vec!["alt", "ctrl", "shift", "win"]);
+        // There are exactly four whitelisted modifiers, so the bound equals
+        // the size of the whitelist and a full set is still idempotent.
+        assert_eq!(state.held.len(), SCREEN_TOOL_MAX_HELD_MODIFIERS);
+        assert_eq!(Modifier::ALL.len(), SCREEN_TOOL_MAX_HELD_MODIFIERS);
+        let released = state.release();
+        assert_eq!(released, vec!["alt", "ctrl", "shift", "win"]);
+        assert!(state.tags().is_empty());
+        assert_eq!(state.foreground, None);
+        assert!(state.release().is_empty()); // teardown is idempotent
+    }
+
+    #[test]
+    fn held_keys_are_released_on_foreground_change_or_lost_grant() {
+        let mut state = KeyboardState::default();
+        state.hold(Modifier::Ctrl).unwrap();
+        state.foreground = Some("Editor".to_owned());
+        assert!(state.reconcile("Editor", false).is_empty());
+        assert_eq!(state.tags(), vec!["ctrl"]);
+        let released = state.reconcile("Save dialog", false);
+        assert_eq!(released, vec!["ctrl"]);
+        assert!(state.tags().is_empty());
+        assert_eq!(state.foreground, None);
+
+        state.hold(Modifier::Shift).unwrap();
+        state.foreground = Some("Editor".to_owned());
+        let lost = state.reconcile("Editor", true);
+        assert_eq!(lost, vec!["shift"]);
+        assert!(state.tags().is_empty());
+        // An empty held set never invents an automatic release.
+        assert!(state.reconcile("Another window", true).is_empty());
+    }
+
+    #[test]
+    fn held_key_flags_are_typed_bounded_and_mutually_exclusive() {
+        let call = |value: Value| parse_request(&value);
+        let ok = call(json!({
+            "op": "act", "why": "hold shift while selecting",
+            "action": "key", "keys": "shift", "hold": true
+        })).unwrap();
+        assert_eq!(
+            ok.call,
+            CuCall::Act {
+                why: "hold shift while selecting".to_owned(),
+                action: CuAction::Key { keys: "shift".to_owned(), hold: true, release: false },
+            }
+        );
+        let release = call(json!({
+            "op": "act", "why": "let go", "action": "key", "release": true
+        })).unwrap();
+        assert_eq!(
+            release.call,
+            CuCall::Act {
+                why: "let go".to_owned(),
+                action: CuAction::Key { keys: String::new(), hold: false, release: true },
+            }
+        );
+        for arguments in [
+            json!({ "op": "act", "why": "x", "action": "key", "keys": "ctrl", "hold": true, "release": true }),
+            json!({ "op": "act", "why": "x", "action": "key", "keys": "ctrl+s", "hold": true }),
+            json!({ "op": "act", "why": "x", "action": "key", "keys": "f5", "hold": true }),
+            json!({ "op": "act", "why": "x", "action": "key", "keys": "ctrl+s", "release": true }),
+            json!({ "op": "act", "why": "x", "action": "key", "keys": "ctrl", "hold": "yes" }),
+            json!({ "op": "act", "why": "x", "action": "key", "hold": true }),
+        ] {
+            let error = call(arguments).unwrap_err();
+            assert!(error.starts_with("screen: refused:"), "{error}");
+        }
+    }
+
+    #[test]
+    fn held_keys_are_disclosed_and_never_get_a_button_receipt() {
+        let host = host(false);
+        let state = CuState {
+            generation: 3,
+            frame: None,
+            receipts: Vec::new(),
+            keyboard: KeyboardState {
+                held: vec![Modifier::Ctrl, Modifier::Shift],
+                foreground: Some("Editor".to_owned()),
+            },
+        };
+        let manifest = host.manifest(&state, 0);
+        assert_eq!(manifest["held_keys"], json!(["ctrl", "shift"]));
+        let evidence = keyboard_evidence(
+            "pressed shift (held) foreground=\"Editor\"",
+            3,
+            &["ctrl".to_owned(), "shift".to_owned()],
+            &[],
+        );
+        assert_eq!(evidence["keyboard"]["held"], json!(["ctrl", "shift"]));
+        assert_eq!(evidence["actuation"], Value::Null);
+        assert_eq!(evidence["scroll"], Value::Null);
+        let key = CuAction::Key { keys: "ctrl".to_owned(), hold: true, release: false };
+        assert_eq!(key.name(), "act:key");
+        assert_eq!(expected_dispatch(&key), None);
+        // A stray button receipt on a keyboard step must never upgrade or
+        // downgrade a keyboard verdict through the button checker.
+        assert_eq!(verify_actuation(None, None, CuVerdict::Performed), CuVerdict::Performed);
+    }
+
+    #[test]
+    fn held_keys_add_parameters_not_capabilities_or_abi() {
+        assert_eq!(CAPABILITIES.len(), 11);
+        assert_eq!(
+            act_names(),
+            vec!["focus", "move", "click", "hover", "drag", "type", "key", "scroll", "control"]
+        );
+        assert_eq!((CU_ABI_MAJOR, CU_ABI_MINOR), (1, 0));
+        let key = capability("act:key").unwrap();
+        for name in ["hold", "release"] {
+            let param = key.params.iter().find(|param| param.name == name).unwrap();
+            assert_eq!(param.ty, CuType::Bool);
+            assert!(!param.required);
+        }
+        let definitions = crate::wire::tool_definitions();
+        let screen = definitions
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["function"]["name"] == "screen")
+            .unwrap();
+        let props = &screen["function"]["parameters"]["properties"];
+        assert_eq!(props["hold"]["type"], "boolean");
+        assert_eq!(props["release"]["type"], "boolean");
+    }
+
 }

@@ -369,7 +369,15 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         "keys": {
                             "type": "string",
                             "description": "For action=key: a key combination such as \
-                                            \"ctrl+s\" or \"win+left\"."
+                                            \"ctrl+s\" or \"win+left\". With hold=true it must be one modifier; with release=true it may be omitted."
+                        },
+                        "hold": {
+                            "type": "boolean",
+                            "description": "For action=key: keep one whitelisted modifier (ctrl, shift, alt, win/cmd) down across calls. At most four; a foreground change, a lost grant or host teardown releases them. Cannot be combined with release."
+                        },
+                        "release": {
+                            "type": "boolean",
+                            "description": "For action=key: release every held modifier. Cannot be combined with hold or with a key combination."
                         },
                         "delta": {
                             "type": "integer",

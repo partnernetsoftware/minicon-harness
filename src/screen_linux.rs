@@ -12,7 +12,7 @@
 
 use super::{
     capture_scale, downsample, png, ButtonDispatch, Captured, ClickButton, ControlInfo,
-    DisplayInfo, PlatformCapabilities, ScrollDispatch, WindowInfo,
+    DisplayInfo, Modifier, PlatformCapabilities, ScrollDispatch, WindowInfo,
     SCREEN_TOOL_MAX_DRAG_STEPS, SCREEN_TOOL_MAX_REGION_PIXELS,
     SCREEN_TOOL_POINTER_TOLERANCE_PX,
 };
@@ -895,6 +895,62 @@ fn keycode(d: *mut c_void, keysym: u64, what: &str) -> Result<c_uint, String> {
         ));
     }
     Ok(code as c_uint)
+}
+
+/// X11 keysym names for the four held modifiers. XTest resolves keysyms to
+/// keycodes at runtime; an unmapped one is a named `unsupported`, never a
+/// guessed keycode (PRD 01.10).
+const HELD_MODIFIER_KEYSYMS: [(Modifier, &str); 4] = [
+    (Modifier::Ctrl, "Control_L"),
+    (Modifier::Shift, "Shift_L"),
+    (Modifier::Alt, "Alt_L"),
+    (Modifier::Win, "Super_L"),
+];
+
+fn modifier_key_event(d: *mut c_void, name: &str, press: bool) -> Result<(), String> {
+    let string_to_keysym: FnXStringToKeysym = sym(X11, "XStringToKeysym")?;
+    let c_name = CString::new(name).unwrap();
+    let keysym = unsafe { string_to_keysym(c_name.as_ptr()) };
+    if keysym == 0 {
+        return Err(format!(
+            "cu: unsupported: X11 has no keysym for {name}; no modifier was held"
+        ));
+    }
+    let code = keycode(d, keysym, name)?;
+    key_event(d, code, press)
+}
+
+pub fn set_modifier(key: Modifier, down: bool) -> Result<(), String> {
+    let d = display()?;
+    let name = HELD_MODIFIER_KEYSYMS
+        .iter()
+        .find(|(candidate, _)| *candidate == key)
+        .map(|(_, name)| *name)
+        .ok_or_else(|| format!("screen: refused: unknown modifier {key:?}"))?;
+    modifier_key_event(d, name, down)?;
+    flush(d)
+}
+
+pub fn release_all_modifiers() -> Result<(), String> {
+    let d = display()?;
+    let mut released = 0usize;
+    let mut first_error = None;
+    for (_, name) in HELD_MODIFIER_KEYSYMS {
+        match modifier_key_event(d, name, false) {
+            Ok(()) => released += 1,
+            Err(error) => { first_error.get_or_insert(error); },
+        };
+    }
+    flush(d)?;
+    // An extra key-up for a modifier X11 never mapped is harmless. Only a
+    // total failure is a refusal; a partial one still cleared the held set.
+    if released == 0 {
+        Err(first_error.unwrap_or_else(|| {
+            "cu: unsupported: XTest released no modifiers".to_owned()
+        }))
+    } else {
+        Ok(())
+    }
 }
 
 pub fn type_text(text: &str) -> Result<(), String> {

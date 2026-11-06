@@ -14,11 +14,12 @@
 
 use super::{
     capture_scale, downsample, png, ButtonDispatch, Captured, ClickButton, ControlInfo,
-    DisplayInfo, PlatformCapabilities, ScrollDispatch, WindowInfo,
+    DisplayInfo, Modifier, PlatformCapabilities, ScrollDispatch, WindowInfo,
     SCREEN_TOOL_MAX_DRAG_STEPS, SCREEN_TOOL_MAX_REGION_PIXELS,
     SCREEN_TOOL_POINTER_TOLERANCE_PX,
 };
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const CG: &str = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics";
 const CF: &str = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
@@ -44,6 +45,18 @@ const K_CG_EVENT_FLAG_MASK_SHIFT: u64 = 0x0002_0000;
 const K_CG_EVENT_FLAG_MASK_CONTROL: u64 = 0x0004_0000;
 const K_CG_EVENT_FLAG_MASK_ALTERNATE: u64 = 0x0008_0000;
 const K_CG_EVENT_FLAG_MASK_COMMAND: u64 = 0x0010_0000;
+
+/// Synthetic modifier flags held across calls. Every posted CG event ORs this
+/// in, so CG flags and the synthetic keyboard state never disagree.
+static HELD_FLAGS: AtomicU64 = AtomicU64::new(0);
+
+/// Virtual keycodes: Command 55, Shift 56, Option 58, Control 59.
+const HELD_MODIFIER_EVENTS: [(Modifier, u16, u64); 4] = [
+    (Modifier::Ctrl, 59, K_CG_EVENT_FLAG_MASK_CONTROL),
+    (Modifier::Shift, 56, K_CG_EVENT_FLAG_MASK_SHIFT),
+    (Modifier::Alt, 58, K_CG_EVENT_FLAG_MASK_ALTERNATE),
+    (Modifier::Win, 55, K_CG_EVENT_FLAG_MASK_COMMAND),
+];
 
 pub const PLATFORM: &str = "macos";
 
@@ -596,6 +609,7 @@ pub fn place_pointer(x: i32, y: i32) -> Result<(i32, i32), String> {
 fn post_mouse(kind: u32, x: i32, y: i32, button: u32) -> Result<(), String> {
     input_grant()?;
     let create: FnCGEventCreateMouseEvent = sym(CG, "CGEventCreateMouseEvent")?;
+    let set_flags: FnCGEventSetFlags = sym(CG, "CGEventSetFlags")?;
     let post: FnCGEventPost = sym(CG, "CGEventPost")?;
     let event = unsafe {
         create(
@@ -614,7 +628,10 @@ fn post_mouse(kind: u32, x: i32, y: i32, button: u32) -> Result<(), String> {
              performed"
         ));
     }
-    unsafe { post(K_CG_HID_EVENT_TAP, event) };
+    unsafe {
+        set_flags(event, HELD_FLAGS.load(Ordering::SeqCst));
+        post(K_CG_HID_EVENT_TAP, event);
+    }
     release(event);
     Ok(())
 }
@@ -710,6 +727,7 @@ pub fn scroll(
     // ...2 is the non-variadic six-argument form; a fixed Rust fn pointer must
     // never call the C variadic CGEventCreateScrollWheelEvent on arm64.
     let create: FnCGEventCreateScrollWheelEvent2 = sym(CG, "CGEventCreateScrollWheelEvent2")?;
+    let set_flags: FnCGEventSetFlags = sym(CG, "CGEventSetFlags")?;
     let post: FnCGEventPost = sym(CG, "CGEventPost")?;
     let notches = |delta: i32| -> i32 {
         let value = (delta / 120).clamp(-12, 12);
@@ -731,7 +749,10 @@ pub fn scroll(
                 .to_owned(),
         );
     }
-    unsafe { post(K_CG_HID_EVENT_TAP, event) };
+    unsafe {
+        set_flags(event, HELD_FLAGS.load(Ordering::SeqCst));
+        post(K_CG_HID_EVENT_TAP, event);
+    }
     release(event);
     Ok((position.0, position.1, ScrollDispatch { delta_x, delta_y }))
 }
@@ -756,7 +777,7 @@ fn post_key(code: u16, down: bool, flags: u64, units: &[u16]) -> Result<(), Stri
         );
     }
     unsafe {
-        set_flags(event, flags);
+        set_flags(event, flags | HELD_FLAGS.load(Ordering::SeqCst));
         if !units.is_empty() {
             set_unicode(event, units.len(), units.as_ptr());
         }
@@ -764,6 +785,47 @@ fn post_key(code: u16, down: bool, flags: u64, units: &[u16]) -> Result<(), Stri
     }
     release(event);
     Ok(())
+}
+
+pub fn set_modifier(key: Modifier, down: bool) -> Result<(), String> {
+    let (_, code, flag) = HELD_MODIFIER_EVENTS
+        .iter()
+        .find(|(candidate, _, _)| *candidate == key)
+        .copied()
+        .ok_or_else(|| format!("screen: refused: unknown modifier {key:?}"))?;
+    let previous = if down {
+        HELD_FLAGS.fetch_or(flag, Ordering::SeqCst)
+    } else {
+        HELD_FLAGS.fetch_and(!flag, Ordering::SeqCst)
+    };
+    // post_key ORs the current held flags, so a key-down carries its own flag
+    // and a key-up carries the state after the bit was cleared.
+    match post_key(code, down, 0, &[]) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            HELD_FLAGS.store(previous, Ordering::SeqCst);
+            Err(error)
+        }
+    }
+}
+
+pub fn release_all_modifiers() -> Result<(), String> {
+    let mut released = 0usize;
+    let mut first_error = None;
+    for (_, code, _) in HELD_MODIFIER_EVENTS {
+        match post_key(code, false, 0, &[]) {
+            Ok(()) => released += 1,
+            Err(error) => { first_error.get_or_insert(error); },
+        };
+    }
+    HELD_FLAGS.store(0, Ordering::SeqCst);
+    if released == 0 {
+        Err(first_error.unwrap_or_else(|| {
+            "cu: unsupported: CoreGraphics released no modifiers".to_owned()
+        }))
+    } else {
+        Ok(())
+    }
 }
 
 pub fn type_text(text: &str) -> Result<(), String> {
