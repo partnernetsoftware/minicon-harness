@@ -188,6 +188,8 @@ minicon-harness computer use
 │   │        delivered in 0.0.9; geometry is already in the pixel arm
 │   ├── [v] E4 OS-grant matrix in evidence (Screen Recording, Input
 │   │        Monitoring, Accessibility) — delivered in 0.0.9
+│   ├── [v] E5a display scale / coordinate basis in `disclose`
+│   │        delivered in 0.0.10; additive evidence, not a capability row
 │   └── [no] E5 Wayland-native protocol, runtime backend selection
 ├── F Verification and delivery
 │   ├── [v] F1 CI compile gate + three-OS real-desktop journeys + independent
@@ -233,8 +235,8 @@ tool, harness capability or version plan, and it changes no `[v]`, `[_]` or
 `[no]` mark in the tree above.
 
 The candidate pool is now *ordered* by what that loop needs: display scale /
-coordinate-basis disclosure (0.0.10) -> A5 / D2 (model-visible image arm)
--> B7b + D4 (bounded wait and ceilings) -> A4
+coordinate-basis disclosure (delivered in 0.0.10) -> A5 / D2 (model-visible
+image arm) -> B7b + D4 (bounded wait and ceilings) -> A4
 (reliable target location; the client is Electron / Chromium, so A2's Win32
 child controls do not reach it) -> F3 (app-level effect evidence) -> C5 / C6
 (safety and hand-off). Ordering is **not** a version commitment: every item
@@ -244,24 +246,32 @@ is published and accepted. Plan 0.0.9 and its frontier are unchanged; E3 / E4
 read-only grant disclosure is the precondition that explains why a click
 cannot land before any of L2 exists.
 
-## 0.0.10 frontier (planned, not started)
+## 0.0.10 frontier (implemented; public signed Release pending)
 
-Planned after `v0.0.9` was published as a public signed Release and accepted
-from the owner's view. **No version bump, no code and no `[v]` claim exists
-here.** The plan is `plan/plan-0.0.10-display-scale-disclosure.md`, the
-contract is `prd/PRD_01_13_display_scale_disclosure.md`.
+W1/W2 landed in `040d50d` with the compile gate `42177115600` and the
+three-OS journeys `42177115725` both green; the controller's independent
+reader recomputed all three `cu-journey.json` artifacts as PASS. W3 is the
+truth of these docs; W4 (the version bump and public signed Release) is
+pending, so the four version sources still read `0.0.9`. The plan is
+`plan/plan-0.0.10-display-scale-disclosure.md`, the contract is
+`prd/PRD_01_13_display_scale_disclosure.md`.
 
-Why this comes before the image arm: the L1 self-hosted orchestration trial
-drove the WorkBuddy client's own GUI and found that the coordinates a model
-reads from a screenshot are **not** the physical desktop coordinates a click
-needs (about 1.25x on this host). Only a UIA control rectangle located the
-input box. An image arm without a coordinate basis would reproduce the same
-failure at higher bandwidth, so 0.0.10 publishes the scale as structured,
-read-only evidence first.
+Why this comes before the image arm: publishing the coordinate basis is a
+**precondition** for A5 (the model-visible image arm) and for cross-DPI /
+multi-monitor / scaled sessions, so no caller has to guess a ratio. An
+earlier L1 trial note claiming a ~1.25x screenshot/desktop mismatch was a
+controller misreading: CU self-reports `virtual_desktop`, `desktop` and PNG
+geometry consistently at 1680x1050, a click taken from CU's own image hit the
+target on the first try, and three-OS CI measures `scale` as `1` / `1` /
+`unknown` (macOS / Windows / Linux). The earlier misses came from mixing UIA,
+PIL and CU coordinate systems with focus never reaching the input box; they
+were not a DPI scale.
 
 ```text
-0.0.10 — display scale / coordinate-basis disclosure (planned)
-├── [_] E5a `environment.display_scales[]` + `observe.displays[].scale`
+0.0.10 — display scale / coordinate-basis disclosure (implemented;
+          public signed Release pending)
+├── [v] E5a `environment.display_scales[]` + `observe.displays[].scale`
+│        delivered in 0.0.10 with three-OS CI evidence
 │        read-only DPI/backing-scale probe, four backends, unknown + reason
 │        no new capability row; matrix 12/10/8/0; cu-abi 1.0
 ├── [_] A5 / D2 model-visible image arm     unlock: PNG budget/retention

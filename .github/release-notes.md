@@ -41,51 +41,53 @@ with an RFC 3161 timestamp. `signing-receipt.json` records the before/after
 SHA-256 of each signed file, while `build-receipt.json` and the `.sha256`
 sidecars bind every other asset to the packed source.
 
-Version VERSION answers "why did that click not land" **before** a click is
-attempted, without ever asking for a permission. `op=disclose` gains two
-additive pieces of evidence on the existing capability:
+Version VERSION publishes the **coordinate basis** of the desktop: the ratio
+between the logical geometry a screenshot is expressed in and the physical
+geometry a pointer event needs. `op=disclose` gains
+`evidence["environment"]["display_scales"]`, one row per display with `index`,
+`logical_rect`, `physical_rect`, `scale` and an optional `reason`, and every
+`observe` display carries the same `scale`. `scale` is one of a bounded typed
+set -- `1`, `1.25`, `1.5`, `2`, `3` or `unknown`. A cell that cannot probe
+safely publishes `unknown` with a non-empty `reason` naming the OS and the
+failed symbol; it never publishes a plausible `1`. For a known scale
+`physical_rect` equals `logical_rect * scale` in exact integer arithmetic.
+Rows are bounded (16 rows, 160 characters per reason), indexed from zero in
+`displays[]` order; no display id, device name, path or user name is published.
 
-- `environment` — `platform`, `session` (a coarse kind: `gui` / `remote` /
-  `headless` / `unknown`), `display_count`, `virtual_desktop` (x, y, width,
-  height) and `foreground_present`. No window titles, user names, paths or
-  environment values are published; the session is reported as a kind, never
-  as the value of `$DISPLAY` or `XDG_SESSION_TYPE`.
-- `grants` — one typed row per named probe, each `name` / `status` /
-  optional `reason`. `status` comes from a four-value whitelist: `granted`,
-  `denied`, `unknown`, `not_applicable`. `unknown` ("could not be probed
-  safely") and `not_applicable` always carry a non-empty reason; `unknown` is
-  never reported as `granted`, and `denied` is never auto-escalated. Rows are
-  sorted by `name` and unique, and the probe set is bounded (8 rows, 160
-  characters per reason) so a disclosure cannot become a dump.
+Publishing this basis is a **precondition** for a later model-visible image
+arm and for cross-DPI / multi-monitor / scaled sessions -- a caller no longer
+has to guess a ratio. It is not the fix for a DPI fault: an earlier trial note
+claiming a ~1.25x screenshot/desktop mismatch was a controller misreading. CU
+self-reports `virtual_desktop`, `desktop` and PNG geometry consistently at
+1680x1050, a click taken from CU's own image hit the target on the first try,
+and the three-OS CI measures `scale` as `1` / `1` / `unknown` (macOS /
+Windows / Linux). The earlier missed clicks came from mixing UIA, PIL and CU
+coordinate systems with focus never reaching the input box.
 
-Every probe is **preflight only**. macOS resolves
-`CGPreflightScreenCaptureAccess`, `CGPreflightPostEventAccess` and
-`AXIsProcessTrusted` -- the `...WithOptions` prompt variants are deliberately
-never called; Linux resolves `XOpenDisplay` and `libXtst` at runtime and
-reports whether an input-posting symbol is reachable; Windows reports the
-foreground window and input-desktop state; the unlisted-OS fallback reports
-every probe `not_applicable` with a named reason. No permission is requested,
-no TCC dialog is raised, no privilege is elevated, and no input event is
-posted: the whole path is a read. A malformed probe set publishes no partial
-disclosure at all -- the call returns `not_performed` instead.
-
-Four native backends implement the same two functions
-(`native::environment()` and `native::grants()`), and
-`scripts/cu-cfg-check.py` type-checks all four configurations, so a signature
-drift cannot hide behind a `cfg`. `cu-abi 1.0`, the wire action enum and the
-capability matrix (windows 12/12, linux 10/12, macos 8/12, other 0/12) are
-unchanged: this is additive evidence on `disclose`, not a new capability row,
-and `disclose` still works even when computer use was never granted.
+Every probe is **read-only preflight**. Windows resolves `GetDpiForSystem`,
+`GetDpiForWindow` and `GetSystemMetricsForDpi`; macOS resolves
+`backingScaleFactor` through the existing dlopen/dlsym helper; Linux performs
+a read-only `Xft.dpi` / `XRRScreenResources` query and names pure Wayland as
+`unknown`; the unlisted-OS fallback reports one named `unknown` row. No probe
+changes a display mode, DPI setting or process DPI awareness, requests a
+permission, raises a dialog or elevates. Four native backends implement the
+same `native::display_scales()` signature, and `scripts/cu-cfg-check.py`
+type-checks all four configurations, so a signature drift cannot hide behind
+a `cfg`. `cu-abi 1.0`, the wire action enum and the capability matrix
+(windows 12/12, linux 10/12, macos 8/12, other 0/12) are unchanged: this is
+additive evidence on `disclose`, not a new capability row, and `disclose`
+still works even when computer use was never granted. A malformed scale set
+publishes no partial disclosure at all -- the call returns `not_performed`.
 
 CI makes the disclosure a required step rather than a claim:
-`.github/workflows/cu-journeys.yml` drives `disclose_grants` on all three
-OSes, and the independent reader recomputes `environment` (platform matching
-the journey's own, a non-empty session, a positive `display_count`, a boolean
-`foreground_present`, positive virtual-desktop width and height), the
-`grants[]` whitelist, the reason rule, the sort order and uniqueness, and
-checks that no row contradicts an effect the same journey performed -- all on
-top of every 0.0.6/0.0.7/0.0.8 assertion (receipts, `path_points`, both scroll
-axes, held keys, generations, live final frame, declared-but-skipped rule,
+`.github/workflows/cu-journeys.yml` drives `disclose_scales` on all three
+OSes, and the independent reader recomputes every row's six-value whitelist,
+the exact `physical_rect == logical_rect * scale` relation, the `unknown`
+reason rule, zero-based continuous indices and the 16-row / 160-char bounds,
+plus the same additive fields on every other performed disclosure and
+observation -- all on top of every 0.0.6/0.0.7/0.0.8/0.0.9 assertion
+(receipts, `path_points`, both scroll axes, held keys, `grants[]`,
+`environment`, generations, live final frame, declared-but-skipped rule,
 BOUNDARY). A `BOUNDARY` note excuses nothing: a missing or inconsistent
 disclosure fails the journey.
 

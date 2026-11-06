@@ -64,7 +64,7 @@ That last sentence is the whole boundary.
 | Delivered | virtual desktop rect, `displays[]` incl. negative coordinates, ordered `windows[]` (handle, pid, rect, state, class, title), one PNG under the task root (desktop / window / region, scale 1..8), typed Win32 child `controls[]` (label, class-derived role, text, rect, visible, enabled) |
 | Bounds | 64 windows, 16 MiB PNG, scale 8, 12 retained captures, 8192 px per region side, 128 controls, 256 chars of control text, 200 ms per `WM_GETTEXT` |
 | Honesty | a capture is a **local artifact**; the model reads its path, not its pixels. A self-drawn UI reports zero controls and says why |
-| Gaps | accessibility trees (A4), image arm in the wire codec (A5 / D2), environment enum in `disclose` (E3) |
+| Gaps | accessibility trees (A4), image arm in the wire codec (A5 / D2); the environment enum (E3, 0.0.9) and the display-scale basis (E5a, 0.0.10) are delivered |
 | Owner | `PRD_01_03` (pixel arm), `PRD_01_05` (control arm), `PRD_01_06` (three backends) |
 
 ### M — mouse / pointer `[v]`
@@ -92,7 +92,7 @@ This is **target binding**, not a window manager.
 
 | | |
 |---|---|
-| Delivered | `observe` generations with pinned `as_of`, stale refusal, foreground evidence, six typed verdicts, 32 retained receipts, per-OS 12/10/8/0 capability matrix in `disclose`; since 0.0.9 `disclose` also publishes read-only `evidence["environment"]` (platform, session, display_count, virtual_desktop, foreground_present) and `evidence["grants"]` (one typed row per probe: name, status, reason?) |
+| Delivered | `observe` generations with pinned `as_of`, stale refusal, foreground evidence, six typed verdicts, 32 retained receipts, per-OS 12/10/8/0 capability matrix in `disclose`; since 0.0.9 `disclose` also publishes read-only `evidence["environment"]` (platform, session, display_count, virtual_desktop, foreground_present) and `evidence["grants"]` (one typed row per probe: name, status, reason?); since 0.0.10 `environment.display_scales[]` (index, logical_rect, physical_rect, scale, reason?) and `observe.displays[].scale` state the coordinate basis, with a bounded six-value scale set and a named `unknown` for a cell that cannot probe |
 | Preconditions, not managed objects | `$DISPLAY`, Screen Recording, Input Monitoring, Accessibility, UIPI; a missing grant is a named `unsupported` refusal, never an auto-escalation; 0.0.9 can now *read* those preconditions with preflight-only symbols -- reading them never requests one |
 | Gaps | session continuity beyond `as_of` (D3) |
 | Non-goals | `[no]` takeover / owner-lock / watch mode (C7), `[no]` a service identity or resident session owner |
@@ -164,7 +164,7 @@ prd/
 ├── PRD_01_10_held_key_modifiers.md  [v] 0.0.8 held-key modifiers
 ├── PRD_01_11_grant_disclosure.md    [v] 0.0.9 grant/environment disclosure
 ├── PRD_01_12_self_hosted_orchestration.md  [_] L0-L3 levels + end state
-├── PRD_01_13_display_scale_disclosure.md   [_] 0.0.10 coordinate basis
+├── PRD_01_13_display_scale_disclosure.md   [v] 0.0.10 coordinate basis
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 

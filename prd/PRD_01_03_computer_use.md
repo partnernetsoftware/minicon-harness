@@ -88,11 +88,16 @@ screen
 │   │        (owned by prd/PRD_01_04_cu_base.md, `src/cu.rs`)
 │   ├── [v] `environment`: platform / session / display_count /
 │   │        virtual_desktop / foreground_present               (0.0.9)
-│   └── [v] `grants[]`: one typed row per probe — name, status, reason?;
-│            status is granted | denied | unknown | not_applicable,
-│            `unknown` and `not_applicable` always carry a non-empty reason,
-│            rows sorted by name and unique, read-only preflight only
-│            (prd/PRD_01_11_grant_disclosure.md)                (0.0.9)
+│   ├── [v] `grants[]`: one typed row per probe — name, status, reason?;
+│   │        status is granted | denied | unknown | not_applicable,
+│   │        `unknown` and `not_applicable` always carry a non-empty reason,
+│   │        rows sorted by name and unique, read-only preflight only
+│   │        (prd/PRD_01_11_grant_disclosure.md)                (0.0.9)
+│   └── [v] `environment.display_scales[]` + `observe.displays[].scale`:
+│            one row per display (index, logical_rect, physical_rect, scale,
+│            reason?), scale in 1 | 1.25 | 1.5 | 2 | 3 | unknown, `unknown`
+│            with a non-empty reason, physical == logical * scale, read-only
+│            preflight (prd/PRD_01_13_display_scale_disclosure.md) (0.0.10)
 └── op=act [v] — exactly one operation per call, `why` required
     ├── [v] focus        window                          (live-handle + foreground readback)
     ├── [v] move         window, x, y, width, height      (rect readback, 4 px tolerance)
@@ -190,6 +195,7 @@ desktop geometry named.
 | `[v]` richer actuation | 0.0.7 drives a three-point drag and both wheel axes as required steps on all three OSes; the independent reader recomputes the last point, `path_points` and both axes | `prd/PRD_01_09_richer_actuation.md` |
 | `[v]` held-key modifiers | 0.0.8 drives hold / disclose / release / disclose on all three OSes, plus a final empty-set disclosure; the independent reader recomputes the held set, the release and the absence of a button receipt | `prd/PRD_01_10_held_key_modifiers.md` |
 | `[v]` grant and environment disclosure | 0.0.9 adds read-only `evidence["environment"]` and typed `evidence["grants"]` to `op=disclose`; the three-OS journey makes `disclose_grants` a required step and the independent reader recomputes both fields, the four-value whitelist, the reason rule, the sort order and uniqueness. Probes are preflight-only: no permission request, no TCC prompt, no elevation | `prd/PRD_01_11_grant_disclosure.md`; no new capability row, matrix 12/10/8/0 and cu-abi 1.0 unchanged |
+| `[v]` display scale / coordinate-basis disclosure | 0.0.10 adds read-only `evidence["environment"]["display_scales"]` and `observe.displays[].scale`; the three-OS journey makes `disclose_scales` a required step and the independent reader recomputes the six-value set, `physical_rect == logical_rect * scale`, the reason rule, 0-based continuous indices and the 16-row / 160-char bounds, on top of every earlier assertion | `prd/PRD_01_13_display_scale_disclosure.md`; no new capability row, matrix 12/10/8/0 and cu-abi 1.0 unchanged |
 
 ## Where this goes next
 

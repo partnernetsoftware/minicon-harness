@@ -71,6 +71,10 @@ L2 self-sustained loop                                     [_] not shipped
    why A4: the WorkBuddy client is Electron / Chromium, so the typed Win32
            child-control enumeration of A2 does not reach its rendered UI;
            reliable location needs an a11y tree or an image-based target
+   why B7b (hard evidence, not a model-capability gap): in the L1 trial an
+           `observe` issued immediately after an `act` captured the
+           pre-reflow Chromium frame; `type` and its send click had to be
+           split into separate runs before the new state was visible
    every turn still carries generation / as_of, a receipt and a readback
    unlock: each item keeps its own PRD, gate and owner decision
 
@@ -113,15 +117,18 @@ human-supervised sequence of single acts, which is what L1 already is.
 
 ## Effect on version planning
 
-- `plan/plan-0.0.9-grant-disclosure.md` and its W1-W4 are **unchanged**; the
-  four version sources stay at `0.0.8` until W4 of that plan runs. E3 / E4
-  read-only disclosure is itself a precondition of the end state: without a
-  typed grant status, a controller cannot tell why a click did not land.
-- `0.0.10` and later are **not planned**. The candidate pool is now *ordered*
-  by what the L2/L3 loop needs: A5 / D2 -> B7b + D4 -> A4 -> F3 -> C5 / C6,
-  with B8 and the other 0.7.x chapters keeping their recorded unlock
-  conditions. Ordering is a reason to consider an item first, **not a version
-  commitment**.
+- `v0.0.9` is a published, accepted signed Release. Its E3 / E4 read-only
+  disclosure is a precondition of the end state: without a typed grant status,
+  a controller cannot tell why a click did not land. `0.0.10` has now
+  delivered the coordinate basis (E5a) with three-OS CI evidence: W1-W3 are
+  closed and W4 (the version bump and public signed Release) is pending, so
+  the four version sources still read `0.0.9`. Later versions are **not
+  planned**.
+- The candidate pool stays *ordered* by what the L2/L3 loop needs: A5 / D2 ->
+  B7b + D4 -> A4 -> F3 -> C5 / C6, with B8 and the other 0.7.x chapters
+  keeping their recorded unlock conditions. B7b leads with the hard evidence
+  above, not with a model-capability claim. Ordering is a reason to consider
+  an item first, **not a version commitment**.
 - Each candidate still needs its own PRD, its own gate, an owner decision and a
   version plan that carries the gate before it enters a version. The next
   version is planned only after the previous one is published as a public

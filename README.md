@@ -70,14 +70,35 @@ matrix unchanged, and it works **even when computer use was not granted**. A
 malformed probe set publishes no partial disclosure at all (`not_performed`).
 Contract: [`prd/PRD_01_11_grant_disclosure.md`](prd/PRD_01_11_grant_disclosure.md).
 
+**Display scale / coordinate-basis disclosure (0.0.10).** `op=disclose` now
+publishes `evidence["environment"]["display_scales"]`, one row per display
+with `index`, `logical_rect`, `physical_rect`, `scale` and an optional
+`reason`, and every `observe` display carries the same `scale`. `scale` is a
+bounded typed set -- `1`, `1.25`, `1.5`, `2`, `3` or `unknown` -- and a cell
+that cannot probe safely publishes `unknown` with a non-empty `reason` naming
+the OS and the failed symbol, never a plausible `1`. For a known scale
+`physical_rect` equals `logical_rect * scale` in exact integer arithmetic;
+rows are bounded (16 rows, 160-character reasons), indexed from zero and
+unique. Every probe is **read-only preflight**: `GetDpiForSystem` /
+`GetDpiForWindow` / `GetSystemMetricsForDpi` on Windows, `backingScaleFactor`
+on macOS, a read-only `Xft.dpi` / `XRRScreenResources` query on Linux, and one
+named `unknown` row on the fallback. No display mode, DPI setting, DPI
+awareness or OS grant is changed, no permission is requested and no dialog
+appears. This is additive evidence on the existing `disclose` capability: no
+new capability row, `cu-abi 1.0` and the 12/10/8/0 matrix unchanged, and it
+works **even when computer use was not granted**. A malformed scale set
+publishes no partial disclosure at all (`not_performed`). Contract:
+[`prd/PRD_01_13_display_scale_disclosure.md`](prd/PRD_01_13_display_scale_disclosure.md).
+
 Above the mechanisms sits a **versioned host capability contract**
 (`src/cu.rs`, `prd/PRD_01_04_cu_base.md`): cu-abi 1.0, a discoverable
 capability manifest, typed inputs/outputs, observation generations with
 pinned `as_of`, six verdicts (`performed` / `not_performed` / `unknown` /
 `refused` / `unsupported` / `stale`) and an evidence receipt per call.
 `op=disclose` reports the ABI, grant, capabilities and receipts, plus the
-read-only `environment` probe and the typed `grants[]` rows -- and works
-even when computer use was not granted. It is the host-side seam for later
+read-only `environment` probe, the typed `grants[]` rows and the
+`environment.display_scales[]` rows (with `observe.displays[].scale`) -- and
+works even when computer use was not granted. It is the host-side seam for later
 `unisa + ujs` dynamic logic; no script runtime is embedded.
 
 Migrated from the proven prototype in `minicon` (`src/harness.rs` +
