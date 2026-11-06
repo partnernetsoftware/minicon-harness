@@ -384,6 +384,59 @@ def main() -> int:
     #     rule, the 16-row bound, zero-based continuous indices and the
     #     160-char reason bound. Any contradiction is not_performed and fails
     #     the journey. No earlier 0.0.6-0.0.9 assertion is weakened here.
+    # 0.0.11: recompute the structured accessibility scan. A refused scan
+    # must publish an empty tree plus a named reason; a successful scan must
+    # publish real rows whose rectangles, roles, depths and bound are all
+    # checked here. No cell may report success with an empty tree.
+    a11y_roles = {
+        "button", "checkbox", "client", "combobox", "dialog", "document",
+        "graphic", "group", "label", "list", "listitem", "menubar",
+        "menuitem", "separator", "slider", "tab", "tabitem", "textbox",
+        "toolbar", "unknown", "window",
+    }
+    a11y = by_step.get("observe_a11y")
+    check(a11y is not None,
+          "observe_a11y: required 0.0.11 step is missing")
+    check(a11y is not None and a11y.get("verdict") == "performed",
+          "observe_a11y: the scan was not performed; BOUNDARY cannot excuse it")
+    if a11y and a11y.get("verdict") == "performed":
+        ev = a11y.get("evidence", {})
+        rows = ev.get("a11y_controls")
+        reason = ev.get("a11y_reason")
+        source = ev.get("a11y_source")
+        check(isinstance(rows, list),
+              f"observe_a11y: a11y_controls={rows!r}, expected a list")
+        if reason is not None:
+            check(isinstance(reason, str) and reason.strip() != "",
+                  "observe_a11y: a refused scan needs a non-empty reason")
+            check(isinstance(rows, list) and len(rows) == 0,
+                  "observe_a11y: a refused scan published control rows")
+        else:
+            check(isinstance(source, str) and source.strip() != "",
+                  "observe_a11y: a successful scan needs its resolved source")
+            check(isinstance(rows, list) and len(rows) >= 1,
+                  "observe_a11y: a successful scan published no controls")
+        if isinstance(rows, list):
+            check(len(rows) <= 400,
+                  f"observe_a11y: {len(rows)} rows exceed the 400 bound")
+            for i, row in enumerate(rows):
+                check(isinstance(row, dict),
+                      f"observe_a11y: row {i} is not an object")
+                if not isinstance(row, dict):
+                    continue
+                check(row.get("role_name") in a11y_roles,
+                      f"observe_a11y: row {i} role_name={row.get('role_name')!r} "
+                      f"is outside the coarse role set")
+                depth = row.get("depth")
+                check(isinstance(depth, int) and not isinstance(depth, bool)
+                      and 0 <= depth <= 12,
+                      f"observe_a11y: row {i} depth={depth!r} is outside 0..12")
+                check(isinstance(row.get("name"), str),
+                      f"observe_a11y: row {i} name is not a string")
+                check(rect_values(row.get("rect")) is not None,
+                      f"observe_a11y: row {i} rect is not an int rect: "
+                      f"{row.get('rect')!r}")
+
     scale_disclosure = by_step.get("disclose_scales")
     check(scale_disclosure is not None,
           "disclose_scales: required 0.0.10 step is missing")

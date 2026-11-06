@@ -227,6 +227,62 @@ pub enum ControlTarget {
     Window(String),
 }
 
+/// Which window a structured accessibility scan reads. A raw handle is the
+/// only unambiguous identity when two windows share a title.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum A11yTarget {
+    Foreground,
+    Handle(u64),
+}
+
+/// Bounds for one accessibility scan. Both are published with the frame so a
+/// reader can tell a bounded inventory from a complete one.
+pub const SCREEN_TOOL_MAX_A11Y_CONTROLS: usize = 400;
+pub const SCREEN_TOOL_MAX_A11Y_DEPTH: usize = 12;
+
+/// One node of a read-only MSAA/IAccessible tree. Coordinates are virtual
+/// desktop pixels, the same basis as `windows[]` and the PNG capture arm.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct A11yControl {
+    pub name: String,
+    pub role: i32,
+    pub role_name: &'static str,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub depth: u32,
+    pub child_id: i32,
+}
+
+/// MSAA `ROLE_SYSTEM_*` values -> the same coarse vocabulary as Win32 classes.
+/// Unknown roles stay `unknown` instead of being guessed.
+pub fn a11y_role_name(role: i32) -> &'static str {
+    match role {
+        2 => "menubar",
+        9 => "window",
+        10 => "client",
+        12 => "menuitem",
+        15 => "document",
+        18 => "dialog",
+        20 => "group",
+        21 => "separator",
+        22 => "toolbar",
+        33 => "list",
+        34 => "listitem",
+        37 => "tab",
+        40 => "graphic",
+        41 => "label",
+        42 => "textbox",
+        43 => "button",
+        44 => "checkbox",
+        46 => "combobox",
+        47 => "slider",
+        50 => "tabitem",
+        _ => "unknown",
+    }
+}
+
 /// Win32 class name -> a coarse role. Deliberately a fixed table: no UIA, no
 /// provider registry, no guessing about third-party widget toolkits. Pure so
 /// every cell can test it, including cells that never qualify a desktop.
@@ -333,6 +389,16 @@ pub struct ScreenSnapshot {
     pub controls_source: Option<String>,
     /// True when [`SCREEN_TOOL_MAX_CONTROLS`] stopped the enumeration.
     pub controls_truncated: bool,
+    /// Structured accessibility tree, empty when the observe did not request
+    /// one. This is an additive arm: the Win32 `controls[]` above is unchanged.
+    pub a11y_controls: Vec<A11yControl>,
+    /// Which window the scan resolved to, or None when no scan happened.
+    pub a11y_source: Option<String>,
+    /// A named reason when the scan could not be produced. An empty tree is
+    /// never silently presented as a successful read.
+    pub a11y_reason: Option<String>,
+    /// True when [`SCREEN_TOOL_MAX_A11Y_CONTROLS`] stopped the walk.
+    pub a11y_truncated: bool,
     pub capture: Option<CaptureOutcome>,
 }
 
@@ -623,6 +689,7 @@ impl ScreenTool {
         capture: Option<CaptureTarget>,
         scale: u32,
         controls: Option<ControlTarget>,
+        a11y: Option<A11yTarget>,
     ) -> Result<ScreenSnapshot, String> {
         self.admit()?;
         if scale > SCREEN_TOOL_MAX_CAPTURE_SCALE {
@@ -678,6 +745,42 @@ impl ScreenTool {
                 (list, Some(format!("window:{:?}", window.title)), truncated)
             }
         };
+        // A structured scan is a separate, explicitly requested read. Its
+        // handle is re-validated against the live window list on every call;
+        // a stale handle is a named reason, never a silent best effort.
+        let (mut a11y_controls, mut a11y_source, mut a11y_reason, mut a11y_truncated) =
+            (Vec::new(), None, None, false);
+        if let Some(target) = a11y {
+            let live = native::windows().unwrap_or_default();
+            let resolved = match target {
+                A11yTarget::Foreground => live
+                    .iter()
+                    .find(|window| window.focused)
+                    .map(|window| (window.handle, window.title.clone())),
+                A11yTarget::Handle(handle) => live
+                    .iter()
+                    .find(|window| window.handle == handle)
+                    .map(|window| (window.handle, window.title.clone())),
+            };
+            match resolved {
+                None => {
+                    a11y_reason = Some(
+                        "screen: unknown: no live window matched the a11y target; observe again"
+                            .to_owned(),
+                    );
+                }
+                Some((handle, title)) => {
+                    a11y_source = Some(format!("handle:{handle} window:{title:?}"));
+                    match native::a11y_controls(handle) {
+                        Ok((rows, truncated)) => {
+                            a11y_controls = rows;
+                            a11y_truncated = truncated;
+                        }
+                        Err(reason) => a11y_reason = Some(reason),
+                    }
+                }
+            }
+        }
         let capture = match capture {
             Some(target) => Some(self.capture(target, scale)?),
             None => None,
@@ -695,6 +798,10 @@ impl ScreenTool {
             controls,
             controls_source,
             controls_truncated,
+            a11y_controls,
+            a11y_source,
+            a11y_reason,
+            a11y_truncated,
             capture,
         })
     }
@@ -708,7 +815,7 @@ impl ScreenTool {
         scale: u32,
         controls: Option<ControlTarget>,
     ) -> Result<String, String> {
-        Ok(self.snapshot(title, capture, scale, controls)?.to_text())
+        Ok(self.snapshot(title, capture, scale, controls, None)?.to_text())
     }
 
     /// Performs exactly one operation. Nothing here retries: an operation is
@@ -2542,6 +2649,285 @@ mod native {
         Ok((collector.controls, collector.truncated))
     }
 
+
+    /// Read-only MSAA/IAccessible tree for self-drawn (Chromium/Electron)
+    /// windows, where `EnumChildWindows` reports only the render widget.
+    /// Hand-written COM bindings, no new crate, no OS grant request, no
+    /// elevation, no writes to the target process.
+    pub fn a11y_controls(handle: u64) -> Result<(Vec<super::A11yControl>, bool), String> {
+        msaa::scan(handle)
+    }
+
+    mod msaa {
+        use super::super::{
+            a11y_role_name, A11yControl, SCREEN_TOOL_MAX_A11Y_CONTROLS,
+            SCREEN_TOOL_MAX_A11Y_DEPTH,
+        };
+        use std::ffi::c_void;
+
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct Guid {
+            a: u32,
+            b: u16,
+            c: u16,
+            d: [u8; 8],
+        }
+
+        /// Win64 VARIANT is 24 bytes: an 8-byte header plus a 16-byte union.
+        /// A 16-byte definition corrupts the stack when COM writes through it.
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct Variant {
+            vt: u16,
+            r1: u16,
+            r2: u16,
+            r3: u16,
+            data: [u8; 16],
+        }
+
+        impl Variant {
+            fn i4(value: i32) -> Self {
+                let mut v = Self { vt: 3, r1: 0, r2: 0, r3: 0, data: [0; 16] };
+                v.data[..4].copy_from_slice(&value.to_ne_bytes());
+                v
+            }
+            fn empty() -> Self {
+                Self { vt: 0, r1: 0, r2: 0, r3: 0, data: [0; 16] }
+            }
+            fn dispatch(&self) -> *mut c_void {
+                let mut bytes = [0u8; 8];
+                bytes.copy_from_slice(&self.data[..8]);
+                i64::from_ne_bytes(bytes) as isize as *mut c_void
+            }
+            fn i4_value(&self) -> i32 {
+                let mut bytes = [0u8; 4];
+                bytes.copy_from_slice(&self.data[..4]);
+                i32::from_ne_bytes(bytes)
+            }
+        }
+
+        const IID_IACCESSIBLE: Guid = Guid {
+            a: 0x6187_36E0,
+            b: 0x3C3D,
+            c: 0x11CF,
+            d: [0x81, 0x0C, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71],
+        };
+        const OBJID_CLIENT: u32 = 0xFFFF_FFFC;
+        const VT_DISPATCH: u16 = 9;
+        const VT_I4: u16 = 3;
+
+        // `EnumChildWindows` and `GetClassNameW` are already declared by the
+        // parent native module. Reusing them keeps one signature per symbol.
+        #[link(name = "ole32")]
+        extern "system" {
+            fn CoInitializeEx(reserved: *mut c_void, mode: u32) -> i32;
+            fn CoUninitialize();
+        }
+        #[link(name = "oleacc")]
+        extern "system" {
+            fn AccessibleObjectFromWindow(
+                window: *mut c_void,
+                object_id: u32,
+                iid: *const Guid,
+                out: *mut *mut c_void,
+            ) -> i32;
+            fn AccessibleChildren(
+                object: *mut c_void,
+                start: i32,
+                count: i32,
+                out: *mut Variant,
+                obtained: *mut i32,
+            ) -> i32;
+        }
+
+        unsafe fn slot(object: *mut c_void, index: usize) -> usize {
+            let table = *(object as *const *const usize);
+            *table.add(index)
+        }
+
+        unsafe fn name(object: *mut c_void, child: Variant) -> String {
+            type F = unsafe extern "system" fn(*mut c_void, Variant, *mut *mut u16) -> i32;
+            let function: F = std::mem::transmute(slot(object, 10));
+            let mut bstr: *mut u16 = std::ptr::null_mut();
+            if function(object, child, &mut bstr) != 0 || bstr.is_null() {
+                return String::new();
+            }
+            let bytes = *((bstr as *const u8).offset(-4) as *const u32) as usize;
+            let text = std::slice::from_raw_parts(bstr, (bytes / 2).min(256));
+            String::from_utf16_lossy(text)
+        }
+
+        unsafe fn role(object: *mut c_void, child: Variant) -> i32 {
+            type F = unsafe extern "system" fn(*mut c_void, Variant, *mut Variant) -> i32;
+            let function: F = std::mem::transmute(slot(object, 13));
+            let mut value = Variant::empty();
+            if function(object, child, &mut value) != 0 {
+                -1
+            } else {
+                value.i4_value()
+            }
+        }
+
+        unsafe fn rect(object: *mut c_void, child: Variant) -> [i32; 4] {
+            type F = unsafe extern "system" fn(
+                *mut c_void,
+                *mut i32,
+                *mut i32,
+                *mut i32,
+                *mut i32,
+                Variant,
+            ) -> i32;
+            let function: F = std::mem::transmute(slot(object, 22));
+            let (mut x, mut y, mut w, mut h) = (0i32, 0i32, 0i32, 0i32);
+            if function(object, &mut x, &mut y, &mut w, &mut h, child) != 0 {
+                [0, 0, 0, 0]
+            } else {
+                [x, y, w, h]
+            }
+        }
+
+        unsafe fn child_count(object: *mut c_void) -> i32 {
+            type F = unsafe extern "system" fn(*mut c_void, *mut i32) -> i32;
+            let function: F = std::mem::transmute(slot(object, 8));
+            let mut count = 0i32;
+            if function(object, &mut count) != 0 { 0 } else { count }
+        }
+
+        unsafe fn release(object: *mut c_void) {
+            type F = unsafe extern "system" fn(*mut c_void) -> u32;
+            let function: F = std::mem::transmute(slot(object, 2));
+            function(object);
+        }
+
+        struct Walk {
+            rows: Vec<A11yControl>,
+            truncated: bool,
+        }
+
+        unsafe fn walk(
+            object: *mut c_void,
+            child: Variant,
+            depth: usize,
+            expand: bool,
+            out: &mut Walk,
+        ) {
+            if out.rows.len() >= SCREEN_TOOL_MAX_A11Y_CONTROLS {
+                out.truncated = true;
+                return;
+            }
+            let role_value = role(object, child);
+            let [x, y, width, height] = rect(object, child);
+            out.rows.push(A11yControl {
+                name: name(object, child),
+                role: role_value,
+                role_name: a11y_role_name(role_value),
+                x,
+                y,
+                width,
+                height,
+                depth: depth as u32,
+                child_id: child.i4_value(),
+            });
+            if !expand || depth >= SCREEN_TOOL_MAX_A11Y_DEPTH {
+                return;
+            }
+            let count = child_count(object).min(SCREEN_TOOL_MAX_A11Y_CONTROLS as i32);
+            if count <= 0 {
+                return;
+            }
+            let mut buffer = vec![Variant::empty(); count as usize];
+            let mut obtained = 0i32;
+            if AccessibleChildren(
+                object,
+                0,
+                count,
+                buffer.as_mut_ptr(),
+                &mut obtained,
+            ) != 0
+            {
+                return;
+            }
+            for index in 0..obtained as usize {
+                if out.rows.len() >= SCREEN_TOOL_MAX_A11Y_CONTROLS {
+                    out.truncated = true;
+                    return;
+                }
+                let item = buffer[index];
+                if item.vt == VT_DISPATCH {
+                    let pointer = item.dispatch();
+                    if !pointer.is_null() {
+                        walk(pointer, Variant::i4(0), depth + 1, true, out);
+                        release(pointer);
+                    }
+                } else if item.vt == VT_I4 {
+                    // A simple child has no vtable of its own: read it through
+                    // its parent, but do not enumerate the parent's children
+                    // again under that child id.
+                    walk(object, item, depth + 1, false, out);
+                }
+            }
+        }
+
+        extern "system" fn collect_child(window: *mut c_void, param: isize) -> i32 {
+            unsafe {
+                let found = &mut *(param as *mut Vec<*mut c_void>);
+                let mut class = [0u16; 128];
+                let length = super::GetClassNameW(
+                    window,
+                    class.as_mut_ptr(),
+                    class.len() as i32,
+                );
+                let class = String::from_utf16_lossy(&class[..length.max(0) as usize]);
+                if class.contains("Chrome_RenderWidgetHostHWND") {
+                    found.push(window);
+                }
+            }
+            1
+        }
+
+        pub(super) fn scan(handle: u64) -> Result<(Vec<A11yControl>, bool), String> {
+            let window = handle as usize as *mut c_void;
+            unsafe {
+                let initialized = CoInitializeEx(std::ptr::null_mut(), 2);
+                if initialized < 0 {
+                    return Err(format!(
+                        "screen: unknown: COM could not be initialised for an a11y scan \
+                         (HRESULT {initialized:#010x})"
+                    ));
+                }
+                let mut children: Vec<*mut c_void> = Vec::new();
+                super::EnumChildWindows(
+                    window,
+                    collect_child,
+                    &mut children as *mut _ as isize,
+                );
+                // The render widget is the usual host; when it is absent still
+                // try the top-level window itself.
+                if children.is_empty() {
+                    children.push(window);
+                }
+                let mut out = Walk { rows: Vec::new(), truncated: false };
+                for child in children {
+                    let mut object: *mut c_void = std::ptr::null_mut();
+                    let hr = AccessibleObjectFromWindow(
+                        child,
+                        OBJID_CLIENT,
+                        &IID_IACCESSIBLE,
+                        &mut object,
+                    );
+                    if hr == 0 && !object.is_null() {
+                        walk(object, Variant::i4(0), 0, true, &mut out);
+                        release(object);
+                    }
+                }
+                CoUninitialize();
+                out.rows.sort_by_key(|row| (row.depth, row.y, row.x));
+                Ok((out.rows, out.truncated))
+            }
+        }
+    }
+
     pub fn windows() -> Result<Vec<WindowInfo>, String> {
         let mut collector = Collector {
             windows: Vec::new(),
@@ -3124,6 +3510,11 @@ macro_rules! refusing_backend {
         }
         pub fn controls(_handle: u64) -> Result<(Vec<ControlInfo>, bool), String> {
             Err(unsupported("observe controls"))
+        }
+        pub fn a11y_controls(
+            _handle: u64,
+        ) -> Result<(Vec<super::A11yControl>, bool), String> {
+            Err(unsupported("observe a11y"))
         }
         pub fn handle_is_live(_handle: u64, _title: &str) -> Result<(), String> {
             Err(unsupported("window liveness"))

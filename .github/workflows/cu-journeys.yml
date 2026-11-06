@@ -8,7 +8,11 @@
 # 0.0.8 held-key steps are required on every OS that declares the verb; the
 # 0.0.9 disclose_grants and 0.0.10 disclose_scales steps are required on all
 # three OSes because disclosure is pure information and never requests an OS
-# grant. The reader recomputes the path's last point, path_points, both wheel
+# grant. The 0.0.11 observe_a11y step is required on all three OSes: a cell
+# without the platform accessibility API must publish an empty tree plus a
+# named reason, never a guessed tree. The reader recomputes every a11y row's
+# role, depth, name and rectangle and rejects a refused scan with rows.
+# The reader also recomputes the path's last point, path_points, both wheel
 # axes, the host's held-key state, the environment shape, every grant row and
 # every display-scale row (six-value set, physical = logical * scale, reason
 # rule), without weakening any 0.0.6 check.

@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 //! # minicon-harness
 //!
 //! A minimal bounded agent loop with exactly three tools: `file`, `exec` and

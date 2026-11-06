@@ -767,6 +767,17 @@ pub fn handle_is_live(handle: u64, title: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn a11y_controls(
+    _handle: u64,
+) -> Result<(Vec<crate::screen::A11yControl>, bool), String> {
+    Err(
+        "cu: unsupported: the structured a11y arm needs the platform's \
+         accessibility API (AT-SPI on linux, AX on macos); no tree was \
+         produced."
+            .to_owned(),
+    )
+}
+
 pub fn controls(_handle: u64) -> Result<(Vec<ControlInfo>, bool), String> {
     Err(
         "cu: unsupported: observe arm \"controls\" is not implemented by the macos backend; \

@@ -334,6 +334,18 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                                             accessibility tree; self-drawn UIs report zero \
                                             controls. Omit it to skip the scan entirely."
                         },
+                        "a11y": {
+                            "description": "For op=observe: true scans the foreground \
+                                            window's structured accessibility controls, or \
+                                            give a live window hwnd (integer from a prior \
+                                            observe) to scan exactly that window when titles \
+                                            are ambiguous. Each row publishes name, MSAA role, \
+                                            role_name, rect in virtual-desktop coordinates, \
+                                            depth and child_id. Read-only, bounded, and never \
+                                            an OS grant request. On cells without the platform \
+                                            accessibility API the scan publishes an empty list \
+                                            plus a named a11y_reason, never a guessed tree."
+                        },
                         "scale": {
                             "type": "integer",
                             "description": "For op=observe with a capture: integer 1..8 \

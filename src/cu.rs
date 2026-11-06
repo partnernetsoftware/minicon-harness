@@ -30,7 +30,8 @@
 //! typed contract and refuse by name -- the ABI does not promise a desktop.
 
 use crate::screen::{
-    resolve_control, Act, Actuation, CaptureTarget, ClickButton, ControlInfo, ControlTarget,
+    resolve_control, Act, Actuation, A11yTarget, CaptureTarget, ClickButton, ControlInfo,
+    ControlTarget,
     DisplayScaleProbe, EnvironmentProbe, GrantProbe, Modifier, ScreenSnapshot, ScreenTool,
     WindowInfo, SCREEN_TOOL_HELD_MODIFIERS, SCREEN_TOOL_MAX_CAPTURE_SCALE,
     SCREEN_TOOL_MAX_HELD_MODIFIERS, SCREEN_TOOL_MAX_TYPE_CHARS,
@@ -76,6 +77,8 @@ pub enum CuType {
     Capture,
     /// `true` scans the foreground window, a string names one window.
     ControlScan,
+    /// `true` scans the foreground window, an integer names a live hwnd.
+    A11yScan,
     Button,
     /// An array of `[x,y]` integer pairs, bounded by the drag path limit.
     Path,
@@ -89,6 +92,7 @@ impl CuType {
             Self::String => "string",
             Self::Capture => "capture",
             Self::ControlScan => "control-scan",
+            Self::A11yScan => "a11y-scan",
             Self::Button => "button",
             Self::Path => "int-pair-array",
         }
@@ -114,6 +118,7 @@ const P_WINDOW: CuParam = CuParam { name: "window", ty: CuType::String, required
 const P_CAPTURE: CuParam = CuParam { name: "capture", ty: CuType::Capture, required: false };
 const P_CONTROLS: CuParam =
     CuParam { name: "controls", ty: CuType::ControlScan, required: false };
+const P_A11Y: CuParam = CuParam { name: "a11y", ty: CuType::A11yScan, required: false };
 const P_CONTROL: CuParam = CuParam { name: "control", ty: CuType::String, required: true };
 const P_PRESS: CuParam = CuParam { name: "press", ty: CuType::Bool, required: false };
 const P_SCALE: CuParam = CuParam { name: "scale", ty: CuType::Int, required: false };
@@ -149,7 +154,7 @@ pub const CAPABILITIES: &[CuCapability] = &[
         name: "observe",
         kind: CuKind::Observe,
         summary: "Read virtual-desktop geometry, displays and windows; optionally publish one bounded PNG or scan one window's typed controls.",
-        params: &[P_WINDOW, P_CAPTURE, P_CONTROLS, P_SCALE],
+        params: &[P_WINDOW, P_CAPTURE, P_CONTROLS, P_A11Y, P_SCALE],
     },
     CuCapability {
         name: "disclose",
@@ -373,6 +378,12 @@ impl CuFrame {
             .collect();
         let windows: Vec<Value> = self.snapshot.windows.iter().map(window_json).collect();
         let controls: Vec<Value> = self.snapshot.controls.iter().map(control_json).collect();
+        let a11y_controls: Vec<Value> = self
+            .snapshot
+            .a11y_controls
+            .iter()
+            .map(a11y_control_json)
+            .collect();
         json!({
             "generation": self.generation,
             "facts_as_of_ms": self.facts_as_of_ms,
@@ -388,6 +399,11 @@ impl CuFrame {
             "controls_source": self.snapshot.controls_source,
             "controls_truncated": self.snapshot.controls_truncated,
             "controls_role_basis": "win32-class",
+            "a11y_controls": a11y_controls,
+            "a11y_source": self.snapshot.a11y_source,
+            "a11y_reason": self.snapshot.a11y_reason,
+            "a11y_truncated": self.snapshot.a11y_truncated,
+            "a11y_role_basis": "msaa-role",
             "capture": self.snapshot.capture.as_ref().map(|outcome| json!({
                 "path": outcome.path, "bytes": outcome.bytes,
                 "width": outcome.width, "height": outcome.height,
@@ -404,6 +420,17 @@ fn control_json(control: &ControlInfo) -> Value {
         "text": control.text,
         "rect": [control.x, control.y, control.width, control.height],
         "visible": control.visible, "enabled": control.enabled,
+    })
+}
+
+fn a11y_control_json(control: &crate::screen::A11yControl) -> Value {
+    json!({
+        "name": control.name,
+        "role": control.role,
+        "role_name": control.role_name,
+        "rect": [control.x, control.y, control.width, control.height],
+        "depth": control.depth,
+        "child_id": control.child_id,
     })
 }
 
@@ -496,6 +523,7 @@ pub enum CuCall {
         window: Option<String>,
         capture: Option<CaptureTarget>,
         controls: Option<ControlTarget>,
+        a11y: Option<A11yTarget>,
         scale: u32,
     },
     Act {
@@ -893,8 +921,8 @@ impl CuHost {
         //    a display enumeration must never hold host state hostage.
         drop(state);
         match request.call {
-            CuCall::Observe { window, capture, controls, scale } => {
-                self.observe(&capability, window, capture, controls, scale)
+            CuCall::Observe { window, capture, controls, a11y, scale } => {
+                self.observe(&capability, window, capture, controls, a11y, scale)
             }
             CuCall::Act { why, action } => match action {
                 CuAction::Control { control, press, button, double } => {
@@ -915,9 +943,10 @@ impl CuHost {
         window: Option<String>,
         capture: Option<CaptureTarget>,
         controls: Option<ControlTarget>,
+        a11y: Option<A11yTarget>,
         scale: u32,
     ) -> CuResult {
-        match self.tool.snapshot(window.as_deref(), capture, scale, controls) {
+        match self.tool.snapshot(window.as_deref(), capture, scale, controls, a11y) {
             Ok(snapshot) => {
                 let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
                 state.generation += 1;
@@ -1971,6 +2000,21 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                     ))
                 }
             };
+            // 0.0.11: a structured accessibility scan. `true` follows the
+            // foreground window, an integer names a live hwnd from a prior
+            // observe (the only unambiguous identity when titles collide).
+            let a11y = match arguments.get("a11y") {
+                Some(Value::Bool(true)) => Some(A11yTarget::Foreground),
+                Some(value) if value.as_u64().is_some() => {
+                    Some(A11yTarget::Handle(value.as_u64().unwrap_or(0)))
+                }
+                Some(Value::Bool(false)) | Some(Value::Null) | None => None,
+                Some(other) => {
+                    return Err(format!(
+                        "screen: refused: `a11y` must be true or a live window hwnd, got {other}"
+                    ))
+                }
+            };
             let scale = match arguments.get("scale") {
                 None => 0,
                 Some(value) => value
@@ -1985,7 +2029,7 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                         )
                     })?,
             };
-            CuCall::Observe { window, capture, controls, scale }
+            CuCall::Observe { window, capture, controls, a11y, scale }
         }
         "act" => {
             let why = arguments
@@ -2310,6 +2354,10 @@ mod tests {
             controls_source: Some("window:synthetic".to_owned()),
             controls_truncated: false,
             controls,
+            a11y_controls: Vec::new(),
+            a11y_source: None,
+            a11y_reason: None,
+            a11y_truncated: false,
             capture: None,
         };
         let mut state = host.state.lock().unwrap();
@@ -2341,6 +2389,61 @@ mod tests {
     }
 
     #[test]
+    fn a11y_role_names_are_a_fixed_table_not_a_guess() {
+        use crate::screen::a11y_role_name;
+        assert_eq!(a11y_role_name(42), "textbox");
+        assert_eq!(a11y_role_name(43), "button");
+        assert_eq!(a11y_role_name(41), "label");
+        assert_eq!(a11y_role_name(20), "group");
+        assert_eq!(a11y_role_name(9999), "unknown");
+    }
+
+    #[test]
+    fn observe_parses_a11y_foreground_and_handle_and_rejects_junk() {
+        let foreground = parse_request(&json!({ "op": "observe", "a11y": true })).unwrap();
+        assert!(matches!(
+            foreground.call,
+            CuCall::Observe { a11y: Some(A11yTarget::Foreground), .. }
+        ));
+        let handle = parse_request(&json!({ "op": "observe", "a11y": 59771304 })).unwrap();
+        assert!(matches!(
+            handle.call,
+            CuCall::Observe { a11y: Some(A11yTarget::Handle(59771304)), .. }
+        ));
+        assert!(parse_request(&json!({ "op": "observe", "a11y": "WorkBuddy" })).is_err());
+        assert!(parse_request(&json!({ "op": "observe", "a11y": -1 })).is_err());
+        assert!(matches!(
+            parse_request(&json!({ "op": "observe" })).unwrap().call,
+            CuCall::Observe { a11y: None, .. }
+        ));
+    }
+
+    #[test]
+    fn a11y_frame_publishes_its_basis_source_and_reason() {
+        let snapshot = ScreenSnapshot {
+            platform: "windows".to_owned(),
+            qualified: true,
+            desktop: (0, 0, 200, 150),
+            displays: Vec::new(),
+            display_scales: Vec::new(),
+            windows: Vec::new(),
+            controls: Vec::new(),
+            controls_source: None,
+            controls_truncated: false,
+            a11y_controls: Vec::new(),
+            a11y_source: Some("handle:7".to_owned()),
+            a11y_reason: Some("no a11y tree on this cell".to_owned()),
+            a11y_truncated: false,
+            capture: None,
+        };
+        let evidence = CuFrame { generation: 1, facts_as_of_ms: 0, snapshot }.to_json();
+        assert_eq!(evidence["a11y_role_basis"], "msaa-role");
+        assert_eq!(evidence["a11y_source"], "handle:7");
+        assert_eq!(evidence["a11y_reason"], "no a11y tree on this cell");
+        assert!(evidence["a11y_controls"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
     fn pointer_readback_is_parsed_as_evidence_not_as_a_request() {
         assert_eq!(pointer_from_readback("pointer at 12,34"), Some((12, 34)));
         assert_eq!(pointer_from_readback("pointer at -5, 7"), Some((-5, 7)));
@@ -2357,6 +2460,7 @@ mod tests {
                 window: None,
                 capture: None,
                 controls: Some(ControlTarget::Foreground),
+                a11y: None,
                 scale: 0,
             }
         );
@@ -3891,6 +3995,10 @@ mod tests {
             controls: Vec::new(),
             controls_source: None,
             controls_truncated: false,
+            a11y_controls: Vec::new(),
+            a11y_source: None,
+            a11y_reason: None,
+            a11y_truncated: false,
             capture: None,
         };
         let frame = CuFrame { generation: 1, facts_as_of_ms: 0, snapshot };

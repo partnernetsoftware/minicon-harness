@@ -110,6 +110,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .and_then(|window| window["title"].as_str())
             .map(str::to_owned)
     });
+    // 0.0.11: a handle is the only unambiguous window identity when two
+    // windows share a title. The a11y scan is addressed by that handle, never
+    // by guessing which foreground window the runner happens to have.
+    let target_hwnd = evidence["windows"]
+        .as_array()
+        .and_then(|windows| windows.first())
+        .and_then(|window| window["hwnd"].as_u64());
+
+    if let Some(hwnd) = target_hwnd {
+        journey.run(
+            "observe_a11y",
+            "observe",
+            caps.observe,
+            true,
+            json!({ "op": "observe", "a11y": hwnd }),
+        );
+    } else {
+        journey.skip("observe_a11y", "observe", "no live window handle to scan");
+    }
 
     if caps.capture {
         journey.run(
