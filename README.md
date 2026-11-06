@@ -51,12 +51,32 @@ lost grant or host teardown releases everything before any further effect;
 keyboard steps never carry a button actuation receipt. Contract:
 [`prd/PRD_01_10_held_key_modifiers.md`](prd/PRD_01_10_held_key_modifiers.md).
 
+**Grant and environment disclosure (0.0.9).** `op=disclose` now answers "why
+did that click not land" before any click is attempted. `evidence["environment"]`
+reports `platform`, `session` (`gui` / `remote` / `headless` / `unknown`),
+`display_count`, `virtual_desktop` and `foreground_present`.
+`evidence["grants"]` is one typed row per probe -- `name`, `status`, optional
+`reason` -- with `status` drawn from a four-value whitelist: `granted`,
+`denied`, `unknown`, `not_applicable`. `unknown` and `not_applicable` always
+carry a non-empty `reason`; rows are sorted by `name` and unique, and the probe
+set is capped (8 rows, 160 characters per reason). Every probe is a **read-only
+preflight** -- `CGPreflightScreenCaptureAccess`, `CGPreflightPostEventAccess`,
+`AXIsProcessTrusted` on macOS, `XOpenDisplay` / `libXtst` resolution on Linux,
+the foreground window and input-desktop state on Windows. It never requests a
+permission, never raises a TCC prompt, never elevates, and the `…WithOptions`
+variants are deliberately not called. This is additive evidence on the existing
+`disclose` capability: no new capability row, `cu-abi 1.0` and the 12/10/8/0
+matrix unchanged, and it works **even when computer use was not granted**. A
+malformed probe set publishes no partial disclosure at all (`not_performed`).
+Contract: [`prd/PRD_01_11_grant_disclosure.md`](prd/PRD_01_11_grant_disclosure.md).
+
 Above the mechanisms sits a **versioned host capability contract**
 (`src/cu.rs`, `prd/PRD_01_04_cu_base.md`): cu-abi 1.0, a discoverable
 capability manifest, typed inputs/outputs, observation generations with
 pinned `as_of`, six verdicts (`performed` / `not_performed` / `unknown` /
 `refused` / `unsupported` / `stale`) and an evidence receipt per call.
-`op=disclose` reports the ABI, grant, capabilities and receipts -- and works
+`op=disclose` reports the ABI, grant, capabilities and receipts, plus the
+read-only `environment` probe and the typed `grants[]` rows -- and works
 even when computer use was not granted. It is the host-side seam for later
 `unisa + ujs` dynamic logic; no script runtime is embedded.
 

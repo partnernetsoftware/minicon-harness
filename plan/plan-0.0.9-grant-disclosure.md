@@ -1,8 +1,11 @@
 # 0.0.9 — grant and environment disclosure: a read-only, non-elevating report
 
-Status: `[_]` plan + contract committed after `v0.0.8` was published as a
-public signed Release and its owner-view acceptance completed. **No source, version or Release change belongs to
-this document.** The source tree stays at `0.0.8` until W4 of this plan runs.
+Status: `[v]` **W1, W2 and W3 delivered**; `[_]` W4 (the version bump and the
+public signed Release) is the only open work in this plan. W1's code landed in
+`f28eae53b1490cc6761f9b6e265c4358e1691278`, planned after `v0.0.8` was
+published as a public signed Release, with the compile gate `42164845780` and
+the real-desktop journeys `42164845836` both green. The source tree still reads
+`0.0.8` until W4 runs.
 
 Baseline: `v0.0.8` widens `act:key` with bounded `hold` / `release`; the
 capability matrix is windows 12/12, linux 10/12, macos 8/12, other 0/12,
@@ -62,20 +65,20 @@ computer use was never granted.
 
 ```text
 0.0.9 — grant and environment disclosure
-├── [_] W1 — the read-only probe contract
+├── [v] W1 — the read-only probe contract
 │   files: src/cu.rs, src/wire.rs, src/screen.rs, src/screen_macos.rs,
 │          src/screen_linux.rs, scripts/cu-cfg-check.py
 │   invariant: cu-abi 1.0, 12-row matrix unchanged, four cfgs type-check,
 │   cargo test --locked green on all three CI jobs, no new capability row
-│   evidence: cu-platforms.yml run, matrix test still 12/10/8/0
-├── [_] W2 — a real disclosure journey in CI
+│   evidence: cu-platforms.yml run 42164845780, matrix test still 12/10/8/0
+├── [v] W2 — a real disclosure journey in CI
 │   files: examples/cu_journey.rs, scripts/cu-journey-verify.py,
 │          .github/workflows/cu-journeys.yml
 │   invariant: required disclose_grants on all three OSes; the reader
 │   recomputes every probe's status, uniqueness and reason, and checks the
 │   grant rows do not contradict the effects that the same journey performed
-│   evidence: cu-journeys.yml run, three cu-journey.json artifacts
-├── [_] W3 — the truth of the docs
+│   evidence: cu-journeys.yml run 42164845836, three cu-journey.json artifacts
+├── [v] W3 — the truth of the docs
 │   files: PRD.md, README.md, prd/PRD_01_03_computer_use.md,
 │   prd/PRD_01_08_computer_use_scope.md, prd/PRD_01_11_grant_disclosure.md,
 │   release notes
@@ -168,6 +171,17 @@ locally against the receipt and sidecars, and the downloaded APE printing
 
 ## Delivery record
 
-Filled in as each W closes, with the CI run IDs, the three journey artifacts,
-the release chain runs and the owner-view anonymous acceptance result. Until
-then every W above stays `[_]` and the source version stays `0.0.8`.
+| Item | Value |
+|---|---|
+| W1 + W2 code | commit `f28eae53b1490cc6761f9b6e265c4358e1691278` (`cu: grant/environment disclosure for 0.0.9 (W1/W2)`) |
+| Compile gate | run `42164845780` — `success`, all six cells, matrix still windows 12 / linux 10 / macos 8 / other 0 |
+| Real-desktop journeys | run `42164845836` — `success`, required `disclose_grants` step on all three OSes |
+| Journey artifacts | `cu-journey-linux`, `cu-journey-macos`, `cu-journey-windows` (run `42164845836`), each a `cu-journey.json` the independent reader recomputed |
+| W3 docs | swept in the same commit as W4 (this file, `PRD.md`, `README.md`, `PRD_01_03`, `PRD_01_08`, `PRD_01_11`, `.github/release-notes.md`) |
+| W4 version bump | four sources moved to `0.0.9` in that one commit |
+| Release chain | _pending — filled in by W4 below_ |
+| Owner-view acceptance | _pending — anonymous download, re-hash of all 15 assets, APE printing `minicon-harness 0.0.9`_ |
+
+W1/W2/W3 are closed on the runs above; W4 is closed only when the Release page
+is anonymously visible, all 15 assets re-hash against
+`signing-receipt.json`, and the downloaded APE prints `minicon-harness 0.0.9`.

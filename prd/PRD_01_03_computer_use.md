@@ -84,8 +84,15 @@ screen
 │   └── [v] `controls`: true → foreground window, or a title → one window; typed
 │           child-control inventory (prd/PRD_01_05_semantic_controls.md)
 ├── op=disclose [v] — the versioned host contract, generations and receipts
-│   └── [v] ABI, grant, capability manifest and evidence receipts
-│           (owned by prd/PRD_01_04_cu_base.md, `src/cu.rs`)
+│   ├── [v] ABI, grant, capability manifest and evidence receipts
+│   │        (owned by prd/PRD_01_04_cu_base.md, `src/cu.rs`)
+│   ├── [v] `environment`: platform / session / display_count /
+│   │        virtual_desktop / foreground_present               (0.0.9)
+│   └── [v] `grants[]`: one typed row per probe — name, status, reason?;
+│            status is granted | denied | unknown | not_applicable,
+│            `unknown` and `not_applicable` always carry a non-empty reason,
+│            rows sorted by name and unique, read-only preflight only
+│            (prd/PRD_01_11_grant_disclosure.md)                (0.0.9)
 └── op=act [v] — exactly one operation per call, `why` required
     ├── [v] focus        window                          (live-handle + foreground readback)
     ├── [v] move         window, x, y, width, height      (rect readback, 4 px tolerance)
@@ -182,6 +189,7 @@ desktop geometry named.
 | `[v]` pointer-path qualification for drag/middle | 0.0.6 drove middle/right/double clicks, middle drag and a real `press=true` control click in three-OS CI journeys, each with an actuation receipt | `prd/PRD_01_07_interaction_closure.md` |
 | `[v]` richer actuation | 0.0.7 drives a three-point drag and both wheel axes as required steps on all three OSes; the independent reader recomputes the last point, `path_points` and both axes | `prd/PRD_01_09_richer_actuation.md` |
 | `[v]` held-key modifiers | 0.0.8 drives hold / disclose / release / disclose on all three OSes, plus a final empty-set disclosure; the independent reader recomputes the held set, the release and the absence of a button receipt | `prd/PRD_01_10_held_key_modifiers.md` |
+| `[v]` grant and environment disclosure | 0.0.9 adds read-only `evidence["environment"]` and typed `evidence["grants"]` to `op=disclose`; the three-OS journey makes `disclose_grants` a required step and the independent reader recomputes both fields, the four-value whitelist, the reason rule, the sort order and uniqueness. Probes are preflight-only: no permission request, no TCC prompt, no elevation | `prd/PRD_01_11_grant_disclosure.md`; no new capability row, matrix 12/10/8/0 and cu-abi 1.0 unchanged |
 
 ## Where this goes next
 

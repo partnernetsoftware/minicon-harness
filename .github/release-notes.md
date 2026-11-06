@@ -41,35 +41,53 @@ with an RFC 3161 timestamp. `signing-receipt.json` records the before/after
 SHA-256 of each signed file, while `build-receipt.json` and the `.sha256`
 sidecars bind every other asset to the packed source.
 
-Version VERSION widens one declared keyboard verb without declaring a new
-capability. `action=key` accepts `hold: true` with exactly one whitelisted
-modifier (`ctrl`, `shift`, `alt`, `win`/`cmd`) and `release: true` to let the
-whole set go. `CuHost` owns the held set (at most four), `op=disclose`
-publishes `evidence["held_keys"]`, and each flagged call publishes
-`evidence["keyboard"]` with the held and released names **after** the native
-effect -- never an echo of the request. A changed foreground, a lost grant or
-host teardown releases everything before any further effect and reports the
-release; an unconfirmed keyboard effect is `unknown`, never `performed`.
-A keyboard step never carries a button actuation receipt.
+Version VERSION answers "why did that click not land" **before** a click is
+attempted, without ever asking for a permission. `op=disclose` gains two
+additive pieces of evidence on the existing capability:
 
-Four native backends change together: Windows posts symmetric `SendInput`
-key-down/up pairs, macOS applies `CGEventSetFlags` on **every** event posted
-while a modifier is held (mouse, wheel and keyboard alike), Linux resolves
-X11 keysyms at runtime and reports an unmapped modifier as a named
-`unsupported`, and the unlisted-OS fallback refuses by name.
+- `environment` — `platform`, `session` (a coarse kind: `gui` / `remote` /
+  `headless` / `unknown`), `display_count`, `virtual_desktop` (x, y, width,
+  height) and `foreground_present`. No window titles, user names, paths or
+  environment values are published; the session is reported as a kind, never
+  as the value of `$DISPLAY` or `XDG_SESSION_TYPE`.
+- `grants` — one typed row per named probe, each `name` / `status` /
+  optional `reason`. `status` comes from a four-value whitelist: `granted`,
+  `denied`, `unknown`, `not_applicable`. `unknown` ("could not be probed
+  safely") and `not_applicable` always carry a non-empty reason; `unknown` is
+  never reported as `granted`, and `denied` is never auto-escalated. Rows are
+  sorted by `name` and unique, and the probe set is bounded (8 rows, 160
+  characters per reason) so a disclosure cannot become a dump.
+
+Every probe is **preflight only**. macOS resolves
+`CGPreflightScreenCaptureAccess`, `CGPreflightPostEventAccess` and
+`AXIsProcessTrusted` -- the `...WithOptions` prompt variants are deliberately
+never called; Linux resolves `XOpenDisplay` and `libXtst` at runtime and
+reports whether an input-posting symbol is reachable; Windows reports the
+foreground window and input-desktop state; the unlisted-OS fallback reports
+every probe `not_applicable` with a named reason. No permission is requested,
+no TCC dialog is raised, no privilege is elevated, and no input event is
+posted: the whole path is a read. A malformed probe set publishes no partial
+disclosure at all -- the call returns `not_performed` instead.
+
+Four native backends implement the same two functions
+(`native::environment()` and `native::grants()`), and
 `scripts/cu-cfg-check.py` type-checks all four configurations, so a signature
-drift cannot hide behind a `cfg`.
+drift cannot hide behind a `cfg`. `cu-abi 1.0`, the wire action enum and the
+capability matrix (windows 12/12, linux 10/12, macos 8/12, other 0/12) are
+unchanged: this is additive evidence on `disclose`, not a new capability row,
+and `disclose` still works even when computer use was never granted.
 
-`cu-abi 1.0`, the wire action enum and the capability matrix (windows 12/12,
-linux 10/12, macos 8/12) are unchanged: `hold` / `release` are additive
-parameters, not new capabilities. CI drives `act_key_hold`, `disclose_held`,
-`act_key_release`, `disclose_released` and a final empty-set `disclose` as
-required steps on all three OSes. The independent reader recomputes the held
-set, the release, the final empty set and the absence of a button receipt on
-every keyboard step, on top of every 0.0.6/0.0.7 assertion (receipts,
-`path_points`, both scroll axes, generations, live final frame,
-declared-but-skipped rule, BOUNDARY). A named OS-grant boundary never excuses
-a stuck modifier.
+CI makes the disclosure a required step rather than a claim:
+`.github/workflows/cu-journeys.yml` drives `disclose_grants` on all three
+OSes, and the independent reader recomputes `environment` (platform matching
+the journey's own, a non-empty session, a positive `display_count`, a boolean
+`foreground_present`, positive virtual-desktop width and height), the
+`grants[]` whitelist, the reason rule, the sort order and uniqueness, and
+checks that no row contradicts an effect the same journey performed -- all on
+top of every 0.0.6/0.0.7/0.0.8 assertion (receipts, `path_points`, both scroll
+axes, held keys, generations, live final frame, declared-but-skipped rule,
+BOUNDARY). A `BOUNDARY` note excuses nothing: a missing or inconsistent
+disclosure fails the journey.
 
 The three native backend families from 0.0.5 still use Win32 `user32`/`gdi32`,
 macOS `CoreGraphics`/`CoreFoundation` and Linux `X11`/`XTest`, resolved at

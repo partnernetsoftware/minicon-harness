@@ -184,10 +184,10 @@ minicon-harness computer use
 ├── E Platform and environment
 │   ├── [v] E1 three real backends: Win32, CG/CF, X11/XTest via dlopen
 │   ├── [v] E2 six cells cross-compiled on one runner, no link-time platform lib
-│   ├── [_] E3 environment enum + display width/height in `disclose`
-│   │        target 0.0.7; geometry is already in the pixel arm
-│   ├── [_] E4 OS-grant matrix in evidence (Screen Recording, Input
-│   │        Monitoring, Accessibility)              target 0.0.7
+│   ├── [v] E3 environment enum + display width/height in `disclose`
+│   │        delivered in 0.0.9; geometry is already in the pixel arm
+│   ├── [v] E4 OS-grant matrix in evidence (Screen Recording, Input
+│   │        Monitoring, Accessibility) — delivered in 0.0.9
 │   └── [no] E5 Wayland-native protocol, runtime backend selection
 ├── F Verification and delivery
 │   ├── [v] F1 CI compile gate + three-OS real-desktop journeys + independent
@@ -243,20 +243,22 @@ is published and accepted. Plan 0.0.9 and its frontier are unchanged; E3 / E4
 read-only grant disclosure is the precondition that explains why a click
 cannot land before any of L2 exists.
 
-## 0.0.9 frontier (planned, not started)
+## 0.0.9 frontier (implemented; public signed Release pending)
 
 Planned after `v0.0.8` was published, per the owner's "plan the next version
-after each public release" loop. **No version bump, no code and no `[v]`
-claim exists here.** Direction unchanged: concentrate on computer use;
-harness-side capability work stays deferred. The plan is
+after each public release" loop. **W1 (the read-only probe contract) and W2
+(the mandatory journey) are delivered and proven by the three-OS CI runs
+`42164845780` (compile gate) and `42164845836` (real-desktop journeys); the
+version bump and the signed Release are W4.** Direction unchanged: concentrate
+on computer use; harness-side capability work stays deferred. The plan is
 `plan/plan-0.0.9-grant-disclosure.md`, the contract is
 `prd/PRD_01_11_grant_disclosure.md`. A `[_]` is a chapter, **not** a
 lifted non-goal: anything marked `[no]` in an earlier frontier stays `[no]`
 until an owner decision lifts it and a version plan carries the gate.
 
 ```text
-0.0.9 — grant and environment disclosure (planned)
-├── [_] E3/E4 read-only environment + grants[] on `op=disclose`
+0.0.9 — grant and environment disclosure (implemented)
+├── [v] E3/E4 read-only environment + grants[] on `op=disclose`
 │        four typed statuses; `unknown` always carries a reason
 │        preflight / read-only APIs only, no permission prompt
 │        no new capability row; matrix 12/10/8/0; cu-abi 1.0

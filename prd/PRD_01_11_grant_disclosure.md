@@ -1,7 +1,11 @@
 # PRD 01.11 — grant and environment disclosure
 
-Status: `[_]` specified after `v0.0.8` was published, **not implemented**.
-Owner of the **contract** for 0.0.9; `plan/plan-0.0.9-grant-disclosure.md`
+Status: `[v]` **delivered** in 0.0.9 with three-OS CI evidence — compile gate
+`42164845780` and real-desktop journeys `42164845836` on
+`f28eae53b1490cc6761f9b6e265c4358e1691278`, where `disclose_grants` is a
+mandatory journey step and the independent reader recomputes `environment`,
+`grants[]`, the four-value whitelist, the reason rule, the sort order and
+uniqueness. Owner of the **contract** for 0.0.9; `plan/plan-0.0.9-grant-disclosure.md`
 owns the work breakdown, gates and release chain. Nothing here claims a
 capability that a CI run has not produced. `PRD_01_03` owns the `screen`
 tool's bounds, `PRD_01_04` owns the host contract, `PRD_01_08` owns the

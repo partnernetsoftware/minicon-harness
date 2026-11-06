@@ -92,9 +92,9 @@ This is **target binding**, not a window manager.
 
 | | |
 |---|---|
-| Delivered | `observe` generations with pinned `as_of`, stale refusal, foreground evidence, six typed verdicts, 32 retained receipts, per-OS 12/10/8/0 capability matrix in `disclose` |
-| Preconditions, not managed objects | `$DISPLAY`, Screen Recording, Input Monitoring, Accessibility, UIPI; a missing grant is a named `unsupported` refusal, never an auto-escalation |
-| Gaps | OS-grant matrix in evidence (E4); session continuity beyond `as_of` (D3) |
+| Delivered | `observe` generations with pinned `as_of`, stale refusal, foreground evidence, six typed verdicts, 32 retained receipts, per-OS 12/10/8/0 capability matrix in `disclose`; since 0.0.9 `disclose` also publishes read-only `evidence["environment"]` (platform, session, display_count, virtual_desktop, foreground_present) and `evidence["grants"]` (one typed row per probe: name, status, reason?) |
+| Preconditions, not managed objects | `$DISPLAY`, Screen Recording, Input Monitoring, Accessibility, UIPI; a missing grant is a named `unsupported` refusal, never an auto-escalation; 0.0.9 can now *read* those preconditions with preflight-only symbols -- reading them never requests one |
+| Gaps | session continuity beyond `as_of` (D3) |
 | Non-goals | `[no]` takeover / owner-lock / watch mode (C7), `[no]` a service identity or resident session owner |
 
 ## Resource-management boundary
@@ -162,7 +162,7 @@ prd/
 ├── PRD_01_08_computer_use_scope.md  domain model + resource boundary
 ├── PRD_01_09_richer_actuation.md    [v] 0.0.7 path drag + two-axis scroll
 ├── PRD_01_10_held_key_modifiers.md  [v] 0.0.8 held-key modifiers
-├── PRD_01_11_grant_disclosure.md    [_] 0.0.9 grant/environment disclosure
+├── PRD_01_11_grant_disclosure.md    [v] 0.0.9 grant/environment disclosure
 ├── PRD_01_12_self_hosted_orchestration.md  [_] L0-L3 levels + end state
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
