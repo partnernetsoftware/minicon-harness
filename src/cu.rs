@@ -31,8 +31,8 @@
 
 use crate::screen::{
     resolve_control, Act, Actuation, CaptureTarget, ClickButton, ControlInfo, ControlTarget,
-    EnvironmentProbe, GrantProbe, Modifier, ScreenSnapshot, ScreenTool, WindowInfo,
-    SCREEN_TOOL_HELD_MODIFIERS, SCREEN_TOOL_MAX_CAPTURE_SCALE,
+    DisplayScaleProbe, EnvironmentProbe, GrantProbe, Modifier, ScreenSnapshot, ScreenTool,
+    WindowInfo, SCREEN_TOOL_HELD_MODIFIERS, SCREEN_TOOL_MAX_CAPTURE_SCALE,
     SCREEN_TOOL_MAX_HELD_MODIFIERS, SCREEN_TOOL_MAX_TYPE_CHARS,
 };
 use serde_json::{json, Value};
@@ -234,7 +234,7 @@ pub fn capability_matrix(caps: &crate::screen::PlatformCapabilities) -> Value {
 /// `evidence["environment"]` for `op=disclose`. Only the coarse session kind
 /// is published: no display number, user name, path or window title ever
 /// leaves the probe.
-pub fn environment_json(probe: &EnvironmentProbe) -> Value {
+pub fn environment_json(probe: &EnvironmentProbe, scales: &[DisplayScaleProbe]) -> Value {
     json!({
         "platform": probe.platform,
         "session": probe.session.tag(),
@@ -246,7 +246,41 @@ pub fn environment_json(probe: &EnvironmentProbe) -> Value {
             "height": probe.virtual_desktop.3,
         },
         "foreground_present": probe.foreground_present,
+        // 0.0.10: the coordinate basis is session state, so it nests under
+        // environment rather than becoming a new capability or verdict.
+        "display_scales": display_scales_json(scales),
     })
+}
+
+/// `evidence["environment"]["display_scales"]`. Every row is bounded, ordered
+/// by index and admitted by `screen::normalize_display_scales`; `reason` is
+/// omitted rather than published as an empty string.
+pub fn display_scales_json(scales: &[DisplayScaleProbe]) -> Value {
+    fn rect_json(rect: crate::screen::DisplayRect) -> Value {
+        json!({
+            "x": rect.0, "y": rect.1,
+            "width": rect.2, "height": rect.3,
+        })
+    }
+    Value::Array(
+        scales
+            .iter()
+            .map(|row| {
+                let mut value = json!({
+                    "index": row.index,
+                    "logical_rect": rect_json(row.logical_rect),
+                    "physical_rect": rect_json(row.physical_rect),
+                    "scale": row.scale.tag(),
+                });
+                if let Some(reason) = &row.reason {
+                    if let Value::Object(fields) = &mut value {
+                        fields.insert("reason".to_owned(), json!(reason));
+                    }
+                }
+                value
+            })
+            .collect(),
+    )
 }
 
 /// `evidence["grants"]` for `op=disclose`. The rows are already bounded,
@@ -318,11 +352,22 @@ impl CuFrame {
             .snapshot
             .displays
             .iter()
-            .map(|display| {
+            .enumerate()
+            .map(|(index, display)| {
+                // 0.0.10: the coordinate basis travels with each display. A
+                // cell whose scale probe was refused reports `unknown`,
+                // never a plausible `1` the caller might click through.
+                let scale = self
+                    .snapshot
+                    .display_scales
+                    .get(index)
+                    .map(|row| row.scale.tag())
+                    .unwrap_or("unknown");
                 json!({
                     "x": display.x, "y": display.y,
                     "width": display.width, "height": display.height,
                     "primary": display.primary,
+                    "scale": scale,
                 })
             })
             .collect();
@@ -1418,7 +1463,8 @@ impl CuHost {
         // a contract violation that publishes no partial disclosure at all.
         let environment = crate::screen::environment_probe();
         let grants = crate::screen::grant_probes();
-        self.disclose_with(capability, abi_minor, &environment, grants)
+        let scales = crate::screen::display_scale_probes();
+        self.disclose_with(capability, abi_minor, &environment, grants, scales)
     }
 
     /// The disclosure proper, with the probe set supplied. Split out so the
@@ -1430,6 +1476,7 @@ impl CuHost {
         abi_minor: u32,
         environment: &EnvironmentProbe,
         grants: Result<Vec<GrantProbe>, String>,
+        scales: Result<Vec<DisplayScaleProbe>, String>,
     ) -> CuResult {
         let grants = match grants {
             Ok(grants) => grants,
@@ -1444,12 +1491,30 @@ impl CuHost {
                 );
             }
         };
+        // 0.0.10: a malformed scale set is refused whole, exactly like a
+        // malformed grant set. No partial `environment` is published.
+        let scales = match scales {
+            Ok(scales) => scales,
+            Err(reason) => {
+                let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+                return self.result_with_state(
+                    &mut state,
+                    CuVerdict::NotPerformed,
+                    capability,
+                    reason,
+                    json!({ "contract": "display_scales" }),
+                );
+            }
+        };
         let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         let mut evidence = self.manifest(&state, abi_minor);
         if let Value::Object(fields) = &mut evidence {
             // Additive evidence on the existing `disclose` capability: no new
             // capability row, no ABI change, and no 0.0.8 key is touched.
-            fields.insert("environment".to_owned(), environment_json(environment));
+            fields.insert(
+                "environment".to_owned(),
+                environment_json(environment, &scales),
+            );
             fields.insert("grants".to_owned(), grants_json(&grants));
         }
         // Qualification comes from the native backend, never from a guess:
@@ -1506,6 +1571,20 @@ impl CuHost {
                 probe.status.tag(),
                 probe
                     .reason
+                    .as_ref()
+                    .map(|reason| format!(" reason={reason:?}"))
+                    .unwrap_or_default()
+            ));
+        }
+        for row in &scales {
+            let (lx, ly, lw, lh) = row.logical_rect;
+            let (px, py, pw, ph) = row.physical_rect;
+            text.push_str(&format!(
+                "\ndisplay_scale index={} logical={lx},{ly} {lw}x{lh} \
+                 physical={px},{py} {pw}x{ph} scale={}{}",
+                row.index,
+                row.scale.tag(),
+                row.reason
                     .as_ref()
                     .map(|reason| format!(" reason={reason:?}"))
                     .unwrap_or_default()
@@ -2226,6 +2305,7 @@ mod tests {
             qualified: true,
             desktop,
             displays: Vec::new(),
+            display_scales: Vec::new(),
             windows: Vec::new(),
             controls_source: Some("window:synthetic".to_owned()),
             controls_truncated: false,
@@ -3405,7 +3485,8 @@ mod tests {
         if probe.display_count > 0 && probe.session != SessionKind::Unavailable {
             assert!(width > 0 && height > 0, "{width}x{height}");
         }
-        let value = environment_json(&probe);
+        let scales = crate::screen::display_scale_probes().unwrap_or_default();
+        let value = environment_json(&probe, &scales);
         eprintln!("cu environment platform={} evidence={value}", probe.platform);
         assert_eq!(value["platform"], json!(probe.platform));
         assert_eq!(value["session"], json!(probe.session.tag()));
@@ -3496,6 +3577,7 @@ mod tests {
     fn a_malformed_probe_set_is_not_performed_and_publishes_no_disclosure() {
         let host = host(false);
         let environment = crate::screen::environment_probe();
+        let scales = crate::screen::display_scale_probes();
         let violation = host.disclose_with(
             "disclose",
             0,
@@ -3505,6 +3587,7 @@ mod tests {
                  cannot recompute a disclosure with a duplicated name"
                     .to_owned(),
             ),
+            scales.clone(),
         );
         assert_eq!(violation.verdict, CuVerdict::NotPerformed, "{}", violation.text);
         assert!(violation.text.contains("published twice"), "{}", violation.text);
@@ -3514,7 +3597,13 @@ mod tests {
         assert!(violation.evidence.get("grants").is_none());
         assert!(violation.evidence.get("environment").is_none());
         // The same host still discloses normally for a well-formed set.
-        let fine = host.disclose_with("disclose", 0, &environment, crate::screen::grant_probes());
+        let fine = host.disclose_with(
+            "disclose",
+            0,
+            &environment,
+            crate::screen::grant_probes(),
+            scales,
+        );
         assert_eq!(fine.verdict, CuVerdict::Performed, "{}", fine.text);
         assert!(fine.evidence["grants"].as_array().is_some_and(|rows| !rows.is_empty()));
     }
@@ -3543,6 +3632,390 @@ mod tests {
         let props = &screen["function"]["parameters"]["properties"];
         assert_eq!(props["hold"]["type"], "boolean");
         assert_eq!(props["release"]["type"], "boolean");
+    }
+
+    // -- 0.0.10 / PRD 01.13: display scale disclosure --------------------
+
+    /// The scale whitelist is exactly these six tags. `1.0` is deliberately
+    /// outside it: no cell may publish a plausible-looking default.
+    #[test]
+    fn display_scale_whitelist_is_exactly_six_and_round_trips() {
+        use crate::screen::DisplayScale;
+        let tags: Vec<&str> = DisplayScale::ALL.iter().map(|scale| scale.tag()).collect();
+        assert_eq!(tags, vec!["1", "1.25", "1.5", "2", "3", "unknown"]);
+        assert_eq!(
+            tags.iter().collect::<std::collections::HashSet<_>>().len(),
+            6,
+            "a duplicate tag would make the whitelist ambiguous: {tags:?}"
+        );
+        for scale in DisplayScale::ALL {
+            assert_eq!(DisplayScale::parse(scale.tag()), Some(scale));
+        }
+        for outside in ["", "1.0", "0", "4", "granted", "UNKNOWN", "1.250", "unknown "] {
+            assert_eq!(DisplayScale::parse(outside), None, "{outside:?}");
+        }
+        for (millis, expected) in [
+            (1000, DisplayScale::One),
+            (1250, DisplayScale::OneQuarter),
+            (1500, DisplayScale::OneHalf),
+            (2000, DisplayScale::Two),
+            (3000, DisplayScale::Three),
+        ] {
+            assert_eq!(DisplayScale::from_millis(millis), Some(expected));
+        }
+        for outside in [0, 1100, 1333, 1750, 2500, 4000, -1000] {
+            assert_eq!(DisplayScale::from_millis(outside), None, "{outside}");
+        }
+        assert!(!DisplayScale::One.needs_reason());
+        assert!(DisplayScale::Unknown.needs_reason());
+        assert_eq!(DisplayScale::Unknown.ratio(), None);
+    }
+
+    /// An unanswerable scale must name its OS and the symbol that failed; a
+    /// long reason is cut and marked, never published whole.
+    #[test]
+    fn display_scale_reasons_are_required_and_bounded() {
+        use crate::screen::{
+            display_scale_row, normalize_display_scales, truncate_scale_reason, DisplayScale,
+            ScaleRectBasis, SCREEN_TOOL_MAX_SCALE_REASON,
+        };
+        let missing = display_scale_row(
+            0,
+            (0, 0, 100, 100),
+            ScaleRectBasis::Physical,
+            DisplayScale::Unknown,
+            "",
+        );
+        let err = normalize_display_scales(vec![missing]).unwrap_err();
+        assert!(err.contains("without a reason"), "{err}");
+        let blank = display_scale_row(
+            0,
+            (0, 0, 100, 100),
+            ScaleRectBasis::Physical,
+            DisplayScale::Unknown,
+            "   ",
+        );
+        assert!(normalize_display_scales(vec![blank])
+            .unwrap_err()
+            .contains("without a reason"));
+
+        let long = "x".repeat(SCREEN_TOOL_MAX_SCALE_REASON + 40);
+        let cut = truncate_scale_reason(&long);
+        assert_eq!(cut.chars().count(), SCREEN_TOOL_MAX_SCALE_REASON);
+        assert_eq!(cut.chars().last(), Some('…'));
+        let exact = "y".repeat(SCREEN_TOOL_MAX_SCALE_REASON);
+        assert_eq!(truncate_scale_reason(&exact), exact);
+
+        // A known scale derives logical_rect and needs no reason.
+        let known = display_scale_row(
+            0,
+            (0, 0, 200, 150),
+            ScaleRectBasis::Physical,
+            DisplayScale::OneQuarter,
+            "unused",
+        );
+        assert_eq!(known.logical_rect, (0, 0, 160, 120));
+        assert_eq!(known.physical_rect, (0, 0, 200, 150));
+        assert_eq!(known.reason, None);
+        let unknown = display_scale_row(
+            1,
+            (160, 0, 200, 150),
+            ScaleRectBasis::Physical,
+            DisplayScale::Unknown,
+            "windows: GetDpiForSystem returned 0",
+        );
+        let rows = normalize_display_scales(vec![known, unknown]).unwrap();
+        assert_eq!(rows[1].scale, DisplayScale::Unknown);
+        assert!(rows[1]
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("GetDpiForSystem"));
+    }
+
+    /// Bound, index order and the recomputable relation. A violation refuses
+    /// the whole set instead of publishing a partial scale disclosure.
+    #[test]
+    fn display_scale_rows_are_bounded_ordered_and_recomputable() {
+        use crate::screen::{
+            display_scale_row, normalize_display_scales, DisplayScale, ScaleRectBasis,
+            SCREEN_TOOL_MAX_DISPLAY_SCALES,
+        };
+        let row = |index| {
+            display_scale_row(
+                index,
+                (0, 0, 100, 100),
+                ScaleRectBasis::Physical,
+                DisplayScale::One,
+                "unused",
+            )
+        };
+        let over: Vec<_> = (0..=SCREEN_TOOL_MAX_DISPLAY_SCALES).map(row).collect();
+        let too_many = normalize_display_scales(over).unwrap_err();
+        assert!(too_many.contains("exceed the bound"), "{too_many}");
+        assert!(too_many.contains(&SCREEN_TOOL_MAX_DISPLAY_SCALES.to_string()));
+        assert!(normalize_display_scales(Vec::new())
+            .unwrap_err()
+            .contains("one named"));
+
+        let mut swapped = vec![row(0), row(1)];
+        swapped[1].index = 7;
+        assert!(normalize_display_scales(swapped)
+            .unwrap_err()
+            .contains("displays[] order"));
+
+        // 600x300 is divisible by every scale in the typed set.
+        for scale in [
+            DisplayScale::One,
+            DisplayScale::OneQuarter,
+            DisplayScale::OneHalf,
+            DisplayScale::Two,
+            DisplayScale::Three,
+        ] {
+            let good = display_scale_row(
+                0,
+                (0, 0, 600, 300),
+                ScaleRectBasis::Physical,
+                scale,
+                "unused",
+            );
+            assert_eq!(good.scale, scale, "{} divides exactly", scale.tag());
+            assert!(normalize_display_scales(vec![good.clone()]).is_ok());
+            let mut bad = good;
+            bad.physical_rect.2 += 1;
+            assert!(normalize_display_scales(vec![bad])
+                .unwrap_err()
+                .contains("not logical_rect"));
+        }
+        // A rect that does not divide exactly is downgraded to `unknown`.
+        let odd = display_scale_row(
+            0,
+            (0, 0, 101, 100),
+            ScaleRectBasis::Physical,
+            DisplayScale::OneQuarter,
+            "windows: GetDpiForSystem",
+        );
+        assert_eq!(odd.scale, DisplayScale::Unknown);
+        assert!(odd.reason.is_some());
+    }
+
+    /// The live probe set of whichever backend compiled here must already
+    /// satisfy the contract. This catches a cell that published a plausible
+    /// `1`, an unsorted row or an `unknown` without a named symbol.
+    #[test]
+    fn this_cells_native_display_scales_satisfy_the_contract() {
+        use crate::screen::{
+            DisplayScale, SCREEN_TOOL_MAX_DISPLAY_SCALES, SCREEN_TOOL_MAX_SCALE_REASON,
+        };
+        let rows = crate::screen::display_scale_probes()
+            .expect("this cell's scale rows are well formed");
+        eprintln!(
+            "cu display_scales platform={} rows={:?}",
+            crate::screen::platform_name(),
+            rows.iter()
+                .map(|row| (row.index, row.scale.tag()))
+                .collect::<Vec<_>>()
+        );
+        assert!(!rows.is_empty(), "a cell that cannot probe must publish one `unknown` row");
+        assert!(rows.len() <= SCREEN_TOOL_MAX_DISPLAY_SCALES);
+        let symbols = [
+            "GetDpiForSystem",
+            "GetDpiForWindow",
+            "GetSystemMetricsForDpi",
+            "backingScaleFactor",
+            "NSScreen",
+            "Xft.dpi",
+            "XResourceManagerString",
+            "XRRGetScreenResources",
+            "XDisplayWidth",
+            "CGGetActiveDisplayList",
+        ];
+        for (position, row) in rows.iter().enumerate() {
+            assert_eq!(row.index, position, "rows follow displays[] order");
+            assert_eq!(DisplayScale::parse(row.scale.tag()), Some(row.scale));
+            if row.scale.needs_reason() {
+                let reason = row.reason.as_deref().unwrap_or_default();
+                assert!(!reason.trim().is_empty(), "row {position} has no reason");
+                assert!(
+                    reason.contains(crate::screen::platform_name()),
+                    "reason must name the OS: {reason}"
+                );
+                assert!(
+                    symbols.iter().any(|symbol| reason.contains(symbol)),
+                    "reason must name the failed symbol: {reason}"
+                );
+                assert!(reason.chars().count() <= SCREEN_TOOL_MAX_SCALE_REASON);
+            }
+            if let Some((num, den)) = row.scale.ratio() {
+                for (logical, physical) in [
+                    (row.logical_rect.0, row.physical_rect.0),
+                    (row.logical_rect.1, row.physical_rect.1),
+                    (row.logical_rect.2, row.physical_rect.2),
+                    (row.logical_rect.3, row.physical_rect.3),
+                ] {
+                    assert_eq!(
+                        logical as i64 * num,
+                        physical as i64 * den,
+                        "physical_rect must equal logical_rect * {}",
+                        row.scale.tag()
+                    );
+                }
+            }
+        }
+    }
+
+    /// `observe` publishes the scale on `displays[i]`, and a refused probe set
+    /// becomes `unknown` rather than a plausible `1`.
+    #[test]
+    fn observe_displays_carry_a_typed_scale() {
+        use crate::screen::{display_scale_row, DisplayInfo, DisplayScale, ScaleRectBasis};
+        let snapshot = ScreenSnapshot {
+            platform: "windows".to_owned(),
+            qualified: true,
+            desktop: (0, 0, 200, 150),
+            displays: vec![DisplayInfo {
+                x: 0,
+                y: 0,
+                width: 200,
+                height: 150,
+                primary: true,
+            }],
+            display_scales: vec![display_scale_row(
+                0,
+                (0, 0, 200, 150),
+                ScaleRectBasis::Physical,
+                DisplayScale::OneQuarter,
+                "unused",
+            )],
+            windows: Vec::new(),
+            controls: Vec::new(),
+            controls_source: None,
+            controls_truncated: false,
+            capture: None,
+        };
+        let frame = CuFrame { generation: 1, facts_as_of_ms: 0, snapshot };
+        let frame_json = frame.to_json();
+        let displays = frame_json["displays"].as_array().unwrap();
+        assert_eq!(displays.len(), 1);
+        assert_eq!(displays[0]["scale"], "1.25");
+        assert!(frame.snapshot.to_text().contains("scale=1.25"));
+        let mut frame = frame;
+        frame.snapshot.display_scales.clear();
+        assert_eq!(frame.to_json()["displays"][0]["scale"], "unknown");
+    }
+
+    /// Disclosure stays available without `--allow-screen`, and now carries
+    /// the coordinate basis nested under `environment` rather than as a new
+    /// capability, verdict or top-level evidence key.
+    #[test]
+    fn disclosure_publishes_display_scales_without_a_grant() {
+        use crate::screen::DisplayScale;
+        let host = host(false);
+        let disclosed = host.invoke_json(&json!({ "op": "disclose" }));
+        assert_eq!(disclosed.verdict, CuVerdict::Performed, "{}", disclosed.text);
+        assert_eq!(disclosed.evidence["grant"], "denied");
+        let environment = disclosed.evidence["environment"]
+            .as_object()
+            .expect("environment is an object");
+        for key in [
+            "platform",
+            "session",
+            "display_count",
+            "virtual_desktop",
+            "foreground_present",
+            "display_scales",
+        ] {
+            assert!(environment.contains_key(key), "environment is missing {key}");
+        }
+        let scales = disclosed.evidence["environment"]["display_scales"]
+            .as_array()
+            .expect("display_scales is an array");
+        assert!(!scales.is_empty());
+        for (position, row) in scales.iter().enumerate() {
+            assert_eq!(row["index"].as_u64(), Some(position as u64));
+            for key in ["logical_rect", "physical_rect"] {
+                for field in ["x", "y", "width", "height"] {
+                    assert!(row[key][field].is_i64(), "{key}.{field} is an integer");
+                }
+            }
+            let scale = row["scale"].as_str().expect("every row has a scale");
+            let parsed = DisplayScale::parse(scale)
+                .unwrap_or_else(|| panic!("scale {scale:?} is outside the whitelist"));
+            if parsed.needs_reason() {
+                assert!(
+                    row["reason"]
+                        .as_str()
+                        .is_some_and(|reason| !reason.trim().is_empty()),
+                    "{scale:?} row {position} has no reason"
+                );
+            }
+        }
+        assert!(
+            disclosed.text.contains("\ndisplay_scale index="),
+            "{}",
+            disclosed.text
+        );
+        // Nested only: no new top-level evidence key.
+        assert!(disclosed.evidence.get("display_scales").is_none());
+        // 0.0.6..0.0.9 evidence keys are untouched by the addition.
+        for absent in ["actuation", "keyboard", "scroll"] {
+            assert!(disclosed.evidence.get(absent).is_none(), "{absent} must stay absent");
+        }
+        assert_eq!(disclosed.evidence["held_keys"], json!([]));
+    }
+
+    /// 0.0.10 adds evidence only: no 13th capability, no ABI bump, no new
+    /// matrix row and no change to the six false cells.
+    #[test]
+    fn display_scales_add_no_capability_row_or_abi_bump() {
+        assert_eq!(CAPABILITIES.len(), 11);
+        assert_eq!((CU_ABI_MAJOR, CU_ABI_MINOR), (1, 0));
+        assert_eq!(crate::screen::platform_capabilities().rows().len(), 12);
+        assert_eq!(
+            act_names(),
+            vec!["focus", "move", "click", "hover", "drag", "type", "key", "scroll", "control"]
+        );
+        for invented in [
+            "display_scales",
+            "act:display_scale",
+            "scale",
+            "op:disclose_scales",
+        ] {
+            assert_eq!(capability(invented), None, "{invented} must not be a capability");
+        }
+        let host = host(false);
+        let disclosed = host.invoke_json(&json!({ "op": "disclose" }));
+        assert_eq!(
+            disclosed.evidence["capabilities"].as_array().unwrap().len(),
+            CAPABILITIES.len()
+        );
+        assert_eq!(
+            disclosed.evidence["platform_capabilities"].as_array().unwrap().len(),
+            12
+        );
+    }
+
+    /// A malformed scale set publishes no partial disclosure at all, even
+    /// though the grant half of the same call was already well formed.
+    #[test]
+    fn a_malformed_scale_set_is_not_performed_and_publishes_no_disclosure() {
+        let host = host(false);
+        let environment = crate::screen::environment_probe();
+        let violation = host.disclose_with(
+            "disclose",
+            0,
+            &environment,
+            crate::screen::grant_probes(),
+            Err(
+                "screen: refused: display scale row 0 is unknown without a reason; the \
+                 disclosure was not published"
+                    .to_owned(),
+            ),
+        );
+        assert_eq!(violation.verdict, CuVerdict::NotPerformed, "{}", violation.text);
+        assert_eq!(violation.evidence["contract"], "display_scales");
+        assert!(violation.evidence.get("environment").is_none());
+        assert!(violation.evidence.get("grants").is_none());
     }
 
 }

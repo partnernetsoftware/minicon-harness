@@ -345,6 +345,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         json!({ "op": "disclose" }),
     );
 
+    // 0.0.10: a read-only disclosure of each display's coordinate basis. It
+    // changes no display mode or DPI and posts no input, so it stays required
+    // on all three OSes even when an OS grant blocks a later effect. The
+    // writer only records the rows the host already published -- it decides
+    // no verdict. The independent reader recomputes every typed scale, the
+    // exact physical = logical * scale relation and the reason rule.
+    let scales = journey.run(
+        "disclose_scales",
+        "disclose",
+        true,
+        true,
+        json!({ "op": "disclose" }),
+    );
+    if let Some(rows) = scales["evidence"]["environment"]["display_scales"].as_array() {
+        for row in rows {
+            eprintln!(
+                "cu-journey disclose_scales index={} scale={}",
+                row["index"], row["scale"]
+            );
+        }
+    }
+
     // The writer does not compute a verdict. The independent reader recomputes
     // everything from `records`; `summary` is informational only.
     let performed = journey

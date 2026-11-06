@@ -4,8 +4,10 @@
 The journey writer (`examples/cu_journey.rs`) is deliberately not allowed to
 decide its own success. This script recomputes every claim from `records`:
 declared capability matrix, performed verdicts, pointer readbacks, actuation
-receipts, PNG bytes and generation ordering. A green `cargo check` is evidence
-of shape; this is evidence of a desktop effect.
+receipts, PNG bytes, generation ordering, the 0.0.9 environment/grant rows
+and the 0.0.10 display-scale rows (six-value set, exact
+physical = logical * scale relation, reason rule). A green `cargo check` is
+evidence of shape; this is evidence of a desktop effect.
 
 A macOS OS-grant refusal (`permission:...`) is a *named boundary*, not a pass
 and not a silent failure: it is recorded as such and never upgraded to `[v]`.
@@ -57,6 +59,31 @@ KEYBOARD_STEPS = (
 )
 TOLERANCE = 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+# 0.0.10: the bounded typed scale set and the exact integer ratio
+# (physical / logical) of each known member. `unknown` has no ratio, so no
+# relation can be recomputed for that row; it must instead carry a reason.
+SCALE_RATIOS = {
+    "1": (1, 1), "1.25": (5, 4), "1.5": (3, 2), "2": (2, 1), "3": (3, 1),
+}
+SCALE_SET = frozenset(SCALE_RATIOS) | {"unknown"}
+MAX_DISPLAY_SCALES = 16
+MAX_SCALE_REASON = 160
+
+
+def rect_values(rect):
+    """Return (x, y, width, height) as ints, or None if any component is not
+    an int. A bool is not a coordinate, and a rect that cannot be read as four
+    ints cannot have its physical = logical * scale relation recomputed."""
+    if not isinstance(rect, dict):
+        return None
+    values = []
+    for key in ("x", "y", "width", "height"):
+        value = rect.get(key)
+        if not isinstance(value, int) or isinstance(value, bool):
+            return None
+        values.append(value)
+    return tuple(values)
 
 
 def main() -> int:
@@ -348,6 +375,95 @@ def main() -> int:
             f"DISCLOSURE session={env.get('session') if isinstance(env, dict) else '?'} "
             f"probes={len(grants) if isinstance(grants, list) else 0}"
         )
+
+    # 3f. 0.0.10 read-only display-scale disclosure. Like 3e, `disclose` is
+    #     pure information, so a named permission boundary must never excuse
+    #     a missing or partial scale disclosure. The reader recomputes every
+    #     row from the published evidence: the six-value typed set, the exact
+    #     physical_rect == logical_rect * scale relation, the unknown/reason
+    #     rule, the 16-row bound, zero-based continuous indices and the
+    #     160-char reason bound. Any contradiction is not_performed and fails
+    #     the journey. No earlier 0.0.6-0.0.9 assertion is weakened here.
+    scale_disclosure = by_step.get("disclose_scales")
+    check(scale_disclosure is not None,
+          "disclose_scales: required 0.0.10 step is missing")
+    check(scale_disclosure is not None
+          and scale_disclosure.get("verdict") == "performed",
+          "disclose_scales: disclosure was not performed; BOUNDARY cannot excuse it")
+    if scale_disclosure and scale_disclosure.get("verdict") == "performed":
+        scale_env = scale_disclosure.get("evidence", {}).get("environment")
+        check(isinstance(scale_env, dict),
+              "disclose_scales: no environment evidence")
+        scales = scale_env.get("display_scales") if isinstance(scale_env, dict) else None
+        check(isinstance(scales, list) and len(scales) >= 1,
+              f"disclose_scales: display_scales={scales!r}, expected a non-empty list")
+        if isinstance(scales, list):
+            check(len(scales) <= MAX_DISPLAY_SCALES,
+                  f"disclose_scales: {len(scales)} rows exceed the bound of "
+                  f"{MAX_DISPLAY_SCALES}")
+            for i, row in enumerate(scales):
+                check(isinstance(row, dict),
+                      f"disclose_scales: row {i} is not an object")
+                if not isinstance(row, dict):
+                    continue
+                index = row.get("index")
+                check(isinstance(index, int) and not isinstance(index, bool)
+                      and index == i,
+                      f"disclose_scales: row {i} index={index!r}, expected {i} "
+                      f"(zero-based, continuous)")
+                tag = row.get("scale")
+                check(tag in SCALE_SET,
+                      f"disclose_scales: row {i} scale={tag!r} is outside the six-value set")
+                logical = rect_values(row.get("logical_rect"))
+                physical = rect_values(row.get("physical_rect"))
+                check(logical is not None,
+                      f"disclose_scales: row {i} logical_rect is not an "
+                      f"int rect: {row.get('logical_rect')!r}")
+                check(physical is not None,
+                      f"disclose_scales: row {i} physical_rect is not an "
+                      f"int rect: {row.get('physical_rect')!r}")
+                reason = row.get("reason")
+                if tag == "unknown":
+                    check(isinstance(reason, str) and reason.strip() != "",
+                          f"disclose_scales: row {i} is unknown without a non-empty reason")
+                elif tag in SCALE_RATIOS and logical is not None and physical is not None:
+                    num, den = SCALE_RATIOS[tag]
+                    # Exact integer recompute: physical == logical * num / den,
+                    # with every component dividing exactly (negative origins
+                    # included). No floating point, no rounding, no guess at 1.
+                    recomputed = all(
+                        (value * num) % den == 0 and (value * num) // den == got
+                        for value, got in zip(logical, physical)
+                    )
+                    check(recomputed,
+                          f"disclose_scales: row {i} physical_rect={physical} != "
+                          f"logical_rect={logical} * {tag}")
+                if isinstance(reason, str):
+                    check(len(reason) <= MAX_SCALE_REASON,
+                          f"disclose_scales: row {i} reason exceeds the "
+                          f"{MAX_SCALE_REASON}-char bound")
+            notes.append(
+                f"DISCLOSURE_SCALES rows={len(scales)} "
+                f"scales={[r.get('scale') for r in scales if isinstance(r, dict)]}"
+            )
+        # Every performed disclosure and observation publishes the same
+        # additive fields: environment.display_scales and displays[i].scale.
+        for step in ("disclose", "disclose_held", "disclose_released",
+                     "disclose_final", "disclose_grants"):
+            rec = by_step.get(step)
+            if rec and rec.get("verdict") == "performed":
+                check(isinstance(
+                    rec.get("evidence", {}).get("environment", {}).get("display_scales"),
+                    list),
+                    f"{step}: performed disclosure has no display_scales evidence")
+        for step in ("observe", "observe_final", "observe_capture"):
+            rec = by_step.get(step)
+            if rec and rec.get("verdict") == "performed":
+                for display in rec.get("evidence", {}).get("displays", []):
+                    if isinstance(display, dict):
+                        check(display.get("scale") in SCALE_SET,
+                              f"{step}: display scale={display.get('scale')!r} "
+                              f"is outside the six-value set")
 
     # 4. A performed capture is a real PNG on disk whose IHDR agrees with the
     #    typed evidence. A black/missing image is not a successful capture.

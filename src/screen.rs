@@ -322,6 +322,10 @@ pub struct ScreenSnapshot {
     /// Virtual desktop origin and size.
     pub desktop: (i32, i32, i32, i32),
     pub displays: Vec<DisplayInfo>,
+    /// One read-only scale row per display, in `displays` order (0.0.10). An
+    /// empty set means the probe contract refused the rows; `observe` still
+    /// publishes each display as `unknown` rather than guessing `1`.
+    pub display_scales: Vec<DisplayScaleProbe>,
     pub windows: Vec<WindowInfo>,
     /// Empty when this observe did not request a control scan.
     pub controls: Vec<ControlInfo>,
@@ -351,6 +355,15 @@ impl ScreenSnapshot {
         for (index, display) in self.displays.iter().enumerate() {
             text.push('\n');
             text.push_str(&display.to_line(index));
+            // 0.0.10: the coordinate basis travels with the display, not in a
+            // side channel a caller would have to correlate by hand.
+            text.push_str(&format!(
+                " scale={}",
+                self.display_scales
+                    .get(index)
+                    .map(|row| row.scale.tag())
+                    .unwrap_or("unknown")
+            ));
         }
         for window in self.windows.iter().take(listed) {
             text.push('\n');
@@ -669,11 +682,15 @@ impl ScreenTool {
             Some(target) => Some(self.capture(target, scale)?),
             None => None,
         };
+        // A scale probe is pure session state; it is captured with the frame
+        // so a later serialization cannot pair rows with a changed display set.
+        let display_scales = display_scale_probes().unwrap_or_default();
         Ok(ScreenSnapshot {
             platform: native::PLATFORM.to_owned(),
             qualified: platform_qualified(),
             desktop: virtual_screen,
             displays,
+            display_scales,
             windows,
             controls,
             controls_source,
@@ -1500,6 +1517,264 @@ pub fn grant_probes() -> Result<Vec<GrantProbe>, String> {
     normalize_grant_probes(native::grants())
 }
 
+// ---------------------------------------------------------------------------
+// display scale disclosure (0.0.10, prd/PRD_01_13_display_scale_disclosure.md)
+// ---------------------------------------------------------------------------
+//
+// The coordinate basis: a screenshot a model reads is expressed in logical
+// coordinates, a pointer event needs physical ones. Every probe below is a
+// read-only query: no display-mode change, no DPI change, no mutation of the
+// process's DPI awareness and no permission request. A cell that cannot
+// answer says `unknown` with the OS and the failing symbol named -- never a
+// plausible `1`.
+
+/// Most scale rows one disclosure may publish. A larger set is refused whole
+/// by [`normalize_display_scales`], never silently clipped.
+pub const SCREEN_TOOL_MAX_DISPLAY_SCALES: usize = 16;
+
+/// Characters of one scale reason, including the truncation marker.
+pub const SCREEN_TOOL_MAX_SCALE_REASON: usize = 160;
+
+/// `{x, y, width, height}`, the same shape `observe` publishes.
+pub type DisplayRect = (i32, i32, i32, i32);
+
+/// The bounded set of scales `op=disclose` may name. No measured ratio is
+/// rounded to a neighbouring member: an out-of-set ratio is `unknown`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DisplayScale {
+    One,
+    OneQuarter,
+    OneHalf,
+    Two,
+    Three,
+    Unknown,
+}
+
+impl DisplayScale {
+    pub const ALL: [Self; 6] = [
+        Self::One,
+        Self::OneQuarter,
+        Self::OneHalf,
+        Self::Two,
+        Self::Three,
+        Self::Unknown,
+    ];
+
+    pub fn tag(self) -> &'static str {
+        match self {
+            Self::One => "1",
+            Self::OneQuarter => "1.25",
+            Self::OneHalf => "1.5",
+            Self::Two => "2",
+            Self::Three => "3",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// The inverse of [`DisplayScale::tag`]. An unrecognised string is `None`,
+    /// never a guess at a scale.
+    pub fn parse(tag: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|scale| scale.tag() == tag)
+    }
+
+    /// Only a non-answer must say why.
+    pub fn needs_reason(self) -> bool {
+        matches!(self, Self::Unknown)
+    }
+
+    /// `(numerator, denominator)` of `physical / logical`. `Unknown` has no
+    /// ratio, so no relation can be recomputed for that row.
+    pub fn ratio(self) -> Option<(i64, i64)> {
+        match self {
+            Self::One => Some((1, 1)),
+            Self::OneQuarter => Some((5, 4)),
+            Self::OneHalf => Some((3, 2)),
+            Self::Two => Some((2, 1)),
+            Self::Three => Some((3, 1)),
+            Self::Unknown => None,
+        }
+    }
+
+    /// Exact match for `physical / logical` in thousandths. A ratio outside
+    /// the set is `None` -- it is never rounded into a permissible scale.
+    pub fn from_millis(millis: i64) -> Option<Self> {
+        Self::ALL.iter().copied().find(|scale| {
+            scale
+                .ratio()
+                .is_some_and(|(num, den)| millis * den == num * 1000)
+        })
+    }
+}
+
+/// Which coordinate basis a backend's `displays()` rect is already in.
+/// Win32 `EnumDisplayMonitors` and X11 screen geometry report physical pixels;
+/// CoreGraphics `CGDisplayBounds` reports logical points. Naming the basis
+/// is what keeps `physical_rect == logical_rect * scale` honest on every cell.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScaleRectBasis {
+    Physical,
+    Logical,
+}
+
+/// One read-only scale row, indexed by the existing `displays[]` order. No
+/// display id, device name, path or user name is published.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisplayScaleProbe {
+    pub index: usize,
+    pub logical_rect: DisplayRect,
+    pub physical_rect: DisplayRect,
+    pub scale: DisplayScale,
+    /// Required for `unknown`; optional otherwise. Names an OS and a symbol.
+    pub reason: Option<String>,
+}
+
+/// Exact integer scaling of a rect by `num / den`. A rect that does not divide
+/// exactly yields `None` rather than a rounded rect that no reader could
+/// recompute. Negative origins (secondary monitors) divide the same way.
+fn scale_rect(rect: DisplayRect, num: i64, den: i64) -> Option<DisplayRect> {
+    let mut out = [0i32; 4];
+    for (slot, value) in [rect.0, rect.1, rect.2, rect.3].into_iter().enumerate() {
+        let scaled = value as i64 * num;
+        if scaled % den != 0 {
+            return None;
+        }
+        out[slot] = i32::try_from(scaled / den).ok()?;
+    }
+    Some((out[0], out[1], out[2], out[3]))
+}
+
+/// Build one row from a backend rect and the scale that backend read. A cell
+/// that cannot answer passes `DisplayScale::Unknown` and a reason naming its
+/// OS and the symbol that failed; a scale that does not divide the rect exactly
+/// is downgraded to `unknown` instead of publishing a fabricated relation.
+pub fn display_scale_row(
+    index: usize,
+    rect: DisplayRect,
+    basis: ScaleRectBasis,
+    scale: DisplayScale,
+    unknown_reason: &str,
+) -> DisplayScaleProbe {
+    if scale == DisplayScale::Unknown {
+        return DisplayScaleProbe {
+            index,
+            logical_rect: rect,
+            physical_rect: rect,
+            scale,
+            reason: Some(unknown_reason.to_owned()),
+        };
+    }
+    let derived = scale.ratio().and_then(|(num, den)| match basis {
+        ScaleRectBasis::Physical => {
+            scale_rect(rect, den, num).map(|logical| (logical, rect))
+        }
+        ScaleRectBasis::Logical => {
+            scale_rect(rect, num, den).map(|physical| (rect, physical))
+        }
+    });
+    match derived {
+        Some((logical_rect, physical_rect)) => DisplayScaleProbe {
+            index,
+            logical_rect,
+            physical_rect,
+            scale,
+            reason: None,
+        },
+        None => DisplayScaleProbe {
+            index,
+            logical_rect: rect,
+            physical_rect: rect,
+            scale: DisplayScale::Unknown,
+            reason: Some(format!(
+                "{unknown_reason}; this ratio does not divide the display rect exactly"
+            )),
+        },
+    }
+}
+
+/// Cut a reason to the bound, marking the cut with a final `…` character.
+pub fn truncate_scale_reason(reason: &str) -> String {
+    let trimmed = reason.trim();
+    if trimmed.chars().count() <= SCREEN_TOOL_MAX_SCALE_REASON {
+        return trimmed.to_owned();
+    }
+    let mut out: String = trimmed
+        .chars()
+        .take(SCREEN_TOOL_MAX_SCALE_REASON - 1)
+        .collect();
+    out.push('…');
+    out
+}
+
+/// The single admission rule for the scale rows: bounded, non-empty, indexed
+/// in `displays[]` order from zero, every `unknown` carries a reason, and for
+/// every known scale `physical_rect == logical_rect * scale`. A violation
+/// refuses the whole set -- no partial scale disclosure is ever published.
+pub fn normalize_display_scales(
+    rows: Vec<DisplayScaleProbe>,
+) -> Result<Vec<DisplayScaleProbe>, String> {
+    if rows.len() > SCREEN_TOOL_MAX_DISPLAY_SCALES {
+        return Err(format!(
+            "screen: refused: {} display scale rows exceed the bound of {}; the disclosure was \
+             not published",
+            rows.len(),
+            SCREEN_TOOL_MAX_DISPLAY_SCALES
+        ));
+    }
+    if rows.is_empty() {
+        return Err(
+            "screen: refused: a cell that cannot probe a scale must publish one named `unknown` \
+             row, not omit the scale; the disclosure was not published"
+                .to_owned(),
+        );
+    }
+    let mut out = Vec::with_capacity(rows.len());
+    for (position, row) in rows.into_iter().enumerate() {
+        if row.index != position {
+            return Err(format!(
+                "screen: refused: display scale row at {position} has index {}; rows must follow \
+                 the displays[] order; the disclosure was not published",
+                row.index
+            ));
+        }
+        let reason = row
+            .reason
+            .as_deref()
+            .map(truncate_scale_reason)
+            .filter(|reason| !reason.is_empty());
+        if row.scale.needs_reason() && reason.is_none() {
+            return Err(format!(
+                "screen: refused: display scale row {position} is {} without a reason; an \
+                 unanswerable scale must name the OS and the failed symbol, and the disclosure \
+                 was not published",
+                row.scale.tag()
+            ));
+        }
+        if let Some((num, den)) = row.scale.ratio() {
+            if scale_rect(row.logical_rect, num, den) != Some(row.physical_rect) {
+                return Err(format!(
+                    "screen: refused: display scale row {position} publishes physical_rect that \
+                     is not logical_rect * {}; the disclosure was not published",
+                    row.scale.tag()
+                ));
+            }
+        }
+        out.push(DisplayScaleProbe {
+            index: row.index,
+            logical_rect: row.logical_rect,
+            physical_rect: row.physical_rect,
+            scale: row.scale,
+            reason,
+        });
+    }
+    Ok(out)
+}
+
+/// Read-only scale rows from the compiled backend, admitted by
+/// [`normalize_display_scales`].
+pub fn display_scale_probes() -> Result<Vec<DisplayScaleProbe>, String> {
+    normalize_display_scales(native::display_scales())
+}
+
 pub mod png {
     use super::Captured;
 
@@ -1690,6 +1965,8 @@ mod native {
     const SM_YVIRTUALSCREEN: Int = 77;
     const SM_CXVIRTUALSCREEN: Int = 78;
     const SM_CYVIRTUALSCREEN: Int = 79;
+    /// The 100% baseline: every other scale is a ratio against this DPI.
+    const USER_DEFAULT_SCREEN_DPI: Uint = 96;
     const MONITORINFOF_PRIMARY: Dword = 1;
     const SW_RESTORE: Int = 9;
     const SW_SHOW: Int = 5;
@@ -1760,6 +2037,11 @@ mod native {
             param: isize,
         ) -> Bool;
         fn GetMonitorInfoW(monitor: Hwnd, info: *mut MonitorInfo) -> Bool;
+        // 0.0.10 read-only DPI queries. None of these changes the system DPI
+        // or this process's DPI awareness; a zero return is a named `unknown`.
+        fn GetDpiForSystem() -> Uint;
+        fn GetDpiForWindow(window: Hwnd) -> Uint;
+        fn GetSystemMetricsForDpi(index: Int, dpi: Uint) -> Int;
     }
 
     #[link(name = "gdi32")]
@@ -1993,6 +2275,92 @@ mod native {
                 )
             },
         ]
+    }
+
+    /// Read-only display scale (0.0.10). `GetDpiForSystem` reports the
+    /// system DPI without depending on this process's awareness; the window
+    /// variant is a fallback when no system DPI is exposed.
+    /// `GetSystemMetricsForDpi` supplies both the 96-DPI logical baseline and
+    /// the physical width at the measured DPI, so the ratio is measured rather
+    /// than inferred from a plausible `1`.
+    fn windows_display_scale() -> Result<super::DisplayScale, String> {
+        let system = unsafe { GetDpiForSystem() };
+        let dpi = if system > 0 {
+            system
+        } else {
+            let foreground = unsafe { GetForegroundWindow() };
+            if foreground.is_null() {
+                0
+            } else {
+                unsafe { GetDpiForWindow(foreground) }
+            }
+        };
+        if dpi == 0 {
+            return Err(
+                "windows: neither GetDpiForSystem nor GetDpiForWindow returned a DPI; the scale \
+                 cannot be read without changing DPI awareness"
+                    .to_owned(),
+            );
+        }
+        let physical = unsafe { GetSystemMetricsForDpi(SM_CXSCREEN, dpi) };
+        let logical = unsafe { GetSystemMetricsForDpi(SM_CXSCREEN, USER_DEFAULT_SCREEN_DPI) };
+        if physical <= 0 || logical <= 0 {
+            return Err(
+                "windows: GetSystemMetricsForDpi(SM_CXSCREEN) returned no width at either the \
+                 measured DPI or the 96-DPI baseline; the scale cannot be read"
+                    .to_owned(),
+            );
+        }
+        let millis = physical as i64 * 1000 / logical as i64;
+        super::DisplayScale::from_millis(millis).ok_or_else(|| {
+            format!(
+                "windows: GetDpiForSystem/GetSystemMetricsForDpi measured {millis}/1000, \
+                 outside the bounded scale set; no plausible scale is guessed"
+            )
+        })
+    }
+
+    /// One row per display, in the same order as `displays()`. Every row is a
+    /// read-only query: no display-mode change, no DPI change, no awareness
+    /// mutation and no permission request.
+    pub fn display_scales() -> Vec<super::DisplayScaleProbe> {
+        let no_dpi = "windows: GetDpiForSystem/GetDpiForWindow/GetSystemMetricsForDpi could \
+                      not be read in this session";
+        let scale = windows_display_scale();
+        let list = displays().unwrap_or_default();
+        if list.is_empty() {
+            return vec![super::display_scale_row(
+                0,
+                (0, 0, 0, 0),
+                super::ScaleRectBasis::Physical,
+                super::DisplayScale::Unknown,
+                &format!(
+                    "windows: EnumDisplayMonitors/GetMonitorInfoW enumerated no display; {no_dpi}"
+                ),
+            )];
+        }
+        list.iter()
+            .enumerate()
+            .map(|(index, display)| {
+                let rect = (display.x, display.y, display.width, display.height);
+                match &scale {
+                    Ok(value) => super::display_scale_row(
+                        index,
+                        rect,
+                        super::ScaleRectBasis::Physical,
+                        *value,
+                        no_dpi,
+                    ),
+                    Err(reason) => super::display_scale_row(
+                        index,
+                        rect,
+                        super::ScaleRectBasis::Physical,
+                        super::DisplayScale::Unknown,
+                        reason,
+                    ),
+                }
+            })
+            .collect()
     }
 
     /// A requested pointer position must lie in the virtual desktop. Refusing
@@ -2737,6 +3105,22 @@ macro_rules! refusing_backend {
                 super::GrantProbe::not_applicable("screen_capture", reason.clone()),
                 super::GrantProbe::not_applicable("input_posting", reason),
             ]
+        }
+        /// No backend means no scale can be read. One `unknown` row names the
+        /// cell and the platform symbols that are absent; it never guesses 1.
+        pub fn display_scales() -> Vec<super::DisplayScaleProbe> {
+            let reason = format!(
+                "{PLATFORM}: this cell has no computer-use backend in the six-cell matrix, so \
+                 GetDpiForSystem (windows), backingScaleFactor (macos) and Xft.dpi / \
+                 XRRScreenResources (linux) are all absent; no scale can be probed"
+            );
+            vec![super::display_scale_row(
+                0,
+                (0, 0, 0, 0),
+                super::ScaleRectBasis::Physical,
+                super::DisplayScale::Unknown,
+                &reason,
+            )]
         }
         pub fn controls(_handle: u64) -> Result<(Vec<ControlInfo>, bool), String> {
             Err(unsupported("observe controls"))

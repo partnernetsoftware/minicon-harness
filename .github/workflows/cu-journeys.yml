@@ -6,10 +6,12 @@
 # reader recomputes the verdict from those records. The three 0.0.7 richer
 # actuation steps (act_drag_path, act_scroll_x, act_scroll_y) and the five
 # 0.0.8 held-key steps are required on every OS that declares the verb; the
-# 0.0.9 disclose_grants step is required on all three OSes because disclosure
-# is pure information and never requests an OS grant. The reader recomputes the
-# path's last point, path_points, both wheel axes, the host's held-key state,
-# the environment shape and every grant row, without weakening any 0.0.6 check.
+# 0.0.9 disclose_grants and 0.0.10 disclose_scales steps are required on all
+# three OSes because disclosure is pure information and never requests an OS
+# grant. The reader recomputes the path's last point, path_points, both wheel
+# axes, the host's held-key state, the environment shape, every grant row and
+# every display-scale row (six-value set, physical = logical * scale, reason
+# rule), without weakening any 0.0.6 check.
 name: Cross-platform CU desktop journeys
 
 on:

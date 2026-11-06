@@ -16,11 +16,16 @@ use super::{
     SCREEN_TOOL_MAX_DRAG_STEPS, SCREEN_TOOL_MAX_REGION_PIXELS,
     SCREEN_TOOL_POINTER_TOLERANCE_PX,
 };
-use std::ffi::{c_char, c_int, c_uint, c_void, CString};
+use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::sync::OnceLock;
 
 const X11: &str = "libX11.so.6";
 const XTST: &str = "libXtst.so.6";
+/// 0.0.10: RandR is queried read-only through the same dlopen helper. No
+/// `#[link(name = "Xrandr")]` is introduced, and no CRTC/mode is changed.
+const XRANDR: &str = "libXrandr.so.2";
+/// The X11 100% baseline; every other scale is a ratio against this DPI.
+const X_BASELINE_DPI: f64 = 96.0;
 const ZPIXMAP: c_int = 2;
 const ANY_PROPERTY_TYPE: u64 = 0;
 const ICONIC_STATE: u64 = 3;
@@ -144,6 +149,11 @@ type FnXTestFakeButtonEvent =
     unsafe extern "C" fn(*mut c_void, c_uint, c_int, u64) -> c_int;
 type FnXTestFakeKeyEvent =
     unsafe extern "C" fn(*mut c_void, c_uint, c_int, u64) -> c_int;
+/// 0.0.10 read-only resource queries. `XResourceManagerString` carries the
+/// `Xft.dpi` scaling value; `XRRGetScreenResources` is resolved to check that
+/// RandR is present. Neither changes a display mode or a DPI setting.
+type FnXResourceManagerString = unsafe extern "C" fn(*mut c_void) -> *const c_char;
+type FnXRRGetScreenResources = unsafe extern "C" fn(*mut c_void, u64) -> *mut c_void;
 
 /// An X error would otherwise terminate the process through Xlib's default
 /// handler (BadWindow is normal when a window closes mid-observation).
@@ -562,6 +572,108 @@ pub fn grants() -> Vec<super::GrantProbe> {
         ),
     });
     rows
+}
+
+/// Parse the one scaling value an X resource database can give us. The raw
+/// resource string never leaves this function: only a coarse ratio does.
+fn xft_dpi(resource_text: &str) -> Option<f64> {
+    for line in resource_text.lines() {
+        if let Some((key, value)) = line.split_once(':') {
+            if key.trim().eq_ignore_ascii_case("Xft.dpi") {
+                if let Ok(dpi) = value.trim().parse::<f64>() {
+                    if dpi.is_finite() && dpi > 0.0 {
+                        return Some(dpi);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Read-only display scale (0.0.10). A pure Wayland / headless session has
+/// no X11 connection, so both `Xft.dpi` and `XRRScreenResources` are absent;
+/// that is a named `unknown`, never a plausible `1`.
+fn linux_display_scale(d: *mut c_void) -> Result<super::DisplayScale, String> {
+    let resource: FnXResourceManagerString = sym(X11, "XResourceManagerString").map_err(|_| {
+        "linux: libX11.so.6 does not export XResourceManagerString, so Xft.dpi cannot be read"
+            .to_owned()
+    })?;
+    let pointer = unsafe { resource(d) };
+    let text = if pointer.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(pointer) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    if let Some(dpi) = xft_dpi(&text) {
+        let millis = (dpi * 1000.0 / X_BASELINE_DPI).round() as i64;
+        return super::DisplayScale::from_millis(millis).ok_or_else(|| {
+            "linux: Xft.dpi reports a scale outside the bounded set; no scale is guessed"
+                .to_owned()
+        });
+    }
+    // Xft.dpi is absent. RandR resources carry no logical/pixel ratio, so
+    // even a readable XRRScreenResources cannot supply a scale. Name both
+    // symbols so the reader can tell "not set" from "could not be probed".
+    let randr = sym::<FnXRRGetScreenResources>(XRANDR, "XRRGetScreenResources");
+    let note = if randr.is_ok() {
+        "XRRGetScreenResources is available but carries no logical/pixel ratio"
+    } else {
+        "libXrandr.so.2 does not export XRRGetScreenResources"
+    };
+    Err(format!(
+        "linux: XResourceManagerString exposes no Xft.dpi value and {note}; no scale can be \
+         probed safely"
+    ))
+}
+
+/// One row per display, in `displays()` order. All reads are queries: the X
+/// resource database, a dlsym lookup and the existing screen geometry. No
+/// display mode, DPI value or process setting is changed.
+pub fn display_scales() -> Vec<super::DisplayScaleProbe> {
+    let no_x11 = "linux: a pure Wayland or headless session has no reachable X11 display, so \
+                  Xft.dpi (XResourceManagerString) and XRRScreenResources cannot be read";
+    let unknown = |index: usize, rect: super::DisplayRect, reason: &str| {
+        super::display_scale_row(
+            index,
+            rect,
+            super::ScaleRectBasis::Physical,
+            super::DisplayScale::Unknown,
+            reason,
+        )
+    };
+    let d = match display() {
+        Ok(d) => d,
+        Err(_) => return vec![unknown(0, (0, 0, 0, 0), no_x11)],
+    };
+    let scale = linux_display_scale(d);
+    let list = displays().unwrap_or_default();
+    if list.is_empty() {
+        return vec![unknown(
+            0,
+            (0, 0, 0, 0),
+            "linux: XDisplayWidth/XDisplayHeight reported no screen geometry; Xft.dpi cannot \
+             be paired with a rect",
+        )];
+    }
+    list.iter()
+        .enumerate()
+        .map(|(index, display)| {
+            let rect = (display.x, display.y, display.width, display.height);
+            match &scale {
+                Ok(value) => super::display_scale_row(
+                    index,
+                    rect,
+                    super::ScaleRectBasis::Physical,
+                    *value,
+                    no_x11,
+                ),
+                Err(reason) => unknown(index, rect, reason),
+            }
+        })
+        .collect()
 }
 
 pub fn windows() -> Result<Vec<WindowInfo>, String> {

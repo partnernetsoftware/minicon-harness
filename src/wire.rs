@@ -267,10 +267,16 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                                 evidence receipts, plus a read-only environment probe \
                                 (platform, coarse session kind, display count, virtual-desktop \
                                 rect, foreground presence) and one typed row per named grant \
-                                probe. Every probe is preflight: it never requests a \
-                                permission, never prompts and never elevates, and an \
-                                unanswerable probe is `unknown` with a reason rather than a \
-                                guessed `granted`. A verb this cell has not implemented is \
+                                probe. It also publishes a read-only display scale probe: \
+                                environment.display_scales[] carries index, logical_rect, \
+                                physical_rect, a scale from the bounded set \
+                                (1/1.25/1.5/2/3/unknown) and reason?, and every \
+                                observe.displays[i] carries the same scale. Every probe is \
+                                preflight: it never requests a permission, never prompts, \
+                                never elevates and never changes a display mode, a DPI value \
+                                or this process's DPI awareness; an unanswerable probe is \
+                                `unknown` with a reason rather than a guessed `granted` or a \
+                                plausible `1`. A verb this cell has not implemented is \
                                 refused by name, never as an empty success. Pin `as_of` to the \
                                 generation you reasoned from: a stale generation is refused, \
                                 never replayed. Only granted when the caller passed \

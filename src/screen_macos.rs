@@ -26,6 +26,13 @@ const CF: &str = "/System/Library/Frameworks/CoreFoundation.framework/CoreFounda
 /// `AXIsProcessTrusted` lives in HIServices, re-exported by ApplicationServices.
 /// Resolved with dlopen like every other symbol: no framework link.
 const AX: &str = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices";
+/// 0.0.10: `NSScreen.backingScaleFactor` is an Objective-C method. The
+/// runtime and AppKit are opened with the same dlopen helper; no framework is
+/// linked at build time and no display mode is changed.
+const APPKIT: &str = "/System/Library/Frameworks/AppKit.framework/AppKit";
+const OBJC: &str = "/usr/lib/libobjc.A.dylib";
+/// The 100% baseline: a factor of 1.0 is one logical point per pixel.
+const CG_BASELINE_FACTOR: f64 = 1.0;
 
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const K_CF_NUMBER_SINT64: isize = 4;
@@ -151,6 +158,15 @@ type FnCFRelease = unsafe extern "C" fn(*const c_void);
 type FnCFGetTypeID = unsafe extern "C" fn(*const c_void) -> usize;
 type FnCFStringGetTypeID = unsafe extern "C" fn() -> usize;
 type FnCFNumberGetTypeID = unsafe extern "C" fn() -> usize;
+// 0.0.10 read-only Objective-C queries. `objc_msgSend` is a trampoline: it
+// is resolved once and given a fixed, non-variadic signature per method, the
+// same ABI rule the scroll-wheel call above already states for arm64.
+type FnObjcGetClass = unsafe extern "C" fn(*const c_char) -> *mut c_void;
+type FnSelRegisterName = unsafe extern "C" fn(*const c_char) -> *mut c_void;
+type FnMsgSendId = unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void;
+type FnMsgSendCount = unsafe extern "C" fn(*mut c_void, *mut c_void) -> usize;
+type FnMsgSendIndex = unsafe extern "C" fn(*mut c_void, *mut c_void, usize) -> *mut c_void;
+type FnMsgSendDouble = unsafe extern "C" fn(*mut c_void, *mut c_void) -> f64;
 
 fn sym<T: Copy>(library: &'static str, name: &str) -> Result<T, String> {
     unsafe { super::dynlib::sym::<T>(library, name) }
@@ -575,6 +591,140 @@ pub fn grants() -> Vec<super::GrantProbe> {
         ),
     });
     rows
+}
+
+fn objc_selector(name: &str, register: FnSelRegisterName) -> Result<*mut c_void, String> {
+    let c = CString::new(name).map_err(|_| format!("macos: bad selector {name:?}"))?;
+    let selector = unsafe { register(c.as_ptr()) };
+    if selector.is_null() {
+        return Err(format!("macos: sel_registerName({name:?}) returned NULL"));
+    }
+    Ok(selector)
+}
+
+/// Read the `backingScaleFactor` of every `NSScreen` (0.0.10). This is a pure
+/// Objective-C message send: no `NSApplication` is started, no display mode
+/// is changed and no permission is requested. A missing runtime symbol or a
+/// factor outside the bounded set is a named `unknown`, never a plausible `1`.
+fn macos_display_scales() -> Result<Vec<super::DisplayScale>, String> {
+    // Loading AppKit registers NSScreen. It is a dlopen, not a build-time link.
+    super::dynlib::Lib::open(APPKIT).map_err(|_| {
+        "macos: AppKit is unavailable, so NSScreen backingScaleFactor cannot be read".to_owned()
+    })?;
+    let get_class: FnObjcGetClass = sym(OBJC, "objc_getClass").map_err(|_| {
+        "macos: libobjc does not export objc_getClass, so NSScreen cannot be found".to_owned()
+    })?;
+    let register: FnSelRegisterName = sym(OBJC, "sel_registerName").map_err(|_| {
+        "macos: libobjc does not export sel_registerName, so backingScaleFactor cannot be sent"
+            .to_owned()
+    })?;
+    let send_id: FnMsgSendId = sym(OBJC, "objc_msgSend").map_err(|_| {
+        "macos: libobjc does not export objc_msgSend, so backingScaleFactor cannot be sent"
+            .to_owned()
+    })?;
+    let send_count: FnMsgSendCount = sym(OBJC, "objc_msgSend")
+        .map_err(|_| "macos: libobjc does not export objc_msgSend".to_owned())?;
+    let send_index: FnMsgSendIndex = sym(OBJC, "objc_msgSend")
+        .map_err(|_| "macos: libobjc does not export objc_msgSend".to_owned())?;
+    let send_double: FnMsgSendDouble = sym(OBJC, "objc_msgSend")
+        .map_err(|_| "macos: libobjc does not export objc_msgSend".to_owned())?;
+
+    let class_name = CString::new("NSScreen").map_err(|_| "macos: bad class name".to_owned())?;
+    let screen_class = unsafe { get_class(class_name.as_ptr()) };
+    if screen_class.is_null() {
+        return Err(
+            "macos: objc_getClass(NSScreen) returned nil; backingScaleFactor is unavailable"
+                .to_owned(),
+        );
+    }
+    let sel_screens = objc_selector("screens", register)?;
+    let sel_count = objc_selector("count", register)?;
+    let sel_at = objc_selector("objectAtIndex:", register)?;
+    let sel_scale = objc_selector("backingScaleFactor", register)?;
+    let screens = unsafe { send_id(screen_class, sel_screens) };
+    if screens.is_null() {
+        return Err("macos: NSScreen screens returned nil; no scale can be read".to_owned());
+    }
+    let count = unsafe { send_count(screens, sel_count) };
+    if count == 0 {
+        return Err("macos: NSScreen screens is empty; no scale can be read".to_owned());
+    }
+    let mut out = Vec::new();
+    for index in 0..count.min(super::SCREEN_TOOL_MAX_DISPLAY_SCALES) {
+        let screen = unsafe { send_index(screens, sel_at, index) };
+        if screen.is_null() {
+            return Err(
+                "macos: NSScreen objectAtIndex: returned nil; no scale can be read".to_owned()
+            );
+        }
+        let factor = unsafe { send_double(screen, sel_scale) };
+        if !factor.is_finite() || factor <= 0.0 {
+            return Err(
+                "macos: NSScreen backingScaleFactor returned a non-positive factor".to_owned()
+            );
+        }
+        let millis = (factor * 1000.0 / CG_BASELINE_FACTOR).round() as i64;
+        out.push(super::DisplayScale::from_millis(millis).ok_or_else(|| {
+            "macos: NSScreen backingScaleFactor is outside the bounded scale set; no scale is \
+             guessed"
+                .to_owned()
+        })?);
+    }
+    Ok(out)
+}
+
+/// One row per `CGDisplayBounds` display. CoreGraphics bounds are logical
+/// points, so the basis is `Logical`: physical_rect is derived as
+/// `logical_rect * scale`, exactly the relation the reader recomputes.
+pub fn display_scales() -> Vec<super::DisplayScaleProbe> {
+    let unknown = |index: usize, rect: super::DisplayRect, reason: Option<&str>| {
+        super::display_scale_row(
+            index,
+            rect,
+            super::ScaleRectBasis::Logical,
+            super::DisplayScale::Unknown,
+            reason.unwrap_or(
+                "macos: NSScreen screens has no row for this CG display; backingScaleFactor \
+                 cannot be paired with it",
+            ),
+        )
+    };
+    let factors = macos_display_scales();
+    let list = displays().unwrap_or_default();
+    if list.is_empty() {
+        return vec![unknown(
+            0,
+            (0, 0, 0, 0),
+            Some(
+                "macos: CGGetActiveDisplayList enumerated no display; backingScaleFactor cannot \
+                 be paired with a rect",
+            ),
+        )];
+    }
+    list.iter()
+        .enumerate()
+        .map(|(index, display)| {
+            let rect = (
+                display.x,
+                display.y,
+                display.width,
+                display.height,
+            );
+            match &factors {
+                Ok(rows) => match rows.get(index).copied() {
+                    Some(scale) => super::display_scale_row(
+                        index,
+                        rect,
+                        super::ScaleRectBasis::Logical,
+                        scale,
+                        "macos: NSScreen backingScaleFactor could not be read",
+                    ),
+                    None => unknown(index, rect, None),
+                },
+                Err(reason) => unknown(index, rect, Some(reason)),
+            }
+        })
+        .collect()
 }
 
 pub fn find(title: &str) -> Result<WindowInfo, String> {
