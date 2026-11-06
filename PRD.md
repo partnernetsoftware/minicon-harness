@@ -246,13 +246,17 @@ is published and accepted. Plan 0.0.9 and its frontier are unchanged; E3 / E4
 read-only grant disclosure is the precondition that explains why a click
 cannot land before any of L2 exists.
 
-## 0.0.10 frontier (implemented; public signed Release pending)
+## 0.0.10 frontier (shipped as a public signed Release)
 
 W1/W2 landed in `040d50d` with the compile gate `42177115600` and the
 three-OS journeys `42177115725` both green; the controller's independent
-reader recomputed all three `cu-journey.json` artifacts as PASS. W3 is the
-truth of these docs; W4 (the version bump and public signed Release) is
-pending, so the four version sources still read `0.0.9`. The plan is
+reader recomputed all three `cu-journey.json` artifacts as PASS. W3 closed
+the truth of these docs (including the corrected coordinate-basis rationale
+and the B7b hard evidence), and W4 landed in `e0e2671` with the full release
+chain `42183119567` -> `42184544940` -> `42184644285` -> `42184866240` ->
+`42184961997`, all success. `v0.0.10` is public Latest, non-draft, 15 assets;
+the owner-view acceptance recomputed 6 sidecars and 3 signed cells and ran
+the downloaded APE, which prints `minicon-harness 0.0.10`. The plan is
 `plan/plan-0.0.10-display-scale-disclosure.md`, the contract is
 `prd/PRD_01_13_display_scale_disclosure.md`.
 
@@ -268,8 +272,8 @@ PIL and CU coordinate systems with focus never reaching the input box; they
 were not a DPI scale.
 
 ```text
-0.0.10 — display scale / coordinate-basis disclosure (implemented;
-          public signed Release pending)
+0.0.10 — display scale / coordinate-basis disclosure (shipped as a
+          public signed Release)
 ├── [v] E5a `environment.display_scales[]` + `observe.displays[].scale`
 │        delivered in 0.0.10 with three-OS CI evidence
 │        read-only DPI/backing-scale probe, four backends, unknown + reason
@@ -279,8 +283,47 @@ were not a DPI scale.
 ├── [_] A4 accessibility trees              unlock: OS grants + fixtures
 ├── [_] F3 app-level effect evidence        unlock: echo-window fixtures
 ├── [_] C5 / C6 safety + hand-off           unlock: a policy PRD first
+├── [_] B8 batched actions[]                unlock: admission/stale design
+```
+
+## 0.0.11 frontier (planned, not started)
+
+`v0.0.10` is published and accepted, so the next version is planned here.
+**Only documentation lands in this section**: the source tree stays at
+`0.0.10` until 0.0.11 W4 runs.
+
+**0.0.11 = handle-addressed window targeting.** The L1 self-hosted trial that
+drove 0.0.10 ran two WorkBuddy windows side by side whose titles are both
+`WorkBuddy`. `act:focus` resolves a window by unique title, so a controller
+cannot name which session window it wants; it fell back to clicking pixel
+coordinates, which is exactly the failure mode that the coordinate basis
+cannot fix. W (window target binding) needs a handle arm before an L2 loop
+can manage several session windows reliably.
+
+Contract owner: `prd/PRD_01_14_handle_addressed_targeting.md`; work breakdown
+and gates: `plan/plan-0.0.11-handle-addressed-targeting.md`. Additive only:
+an optional `hwnd` on `act:focus` and a `target_hwnd` in the focus/actuation
+readback. No new capability row, no ABI bump, no new OS grant, no resource
+authority, and the G boundary in `PRD_01_08` is unchanged.
+
+```text
+0.0.11 — handle-addressed window targeting (planned)
+├── [_] E5b `hwnd` targeting + `target_hwnd` readback
+│        unlock: this plan; no separate PRD or grant needed
+├── [_] A5 / D2 model-visible image arm     unlock: PNG budget/retention
+├── [_] B7b bounded wait + D4 ceilings      unlock: loop/budget decision
+│        hard L1 evidence: observe stale frames, act sequencing
+├── [_] A4 accessibility trees              unlock: OS grants + fixtures
+│        hard L1 evidence: welcome-page input box unreachable by CU focus
+├── [_] F3 app-level effect evidence        unlock: echo-window fixtures
+├── [_] C5 / C6 safety + hand-off           unlock: a policy PRD first
 └── [_] B8 batched actions[]                unlock: admission/stale design
 ```
+
+Ordering is not a version commitment. Implementation is dispatched to a
+sub-session through the client GUI, as `PRD_01_12` records; the controller
+only polls, verifies, decides the release gate and accepts from the owner's
+view.
 
 `[no]` carried forward unchanged: plugin host, permission policy engine,
 streaming, MCP, a scripting surface over the desktop, a second model loop,

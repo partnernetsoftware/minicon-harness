@@ -120,10 +120,10 @@ human-supervised sequence of single acts, which is what L1 already is.
 - `v0.0.9` is a published, accepted signed Release. Its E3 / E4 read-only
   disclosure is a precondition of the end state: without a typed grant status,
   a controller cannot tell why a click did not land. `0.0.10` has now
-  delivered the coordinate basis (E5a) with three-OS CI evidence: W1-W3 are
-  closed and W4 (the version bump and public signed Release) is pending, so
-  the four version sources still read `0.0.9`. Later versions are **not
-  planned**.
+  delivered the coordinate basis (E5a) with three-OS CI evidence and is a
+  published, accepted signed Release; all four version sources read `0.0.10`.
+  `0.0.11` is planned in `PRD.md` (handle-addressed window targeting); later
+  versions are **not planned**.
 - The candidate pool stays *ordered* by what the L2/L3 loop needs: A5 / D2 ->
   B7b + D4 -> A4 -> F3 -> C5 / C6, with B8 and the other 0.7.x chapters
   keeping their recorded unlock conditions. B7b leads with the hard evidence

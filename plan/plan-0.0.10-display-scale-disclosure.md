@@ -1,13 +1,13 @@
 # 0.0.10 — display scale / coordinate-basis disclosure
 
-Status: `[v]` **W1, W2 and W3 delivered**; `[_]` W4 (the version bump and the
-public signed Release) is the only open work in this plan. W1/W2 landed in
-`040d50d`; the compile gate `42177115600` and the three-OS journeys
-`42177115725` are both green, and the controller's independent reader
-recomputed all three downloaded `cu-journey.json` artifacts as PASS (Linux
-27 performed / `scale=unknown` with a reason, macOS 24 / `scale=1`, Windows
-30 / `scale=1`; `disclose_scales` is required on every OS). The source tree
-still reads `0.0.9` until W4 runs.
+Status: `[v]` **shipped as a public signed Release**; W1-W4 are closed.
+Planned after `v0.0.9` was published and accepted; W4 landed in
+`e0e2671af70dda9e14bd702c39e7bf1022421fef`. W1/W2 landed in `040d50d`;
+the compile gate `42177115600` and the three-OS journeys `42177115725`
+are both green, and the controller's independent reader recomputed all
+three downloaded `cu-journey.json` artifacts as PASS (Linux 27 performed /
+`scale=unknown` with a reason, macOS 24 / `scale=1`, Windows 30 / `scale=1`;
+`disclose_scales` is required on every OS).
 
 Baseline: `v0.0.9` widened `op=disclose` with read-only `environment` and
 typed `grants[]`; `cu-abi 1.0`, the 12/10/8/0 matrix and four-backend
@@ -66,8 +66,8 @@ not a new capability name. `cu-abi` stays 1.0.
 ## Work breakdown and gates
 
 ```text
-0.0.10 — display scale / coordinate-basis disclosure (implemented;
-          public signed Release pending)
+0.0.10 — display scale / coordinate-basis disclosure (shipped as a
+          public signed Release)
 ├── [v] W1 — the read-only scale probe contract
 │   files: src/cu.rs, src/wire.rs, src/screen.rs, src/screen_linux.rs,
 │          src/screen_macos.rs, scripts/cu-cfg-check.py
@@ -86,11 +86,14 @@ not a new capability name. `cu-abi` stays 1.0.
 │          PRD_01_13, this plan, release notes
 │   invariant: E5a marked delivered, A5/B7b/A4/F3/C5/C6/B8 still deferred;
 │   the 1.25x DPI story corrected; no [no] weakened
-└── [_] W4 — version bump and public signed Release
+└── [v] W4 — version bump and public signed Release
     files: Cargo.toml, Cargo.lock, release-policy.json,
            loader/ape-version.rc, .github/release-notes.md
     invariant: four version sources in ONE commit; dry-run before publish;
     the four release invariants must not regress
+    evidence: commit e0e2671; pack 42183119567, candidate 42184544940,
+    signing 42184644285, dry-run 42184866240, publish 42184961997;
+    public Latest v0.0.10 with 15 assets
 ```
 
 The controller owns W3/W4 planning, the three-OS CI gate, the independent
@@ -105,10 +108,10 @@ decides. This is the L1 division that `PRD_01_12` records.
 |---|---|
 | W1/W2 | commit `040d50d`; compile gate `42177115600` and three-OS journeys `42177115725`; the three `cu-journey.json` artifacts (Linux / macOS / Windows) recomputed PASS by the controller's independent reader |
 | W3 | this plan, `PRD.md`, `README.md`, `PRD_01_03`, `PRD_01_08`, `PRD_01_12`, `PRD_01_13` and the release notes, on that three-OS CI evidence |
-| W4 | release chain run IDs pending; public signed Release pending |
+| W4 | commit `e0e2671` (four version sources + W3 docs + the CU wire driver); pack `42183119567` → candidate `42184544940` → signing `42184644285` → dry-run `42184866240` → publish `42184961997`, all success; `v0.0.10` is public Latest, non-draft, 15 assets |
+| Owner-view acceptance | anonymous release page and asset both HTTP 200; 15 assets downloaded; 6 sidecars recomputed OK; `minicon-harness.com` and both signed Windows cells equal the receipt's `after_sha256`; the downloaded APE prints `minicon-harness 0.0.10` |
 
-The W4 row is filled in by the release chain. No shipped `v0.0.4`-`v0.0.9`
-asset is re-published or overwritten.
+No shipped `v0.0.4`-`v0.0.9` asset is re-published or overwritten.
 
 ## Risks and downgrade rules
 

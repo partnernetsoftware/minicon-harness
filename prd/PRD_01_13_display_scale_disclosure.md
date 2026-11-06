@@ -6,8 +6,11 @@ controller's independent reader recomputed the three `cu-journey.json`
 artifacts as PASS (`scale` = `1` / `1` / `unknown` on macOS / Windows /
 Linux, with the Linux `unknown` carrying a reason). Owner of the **contract**
 for 0.0.10; `plan/plan-0.0.10-display-scale-disclosure.md` owns the work
-breakdown, gates and release chain. Nothing here claims a capability that a
-CI run has not produced.
+breakdown, gates and release chain. `v0.0.10` is a public signed Release
+(`e0e2671`, chain ending in publish `42184961997`); the owner-view acceptance
+recomputed the 6 sidecars and 3 signed cells and ran the downloaded APE,
+which prints `minicon-harness 0.0.10`. Nothing here claims a capability that
+a CI run has not produced.
 
 Legend: `[v]` delivered with evidence, `[_]` planned, `[no]` explicit
 non-goal.
