@@ -48,19 +48,21 @@ The capability matrix still does not grow: `hwnd` is an additive parameter and
 - The handle is re-validated on every call against the live window list
   (`handle_is_live`-equivalent) and against the title it reports; a stale or
   reused handle is `not_performed` or `stale`, never a silent best effort.
-- `focus` readback and the actuation receipt gain `target_hwnd`: the handle of
-  the foreground window at dispatch time. It is read from the desktop, never
-  echoed from the request. With `window` (title) targeting the field is still
-  published, so old callers gain identity evidence without changing their
-  calls.
+- `focus` evidence and readback gain `target_hwnd`: the handle of the
+  foreground window at dispatch time. It is read from the desktop, never
+  echoed from the request. `actuation` stays `null` because focus posts no
+  button event; `target_hwnd` is separate evidence, not a fabricated receipt.
+  With `window` (title) targeting the field is still published, so old callers
+  gain identity evidence without changing their calls.
 - No new OS grant, no window-manager behaviour, no process or memory
   authority: the G boundary in `PRD_01_08` is unchanged.
 - One function set, four configurations: `native::window_by_handle()` changes
   together on Windows, macOS, Linux and fallback; `cu-cfg-check.py` types all
   four.
 - Every 0.0.6-0.0.11 reader assertion stays. The new reader rule recomputes
-  that `target_hwnd` equals the focused window in the same observation and
-  rejects a missing or mismatched field.
+  that `target_hwnd` equals the focused window in the next observation,
+  rejects a missing or mismatched field, and accepts a named `unsupported`
+  boundary only where the published matrix declares `act:focus` false.
 
 ## Work breakdown and gates
 
@@ -70,12 +72,16 @@ The capability matrix still does not grow: `hwnd` is an additive parameter and
 │   files: src/cu.rs, src/wire.rs, src/screen.rs, src/screen_linux.rs,
 │          src/screen_macos.rs, scripts/cu-cfg-check.py
 │   invariant: cu-abi 1.0, 12-row matrix unchanged, four cfgs type-check,
-│   cargo test --locked green, no new capability row, no new grant
+│   cargo test --locked green (116 tests, 113 passed / 3 ignored), no new
+│   capability row, no new grant
 ├── [_] W2 — a real handle-target journey in CI
 │   files: examples/cu_journey.rs, scripts/cu-journey-verify.py,
 │          .github/workflows/cu-journeys.yml
-│   invariant: required focus_by_handle + stale-handle refusal on all three
-│   OSes; reader recomputes target_hwnd against the focused window
+│   invariant: required observe_focus_readback / act_focus_by_handle /
+│   observe_handle_focus_readback / act_focus_stale_handle on all three OSes;
+│   a declared focus cell performs handle targeting and names a stale refusal,
+│   a matrix-declared unsupported cell names a capability boundary; reader
+│   recomputes target_hwnd against the focused window in the next observation
 ├── [_] W3 — the truth of the docs
 │   files: PRD.md, README.md, PRD_01_08, PRD_01_12, PRD_01_14,
 │   this plan, release notes

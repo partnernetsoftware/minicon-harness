@@ -48,9 +48,9 @@ back which handle was actually focused.
 
 ```text
 act { op:"act", action:"focus", why:"...", hwnd: 59771304 }
-  -> evidence["actuation"] / focus readback gains "target_hwnd": 59771304
+  -> evidence["target_hwnd"] = 59771304; readback contains target_hwnd=59771304
 act { op:"act", action:"focus", why:"...", window:"WorkBuddy" }
-  -> unchanged behaviour; readback still publishes target_hwnd
+  -> unchanged title behaviour; evidence and readback still publish target_hwnd
 ```
 
 - `hwnd` is an integer taken from a prior `observe.windows[]` row.
@@ -59,7 +59,9 @@ act { op:"act", action:"focus", why:"...", window:"WorkBuddy" }
 - `target_hwnd` is the handle of the desktop's focused window at dispatch
   time. It is read from the live window list, never echoed from the request.
   A desktop that exposes no foreground window publishes `null` with a named
-  reason, never a plausible handle.
+  `target_hwnd_reason`, never a plausible handle.
+- Focus posts no button event: `evidence["actuation"]` stays `null`.
+  `target_hwnd` is separate typed evidence, not a fabricated button receipt.
 - Rows are not republished: no new capability name, no new `CuVerdict`, no ABI
   bump. `cu-abi 1.0`, `CAPABILITIES` and the 12/10/8/0 matrix are unchanged.
 
@@ -76,9 +78,11 @@ refusal.
 2. Every call re-validates the handle against the live window list *and* the
    window's current title. A stale, reused or mismatched handle is `stale` or
    `not_performed`; the host never falls back to another window silently.
-3. A backend that cannot resolve handles publishes `unknown` with the cell
-   named, never an omitted field.
-4. `target_hwnd` must equal the focused window in the same observation; the
+3. A cell whose published matrix declares `act:focus` unsupported produces
+   `unsupported` with the cell named. A backend that supports focus but cannot
+   enumerate a live handle returns `None`, so the host reports a named stale
+   refusal, never an omitted field.
+4. `target_hwnd` must equal the focused window in the next observation; the
    independent reader recomputes it. A contradiction is `not_performed`.
 5. `CuHost::drop`, held-key state and every other effect are untouched.
    Nothing here holds state across calls.
@@ -91,9 +95,9 @@ native::window_by_handle(handle: u64) -> Option<WindowInfo>
 
 - Windows: resolve through the existing `EnumWindows` list and `IsWindow`.
 - macOS / Linux: resolve through the existing window enumeration; a backend
-  without stable handles returns `None`, which the host reports as `unknown`
-  with the cell named.
-- fallback: `None` with the cell named.
+  without a live window row returns `None`, which the host reports as a named
+  stale refusal.
+- fallback: `None` with the same named refusal.
 - `scripts/cu-cfg-check.py` types all four configurations in the same commit.
 
 ## Verdict rules
@@ -103,18 +107,25 @@ native::window_by_handle(handle: u64) -> Option<WindowInfo>
 | handle resolved, focused, readback matches | `performed` |
 | both `window` and `hwnd`, or neither | `refused` (named) |
 | handle absent from the live list or title changed | `stale` / `not_performed` |
-| backend cannot resolve handles | `performed` with named `unknown` reason |
+| matrix declares `act:focus` unsupported | `unsupported` with the cell named |
+| focus supported but no foreground window exposed | `performed` with `target_hwnd: null` + named reason |
 | `target_hwnd` mismatched or missing without a reason | `not_performed` (reader) |
 | `--allow-screen` was never granted | `refused`; focus is an effect |
 
 ## Verification
 
-- `src/cu.rs`: unit tests for mutual exclusion, stale-handle refusal, the
-  readback field, the reason rule, the ungranted path and the absence of a new
-  capability row. All 0.0.6-0.0.11 tests stay.
-- Three-OS CI journeys add a required `focus_by_handle` step plus a
-  stale-handle refusal; the independent reader recomputes `target_hwnd` plus
-  all earlier assertions.
+- `src/cu.rs`: unit tests for mutual exclusion, stale-handle classification,
+  the additive parameter, the named refusal capability and the unchanged
+  capability row / ABI. All 0.0.6-0.0.11 tests stay; the local suite is 116
+  tests (113 passed, 3 ignored real-desktop tests).
+- `scripts/cu-cfg-check.py`: all four backend configurations type-check the
+  new `window_by_handle` signature.
+- Three-OS CI journeys add required `observe_focus_readback`,
+  `act_focus_by_handle`, `observe_handle_focus_readback` and
+  `act_focus_stale_handle` steps. The independent reader recomputes
+  `target_hwnd` against the focused row of the next observation, rejects a
+  stale handle that is actually live, and accepts only a named
+  `unsupported` boundary where the matrix declares `act:focus` false.
 - No reader assertion is weakened to make a journey green.
 
 ## Non-goals

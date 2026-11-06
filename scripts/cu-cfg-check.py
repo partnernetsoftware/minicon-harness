@@ -73,16 +73,18 @@ def main() -> int:
     sources = {"screen.rs": screen}
     for extra in EXTRA:
         sources[extra.name] = extra.read_text()
-    # 0.0.9 adds `environment()` / `grants()` and 0.0.10 adds
-    # `display_scales()` to all four backends in the same commit; a backend
-    # that forgot any of them must fail here, not only in a cfg configuration
-    # where the code is compiled but never called.
+    # 0.0.9 adds `environment()` / `grants()`, 0.0.10 adds
+    # `display_scales()` and 0.0.12 adds `window_by_handle()` to all four
+    # backends in the same commit; a backend that forgot any of them must fail
+    # here, not only in a cfg configuration where the code is compiled but
+    # never called.
     required = (
         "pub fn set_modifier",
         "pub fn release_all_modifiers",
         "pub fn environment(",
         "pub fn grants(",
         "pub fn display_scales(",
+        "pub fn window_by_handle(",
     )
     for signature in required:
         for name in ("screen.rs", "screen_linux.rs", "screen_macos.rs"):

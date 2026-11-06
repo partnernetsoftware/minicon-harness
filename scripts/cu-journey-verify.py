@@ -4,9 +4,10 @@
 The journey writer (`examples/cu_journey.rs`) is deliberately not allowed to
 decide its own success. This script recomputes every claim from `records`:
 declared capability matrix, performed verdicts, pointer readbacks, actuation
-receipts, PNG bytes, generation ordering, the 0.0.9 environment/grant rows
-and the 0.0.10 display-scale rows (six-value set, exact
-physical = logical * scale relation, reason rule). A green `cargo check` is
+receipts, PNG bytes, generation ordering, the 0.0.9 environment/grant rows,
+the 0.0.10 display-scale rows (six-value set, exact
+physical = logical * scale relation, reason rule), the 0.0.11 a11y tree and
+the 0.0.12 handle-addressed focus readback. A green `cargo check` is
 evidence of shape; this is evidence of a desktop effect.
 
 A macOS OS-grant refusal (`permission:...`) is a *named boundary*, not a pass
@@ -56,6 +57,23 @@ SCROLL_STEPS = ("act_scroll", "act_scroll_x", "act_scroll_y")
 KEYBOARD_STEPS = (
     "act_key_hold", "disclose_held", "act_key_release", "disclose_released",
     "disclose_final",
+)
+# 0.0.12: handle-addressed focus. A title-target focus and a handle-target
+# focus must both publish a desktop-read target_hwnd; the reader recomputes it
+# against the focused row of the very next observation. A stale handle is a
+# named refusal, and a cell whose matrix declares act:focus unsupported may
+# only produce a named capability boundary for the two handle steps.
+FOCUS_TARGET_STEPS = (
+    "act_focus", "act_focus_by_handle", "act_refocus_after_right_click",
+)
+FOCUS_HANDLE_STEPS = frozenset({"act_focus_by_handle", "act_focus_stale_handle"})
+FOCUS_READBACK_PAIRS = (
+    ("act_focus", "observe_focus_readback"),
+    ("act_focus_by_handle", "observe_handle_focus_readback"),
+)
+FOCUS_REQUIRED_STEPS = (
+    "observe_focus_readback", "act_focus_by_handle",
+    "observe_handle_focus_readback", "act_focus_stale_handle",
 )
 TOLERANCE = 4
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -124,7 +142,9 @@ def main() -> int:
     by_step = {record["step"]: record for record in records}
 
     # 1. A required step is performed, or (macOS only) a named permission
-    #    boundary. Nothing else counts as a desktop journey.
+    #    boundary. Nothing else counts as a desktop journey. 0.0.12 adds two
+    #    named exceptions: a stale-handle refusal and a capability boundary
+    #    where the published matrix declares act:focus unsupported.
     for record in records:
         step = record["step"]
         verdict = record["verdict"]
@@ -134,7 +154,20 @@ def main() -> int:
             and "permission:" in text
             and verdict in ("unsupported", "refused")
         )
-        if record.get("required") and not boundary:
+        focus_capability_boundary = (
+            step in FOCUS_HANDLE_STEPS
+            and verdict == "unsupported"
+            and declared.get("act:focus") is False
+            and "act:focus" in text
+        )
+        stale_focus_refusal = (
+            step == "act_focus_stale_handle"
+            and verdict in ("stale", "not_performed", "refused")
+            and "observe again" in text
+        )
+        if record.get("required") and not (
+            boundary or focus_capability_boundary or stale_focus_refusal
+        ):
             check(
                 verdict == "performed",
                 f"{step}: required step verdict={verdict}: {text.splitlines()[0] if text else ''}",
@@ -149,6 +182,10 @@ def main() -> int:
             )
         if boundary:
             notes.append(f"BOUNDARY {step}: named OS-grant refusal (not counted as [v])")
+        elif focus_capability_boundary:
+            notes.append(f"BOUNDARY {step}: act:focus is not declared on {platform}")
+        elif stale_focus_refusal:
+            notes.append(f"REFUSAL {step}: stale hwnd was named, not guessed")
 
     # 2. The observation is real: at least one window, one display, positive
     #    virtual desktop. A refusal or an empty list is not an observation.
@@ -383,7 +420,7 @@ def main() -> int:
     #     physical_rect == logical_rect * scale relation, the unknown/reason
     #     rule, the 16-row bound, zero-based continuous indices and the
     #     160-char reason bound. Any contradiction is not_performed and fails
-    #     the journey. No earlier 0.0.6-0.0.9 assertion is weakened here.
+    #     the journey. No earlier 0.0.6-0.0.11 assertion is weakened here.
     # 0.0.11: recompute the structured accessibility scan. A refused scan
     # must publish an empty tree plus a named reason; a successful scan must
     # publish real rows whose rectangles, roles, depths and bound are all
@@ -442,6 +479,82 @@ def main() -> int:
                               for v in rect),
                       f"observe_a11y: row {i} rect is not an int rect: "
                       f"{rect!r}")
+
+    # 0.0.12: recompute handle-addressed focus. A performed title or handle
+    # focus must publish a desktop-read target_hwnd; the handle steps must be
+    # required on every cell, and the stale handle must be absent from the live
+    # window list. A cell whose matrix declares act:focus unsupported may only
+    # produce a named capability boundary for the two handle steps. No earlier
+    # 0.0.6-0.0.11 assertion is weakened here.
+    for step in FOCUS_REQUIRED_STEPS:
+        check(step in by_step, f"{step}: required 0.0.12 focus step is missing")
+    for focus_step in FOCUS_TARGET_STEPS:
+        focus_record = by_step.get(focus_step)
+        if not focus_record or focus_record.get("verdict") != "performed":
+            continue
+        ev = focus_record.get("evidence", {})
+        check("target_hwnd" in ev, f"{focus_step}: missing target_hwnd evidence")
+        target = ev.get("target_hwnd")
+        reason = ev.get("target_hwnd_reason")
+        if target is None:
+            check(isinstance(reason, str) and reason.strip() != "",
+                  f"{focus_step}: null target_hwnd needs a named reason")
+        else:
+            check(isinstance(target, int) and not isinstance(target, bool)
+                  and target > 0,
+                  f"{focus_step}: target_hwnd={target!r} is not a live handle")
+            check(reason in (None, ""),
+                  f"{focus_step}: a real target_hwnd must not carry a reason")
+            check(f"target_hwnd={target}" in ev.get("readback", ""),
+                  f"{focus_step}: readback does not publish target_hwnd={target}")
+    for focus_step, observe_step in FOCUS_READBACK_PAIRS:
+        focus_record = by_step.get(focus_step)
+        if not focus_record or focus_record.get("verdict") != "performed":
+            continue
+        target = focus_record.get("evidence", {}).get("target_hwnd")
+        if not isinstance(target, int):
+            continue
+        observation = by_step.get(observe_step)
+        check(observation is not None
+              and observation.get("verdict") == "performed",
+              f"{focus_step}: {observe_step} is not a performed observation")
+        if observation and observation.get("verdict") == "performed":
+            observed_windows = observation.get("evidence", {}).get("windows", [])
+            focused = [w for w in observed_windows
+                       if isinstance(w, dict) and w.get("focused") is True]
+            check(any(w.get("hwnd") == target for w in focused),
+                  f"{focus_step}: target_hwnd={target} is not the focused "
+                  f"window in {observe_step}")
+    by_handle = by_step.get("act_focus_by_handle")
+    if by_handle:
+        req = by_handle.get("request", {})
+        check(isinstance(req, dict) and "hwnd" in req and "window" not in req,
+              "act_focus_by_handle: request must carry exactly one hwnd target")
+        handle = req.get("hwnd") if isinstance(req, dict) else None
+        check(isinstance(handle, int) and not isinstance(handle, bool)
+              and handle > 0,
+              f"act_focus_by_handle: hwnd={handle!r} is not a positive integer")
+        if declared.get("act:focus") is True:
+            check(by_handle.get("verdict") == "performed",
+                  "act_focus_by_handle: a declared focus cell must perform the step")
+            check(any(isinstance(w, dict) and w.get("hwnd") == handle
+                      for w in windows),
+                  f"act_focus_by_handle: hwnd={handle!r} is not in the live window list")
+    stale = by_step.get("act_focus_stale_handle")
+    if stale:
+        req = stale.get("request", {})
+        check(isinstance(req, dict) and "hwnd" in req and "window" not in req,
+              "act_focus_stale_handle: request must carry exactly one hwnd target")
+        handle = req.get("hwnd") if isinstance(req, dict) else None
+        check(isinstance(handle, int) and not isinstance(handle, bool)
+              and handle > 0,
+              f"act_focus_stale_handle: hwnd={handle!r} is not a positive integer")
+        check(all(not isinstance(w, dict) or w.get("hwnd") != handle
+                  for w in windows),
+              f"act_focus_stale_handle: hwnd={handle!r} is actually a live window")
+        if declared.get("act:focus") is True:
+            check(stale.get("verdict") in ("stale", "not_performed", "refused"),
+                  "act_focus_stale_handle: a stale handle must be a named refusal")
 
     scale_disclosure = by_step.get("disclose_scales")
     check(scale_disclosure is not None,

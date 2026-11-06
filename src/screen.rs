@@ -235,6 +235,15 @@ pub enum A11yTarget {
     Handle(u64),
 }
 
+/// Which window an `act:focus` is bound to. A raw handle is the only
+/// unambiguous identity when two windows share a title; a title remains the
+/// 0.0.11-compatible spelling.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FocusTarget {
+    Title(String),
+    Handle(u64),
+}
+
 /// Bounds for one accessibility scan. Both are published with the frame so a
 /// reader can tell a bounded inventory from a complete one.
 pub const SCREEN_TOOL_MAX_A11Y_CONTROLS: usize = 400;
@@ -623,11 +632,17 @@ pub struct ActOutcome {
     pub readback: String,
     /// Present exactly when the operation dispatched a button event: click,
     /// drag, or a named control with `press=true`. Hover, scroll, typing,
-    /// focus and move post no button event and carry no receipt.
+    /// focus and move post no button event and carry no receipt. `target_hwnd`
+    /// is separate focus evidence, never a button receipt.
     pub actuation: Option<Actuation>,
     /// Present exactly when the operation posted a wheel event. A scroll has
     /// no button receipt; its two axes are its own typed evidence.
     pub scroll: Option<ScrollDispatch>,
+    /// The desktop's focused window handle at dispatch time, read from the
+    /// live window list and never echoed from the request. `None` with a
+    /// named reason when the session exposes no foreground window.
+    pub target_hwnd: Option<u64>,
+    pub target_hwnd_reason: Option<String>,
 }
 
 /// The `screen` tool: observe the desktop, or perform one operation on it.
@@ -823,16 +838,48 @@ impl ScreenTool {
     pub fn act(&self, act: Act<'_>) -> Result<ActOutcome, String> {
         self.admit()?;
         match act {
-            Act::Focus { title } => {
-                let window = native::find(&title)?;
+            Act::Focus { target } => {
+                let window = match target {
+                    FocusTarget::Title(title) => native::find(&title)?,
+                    FocusTarget::Handle(handle) => {
+                        native::window_by_handle(handle).ok_or_else(|| {
+                            format!(
+                                "screen: stale: hwnd {handle} is not in the live window list; \
+                                 observe again before operating on it"
+                            )
+                        })?
+                    }
+                };
+                // The resolved row comes from a fresh live window list, never
+                // from a cached frame. Re-check the title so a reused handle
+                // cannot silently become a different window.
                 native::handle_is_live(window.handle, &window.title)?;
                 native::focus(window.handle)?;
-                let readback = native::windows()?
+                let focused = native::windows()?
                     .into_iter()
-                    .find(|candidate| candidate.focused)
-                    .map(|candidate| format!("foreground={:?}", candidate.title))
-                    .unwrap_or_else(|| "foreground=<none>".to_owned());
+                    .find(|candidate| candidate.focused);
+                let (readback, target_hwnd, target_hwnd_reason) = match focused {
+                    Some(candidate) => (
+                        format!(
+                            "foreground={:?} target_hwnd={}",
+                            candidate.title, candidate.handle
+                        ),
+                        Some(candidate.handle),
+                        None,
+                    ),
+                    None => (
+                        "foreground=<none> target_hwnd=<none>".to_owned(),
+                        None,
+                        Some(
+                            "screen: unknown: no foreground window exposed a handle; observe \
+                             again"
+                                .to_owned(),
+                        ),
+                    ),
+                };
                 Ok(ActOutcome {
+                    target_hwnd,
+                    target_hwnd_reason,
                     scroll: None,
                     actuation: None,
                     action: "focus".to_owned(),
@@ -868,6 +915,8 @@ impl ScreenTool {
                     ));
                 }
                 Ok(ActOutcome {
+                    target_hwnd: None,
+                    target_hwnd_reason: None,
                     scroll: None,
                     actuation: None,
                     action: "move".to_owned(),
@@ -881,6 +930,8 @@ impl ScreenTool {
             Act::Click { x, y, button, double } => {
                 let (px, py, dispatch) = native::click(x, y, button, double)?;
                 Ok(ActOutcome {
+                    target_hwnd: None,
+                    target_hwnd_reason: None,
                     scroll: None,
                     actuation: Some(Actuation::from_dispatch(dispatch, dispatch_target())),
                     action: "click".to_owned(),
@@ -891,6 +942,8 @@ impl ScreenTool {
             Act::Hover { x, y } => {
                 let (px, py) = native::place_pointer(x, y)?;
                 Ok(ActOutcome {
+                    target_hwnd: None,
+                    target_hwnd_reason: None,
                     scroll: None,
                     actuation: None,
                     action: "hover".to_owned(),
@@ -928,6 +981,8 @@ impl ScreenTool {
                 };
                 let (px, py, dispatch) = native::drag(x, y, &points, button)?;
                 Ok(ActOutcome {
+                    target_hwnd: None,
+                    target_hwnd_reason: None,
                     scroll: None,
                     actuation: Some(Actuation::from_dispatch(dispatch, dispatch_target())),
                     action: "drag".to_owned(),
@@ -947,6 +1002,8 @@ impl ScreenTool {
                 native::type_text(text)?;
                 let evidence = foreground_evidence(before, native::foreground_title())?;
                 Ok(ActOutcome {
+                    target_hwnd: None,
+                    target_hwnd_reason: None,
                     scroll: None,
                     actuation: None,
                     action: "type".to_owned(),
@@ -959,6 +1016,8 @@ impl ScreenTool {
                 native::press_key(&keys)?;
                 let evidence = foreground_evidence(before, native::foreground_title())?;
                 Ok(ActOutcome {
+                    target_hwnd: None,
+                    target_hwnd_reason: None,
                     scroll: None,
                     actuation: None,
                     action: "key".to_owned(),
@@ -975,6 +1034,8 @@ impl ScreenTool {
                 check_scroll_axes(delta_x, delta_y)?;
                 let (px, py, dispatch) = native::scroll(x, y, delta_x, delta_y)?;
                 Ok(ActOutcome {
+                    target_hwnd: None,
+                    target_hwnd_reason: None,
                     scroll: Some(dispatch),
                     actuation: None,
                     action: "scroll".to_owned(),
@@ -1214,7 +1275,7 @@ pub enum CaptureTarget {
 /// One operation the model asked for.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Act<'a> {
-    Focus { title: String },
+    Focus { target: FocusTarget },
     Move { title: String, x: i32, y: i32, width: i32, height: i32 },
     Click { x: i32, y: i32, button: ClickButton, double: bool },
     Hover { x: i32, y: i32 },
@@ -2945,6 +3006,12 @@ mod native {
         Ok(collector.windows)
     }
 
+    /// Resolves one live handle from the same enumeration that `observe`
+    /// publishes. A handle outside the fresh list is never guessed at.
+    pub fn window_by_handle(handle: u64) -> Option<WindowInfo> {
+        windows().ok()?.into_iter().find(|window| window.handle == handle)
+    }
+
     /// Resolves one model-supplied title to a window. Exact match first, then a
     /// unique case-insensitive substring; an ambiguous request is refused with
     /// the candidates named, never resolved by guess.
@@ -3459,6 +3526,9 @@ macro_rules! refusing_backend {
 
         pub fn windows() -> Result<Vec<WindowInfo>, String> {
             Err(unsupported("observe windows"))
+        }
+        pub fn window_by_handle(_handle: u64) -> Option<WindowInfo> {
+            None
         }
         pub fn virtual_screen() -> Result<(i32, i32, i32, i32), String> {
             Err(unsupported("observe virtual screen"))

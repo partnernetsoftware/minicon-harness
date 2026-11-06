@@ -113,12 +113,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 0.0.11: a handle is the only unambiguous window identity when two
     // windows share a title. The a11y scan is addressed by that handle, never
     // by guessing which foreground window the runner happens to have.
-    let target_hwnd = evidence["windows"]
+    let a11y_hwnd = evidence["windows"]
         .as_array()
         .and_then(|windows| windows.first())
         .and_then(|window| window["hwnd"].as_u64());
 
-    if let Some(hwnd) = target_hwnd {
+    if let Some(hwnd) = a11y_hwnd {
         journey.run(
             "observe_a11y",
             "observe",
@@ -248,6 +248,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         journey.skip("act_focus", "act:focus", "verb is not implemented on this cell");
     }
+
+    // 0.0.12: a handle is an act target, not only an a11y scan target. The
+    // reader recomputes target_hwnd against the focused window in the very
+    // next observation; a stale handle must be a named refusal, never a
+    // silent fallback to the foreground window.
+    let focus_readback = journey.run(
+        "observe_focus_readback",
+        "observe",
+        caps.observe,
+        true,
+        json!({ "op": "observe" }),
+    );
+    let focused_hwnd = focus_readback["evidence"]["windows"]
+        .as_array()
+        .and_then(|windows| {
+            windows
+                .iter()
+                .find(|window| window["focused"].as_bool() == Some(true))
+        })
+        .and_then(|window| window["hwnd"].as_u64());
+    let handle_hwnd = focused_hwnd.or(a11y_hwnd).unwrap_or(1);
+    journey.run(
+        "act_focus_by_handle",
+        "act:focus",
+        caps.act_focus,
+        true,
+        json!({
+            "op": "act", "why": "CU journey: focus by live hwnd",
+            "action": "focus", "hwnd": handle_hwnd,
+        }),
+    );
+    journey.run(
+        "observe_handle_focus_readback",
+        "observe",
+        caps.observe,
+        true,
+        json!({ "op": "observe" }),
+    );
+    journey.run(
+        "act_focus_stale_handle",
+        "act:focus",
+        caps.act_focus,
+        true,
+        json!({
+            "op": "act", "why": "CU journey: refuse a stale hwnd",
+            "action": "focus", "hwnd": u64::MAX,
+        }),
+    );
 
     if caps.act_move {
         if let Some(window) = &title {

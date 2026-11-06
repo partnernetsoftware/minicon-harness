@@ -482,6 +482,10 @@ pub fn windows() -> Result<Vec<WindowInfo>, String> {
         .collect())
 }
 
+pub fn window_by_handle(handle: u64) -> Option<WindowInfo> {
+    windows().ok()?.into_iter().find(|window| window.handle == handle)
+}
+
 pub fn foreground_title() -> Option<String> {
     window_entries()
         .ok()?

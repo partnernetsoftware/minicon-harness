@@ -31,7 +31,7 @@
 
 use crate::screen::{
     resolve_control, Act, Actuation, A11yTarget, CaptureTarget, ClickButton, ControlInfo,
-    ControlTarget,
+    ControlTarget, FocusTarget,
     DisplayScaleProbe, EnvironmentProbe, GrantProbe, Modifier, ScreenSnapshot, ScreenTool,
     WindowInfo, SCREEN_TOOL_HELD_MODIFIERS, SCREEN_TOOL_MAX_CAPTURE_SCALE,
     SCREEN_TOOL_MAX_HELD_MODIFIERS, SCREEN_TOOL_MAX_TYPE_CHARS,
@@ -131,7 +131,11 @@ const P_TO_X: CuParam = CuParam { name: "to_x", ty: CuType::Int, required: false
 const P_TO_Y: CuParam = CuParam { name: "to_y", ty: CuType::Int, required: false };
 const P_WIDTH: CuParam = CuParam { name: "width", ty: CuType::Int, required: true };
 const P_HEIGHT: CuParam = CuParam { name: "height", ty: CuType::Int, required: true };
-const P_TITLE: CuParam = CuParam { name: "window", ty: CuType::String, required: true };
+// `act:focus` accepts exactly one of `window` or `hwnd`; parse_request
+// enforces that mutual exclusion, so disclose must not advertise either as
+// unconditionally required.
+const P_TITLE: CuParam = CuParam { name: "window", ty: CuType::String, required: false };
+const P_HWND: CuParam = CuParam { name: "hwnd", ty: CuType::Int, required: false };
 const P_BUTTON: CuParam = CuParam { name: "button", ty: CuType::Button, required: false };
 const P_DOUBLE: CuParam = CuParam { name: "double", ty: CuType::Bool, required: false };
 const P_TEXT: CuParam = CuParam { name: "text", ty: CuType::String, required: true };
@@ -165,8 +169,8 @@ pub const CAPABILITIES: &[CuCapability] = &[
     CuCapability {
         name: "act:focus",
         kind: CuKind::Act,
-        summary: "Bring one uniquely named window to the foreground; readback is the title.",
-        params: &[P_WHY, P_TITLE],
+        summary: "Bring one window to the foreground by a unique title or a live hwnd; readback is the desktop's foreground title and target_hwnd.",
+        params: &[P_WHY, P_TITLE, P_HWND],
     },
     CuCapability {
         name: "act:move",
@@ -478,7 +482,7 @@ impl CuReceipt {
 /// The typed operation a caller asked the host to perform.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CuAction {
-    Focus { title: String },
+    Focus { target: FocusTarget },
     Move { title: String, x: i32, y: i32, width: i32, height: i32 },
     Click { x: i32, y: i32, button: ClickButton, double: bool },
     Hover { x: i32, y: i32 },
@@ -695,7 +699,17 @@ impl CuHost {
     pub fn invoke_json(&self, arguments: &Value) -> CuResult {
         match parse_request(arguments) {
             Ok(request) => self.invoke(request),
-            Err(refusal) => self.refusal("unknown", refusal),
+            Err(refusal) => {
+                // A typed act refusal still names the capability it belongs to;
+                // "unknown" is reserved for a request with no advertised verb.
+                let name = arguments
+                    .get("action")
+                    .and_then(Value::as_str)
+                    .map(|action| format!("act:{action}"))
+                    .filter(|candidate| capability(candidate).is_some())
+                    .unwrap_or_else(|| "unknown".to_owned());
+                self.refusal(&name, refusal)
+            }
         }
     }
 
@@ -1051,6 +1065,8 @@ impl CuHost {
             "scroll": outcome.scroll.as_ref().map(|axes| json!({
                 "delta_x": axes.delta_x, "delta_y": axes.delta_y,
             })).unwrap_or(Value::Null),
+            "target_hwnd": outcome.target_hwnd,
+            "target_hwnd_reason": outcome.target_hwnd_reason.clone(),
         });
         self.record(
             &mut state,
@@ -1413,6 +1429,8 @@ impl CuHost {
             "scroll": outcome.scroll.as_ref().map(|axes| json!({
                 "delta_x": axes.delta_x, "delta_y": axes.delta_y,
             })).unwrap_or(Value::Null),
+            "target_hwnd": outcome.target_hwnd,
+            "target_hwnd_reason": outcome.target_hwnd_reason.clone(),
         });
         self.record(
             &mut state,
@@ -1436,7 +1454,7 @@ impl CuHost {
 
     fn call_act(&self, action: &CuAction) -> Result<crate::screen::ActOutcome, String> {
         let act = match action {
-            CuAction::Focus { title } => Act::Focus { title: title.clone() },
+            CuAction::Focus { target } => Act::Focus { target: target.clone() },
             CuAction::Move { title, x, y, width, height } => Act::Move {
                 title: title.clone(),
                 x: *x,
@@ -1836,6 +1854,8 @@ fn actuation_json(receipt: &Actuation) -> Value {
 fn classify(error: String) -> (CuVerdict, String) {
     if error.starts_with("screen: failed:") {
         (CuVerdict::NotPerformed, error)
+    } else if error.starts_with("screen: stale:") {
+        (CuVerdict::Stale, error)
     } else if error.starts_with("screen: refused:") {
         (CuVerdict::Refused, error)
     } else if error.starts_with("cu: unsupported:") {
@@ -2068,13 +2088,43 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                         format!("screen: refused: action {action:?} needs a `window` title")
                     })
             };
+            let focus_target = || -> Result<FocusTarget, String> {
+                let title = arguments.get("window").filter(|value| !value.is_null());
+                let hwnd = arguments.get("hwnd").filter(|value| !value.is_null());
+                match (title, hwnd) {
+                    (Some(value), None) => value
+                        .as_str()
+                        .map(|text| FocusTarget::Title(text.to_owned()))
+                        .ok_or_else(|| {
+                            "screen: refused: focus `window` must be a string title".to_owned()
+                        }),
+                    (None, Some(value)) => value
+                        .as_u64()
+                        .filter(|handle| *handle != 0)
+                        .map(FocusTarget::Handle)
+                        .ok_or_else(|| {
+                            "screen: refused: focus `hwnd` must be a positive integer from a \
+                             prior observe"
+                                .to_owned()
+                        }),
+                    (Some(_), Some(_)) => Err(
+                        "screen: refused: focus needs exactly one of `window` or `hwnd`; giving \
+                         both is ambiguous"
+                            .to_owned(),
+                    ),
+                    (None, None) => Err(
+                        "screen: refused: focus needs exactly one of `window` or `hwnd`"
+                            .to_owned(),
+                    ),
+                }
+            };
             let button = || match arguments.get("button").and_then(Value::as_str) {
                 Some("right") => ClickButton::Right,
                 Some("middle") => ClickButton::Middle,
                 _ => ClickButton::Left,
             };
             let act = match action {
-                "focus" => CuAction::Focus { title: title()? },
+                "focus" => CuAction::Focus { target: focus_target()? },
                 "move" => CuAction::Move {
                     title: title()?,
                     x: number("x")?,
@@ -2748,6 +2798,109 @@ mod tests {
         assert_eq!(crate::screen::SCREEN_TOOL_MAX_DRAG_PATH_POINTS, 16);
         assert_eq!(crate::screen::SCREEN_TOOL_MAX_DRAG_STEPS, 12);
         assert_eq!(crate::screen::SCREEN_TOOL_MAX_SCROLL_DELTA, 1440);
+    }
+
+    #[test]
+    fn focus_target_is_exactly_one_of_title_or_live_handle() {
+        let by_title = parse_request(&json!({
+            "op": "act", "why": "focus by title", "action": "focus",
+            "window": "WorkBuddy"
+        }))
+        .unwrap();
+        assert_eq!(
+            by_title.call,
+            CuCall::Act {
+                why: "focus by title".to_owned(),
+                action: CuAction::Focus {
+                    target: FocusTarget::Title("WorkBuddy".to_owned())
+                }
+            }
+        );
+        let by_handle = parse_request(&json!({
+            "op": "act", "why": "focus by handle", "action": "focus",
+            "hwnd": 59771304
+        }))
+        .unwrap();
+        assert_eq!(
+            by_handle.call,
+            CuCall::Act {
+                why: "focus by handle".to_owned(),
+                action: CuAction::Focus { target: FocusTarget::Handle(59771304) }
+            }
+        );
+        for (label, arguments) in [
+            (
+                "both",
+                json!({ "op": "act", "why": "focus", "action": "focus", "window": "WorkBuddy", "hwnd": 1 }),
+            ),
+            (
+                "neither",
+                json!({ "op": "act", "why": "focus", "action": "focus" }),
+            ),
+            (
+                "negative",
+                json!({ "op": "act", "why": "focus", "action": "focus", "hwnd": -1 }),
+            ),
+            (
+                "zero",
+                json!({ "op": "act", "why": "focus", "action": "focus", "hwnd": 0 }),
+            ),
+            (
+                "string handle",
+                json!({ "op": "act", "why": "focus", "action": "focus", "hwnd": "59771304" }),
+            ),
+        ] {
+            let error = parse_request(&arguments).unwrap_err();
+            assert!(error.starts_with("screen: refused:"), "{label}: {error}");
+            assert!(
+                error.contains("focus") || error.contains("window") || error.contains("hwnd"),
+                "{label}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn handle_target_is_an_additive_focus_parameter() {
+        let focus = capability("act:focus").unwrap();
+        assert!(focus.params.iter().any(|p| p.name == "hwnd"
+            && p.ty == CuType::Int
+            && !p.required));
+        assert!(focus.params.iter().any(|p| p.name == "window" && !p.required));
+        assert_eq!(CAPABILITIES.len(), 11);
+        assert_eq!((CU_ABI_MAJOR, CU_ABI_MINOR), (1, 0));
+        let definitions = crate::wire::tool_definitions();
+        let screen = definitions
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["function"]["name"] == "screen")
+            .expect("screen tool definition");
+        let props = &screen["function"]["parameters"]["properties"];
+        assert_eq!(props["hwnd"]["type"], "integer");
+        assert!(props["hwnd"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn focus_target_refusal_names_its_capability() {
+        let result = host(false).invoke_json(&json!({
+            "op": "act", "why": "ambiguous focus", "action": "focus",
+            "window": "WorkBuddy", "hwnd": 59771304
+        }));
+        assert_eq!(result.verdict, CuVerdict::Refused);
+        assert_eq!(result.capability, "act:focus");
+        assert!(result.text.contains("exactly one"), "{}", result.text);
+    }
+
+    #[test]
+    fn stale_handle_error_is_stale_not_unknown() {
+        let (verdict, reason) = classify(
+            "screen: stale: hwnd 1 is not in the live window list; observe again".to_owned(),
+        );
+        assert_eq!(verdict, CuVerdict::Stale);
+        assert!(reason.contains("observe again"));
     }
 
     #[test]

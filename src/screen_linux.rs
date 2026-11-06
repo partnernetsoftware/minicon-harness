@@ -717,6 +717,10 @@ pub fn windows() -> Result<Vec<WindowInfo>, String> {
     Ok(out)
 }
 
+pub fn window_by_handle(handle: u64) -> Option<WindowInfo> {
+    windows().ok()?.into_iter().find(|window| window.handle == handle)
+}
+
 pub fn find(title: &str) -> Result<WindowInfo, String> {
     let all = windows()?;
     if let Some(exact) = all.iter().find(|window| window.title == title) {

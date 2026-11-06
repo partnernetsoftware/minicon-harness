@@ -314,7 +314,17 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                             "type": "string",
                             "description": "Window title. For op=observe it filters the list; \
                                             for op=act it names the target. A substring is \
-                                            accepted only when it matches exactly one window."
+                                            accepted only when it matches exactly one window. \
+                                            For op=act focus it is mutually exclusive with hwnd."
+                        },
+                        "hwnd": {
+                            "type": "integer",
+                            "description": "For op=act focus only: a live window handle \
+                                            (integer from a prior observe.windows[]). It is \
+                                            mutually exclusive with window and is re-validated \
+                                            against the fresh live window list on every call; \
+                                            focus publishes target_hwnd from the desktop, never \
+                                            echoed from this request."
                         },
                         "capture": {
                             "description": "For op=observe: true captures the whole virtual \
