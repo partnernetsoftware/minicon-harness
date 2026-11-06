@@ -1,8 +1,10 @@
-# 0.0.11 — handle-addressed window targeting
+# 0.0.12 — handle-addressed window targeting (deferred from 0.0.11)
 
-Status: `[_]` planned after `v0.0.10` was published as a public signed Release
-and accepted from the owner's view. **No source, version or Release change
-belongs to this document.** The source tree stays at `0.0.10` until W4 runs.
+Status: `[_]` planned. On 2026-11-06 the owner required structured control
+disclosure to be built into 0.0.11 instead; this plan was moved to 0.0.12
+unchanged in scope. **No source, version or Release change belongs to this
+document.** The source tree stays at the version of the last published
+Release until this version's W4 runs.
 
 Baseline: `v0.0.10` published the coordinate basis (`display_scales[]` in
 `disclose`, `scale` in `observe.displays[]`) with three-OS CI evidence and

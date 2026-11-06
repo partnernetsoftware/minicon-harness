@@ -139,10 +139,11 @@ minicon-harness computer use
 │   │        text, state; deliberately NOT a UIA tree   owner PRD 01.05
 │   ├── [v] A3 foreground title, multi-monitor negative coordinates,
 │   │        bounded capture arithmetic                 owner PRD 01.06
-│   ├── [_] A4 accessibility trees: macOS AX, Linux AT-SPI, Windows UIA COM
+│   ├── [v] A4 Windows MSAA read-only tree in `observe.a11y` (0.0.11)
+│   │        bounded 400 rows / depth 12; no new grant, crate or elevation
+│   │        owner PRD 01.15; AT-SPI (Linux) / AX (macOS) still [_]
 │   │        unlock: per-app TCC grant on macOS; AT-SPI D-Bus bus + ATK
 │   │        fixture on Linux; each green on real CI before declaring true
-│   │        target 0.0.7+ or [no]                      owner PRD 01.06
 │   └── [_] A5 image arm in the wire codec: base64 PNG to the model each turn
 │            unlock: separate PRD + budget/retention decision
 │            target 0.0.7 candidate; [no] in 0.0.6
@@ -190,6 +191,9 @@ minicon-harness computer use
 │   │        Monitoring, Accessibility) — delivered in 0.0.9
 │   ├── [v] E5a display scale / coordinate basis in `disclose`
 │   │        delivered in 0.0.10; additive evidence, not a capability row
+│   ├── [v] E5c structured `a11y_controls[]` in `observe`
+│   │        delivered in 0.0.11; Windows MSAA, other cells unknown+reason
+│   ├── [_] E5b `act:focus` hwnd + `target_hwnd`   deferred to 0.0.12
 │   └── [no] E5 Wayland-native protocol, runtime backend selection
 ├── F Verification and delivery
 │   ├── [v] F1 CI compile gate + three-OS real-desktop journeys + independent
@@ -286,44 +290,49 @@ were not a DPI scale.
 ├── [_] B8 batched actions[]                unlock: admission/stale design
 ```
 
-## 0.0.11 frontier (planned, not started)
+## 0.0.11 frontier (W1/W2 delivered, W3/W4 pending)
 
-`v0.0.10` is published and accepted, so the next version is planned here.
-**Only documentation lands in this section**: the source tree stays at
-`0.0.10` until 0.0.11 W4 runs.
+**0.0.11 = structured control disclosure.** The L1 self-hosted trial drove
+WorkBuddy through CU and found that `observe.controls[]` (Win32
+`EnumChildWindows`) reports only one `Chrome_RenderWidgetHostHWND` with
+`role=unknown` for a Chromium window: no input box, no send button. The
+controller fell back to screenshots and a vision read of pixel coordinates,
+which is slow, token-heavy and not evidence produced by the CU contract. On
+2026-11-06 the owner required the missing structured read to be built into
+this version rather than guessed around, and cancelled the sub-session
+dispatch experiment: 0.0.11 is planned and implemented by the controller.
 
-**0.0.11 = handle-addressed window targeting.** The L1 self-hosted trial that
-drove 0.0.10 ran two WorkBuddy windows side by side whose titles are both
-`WorkBuddy`. `act:focus` resolves a window by unique title, so a controller
-cannot name which session window it wants; it fell back to clicking pixel
-coordinates, which is exactly the failure mode that the coordinate basis
-cannot fix. W (window target binding) needs a handle arm before an L2 loop
-can manage several session windows reliably.
+This is an **owner decision lifting one earlier `[no]`** ("a11y trees"),
+recorded here instead of silently changed. The lift is bounded to a Windows
+MSAA/IAccessible read-only tree with no new crate, no new OS grant and no
+elevation; Linux / macOS / fallback publish an empty tree with a named
+`a11y_reason`. Every other `[no]` and the G resource boundary in `PRD_01_08`
+are unchanged.
 
-Contract owner: `prd/PRD_01_14_handle_addressed_targeting.md`; work breakdown
-and gates: `plan/plan-0.0.11-handle-addressed-targeting.md`. Additive only:
-an optional `hwnd` on `act:focus` and a `target_hwnd` in the focus/actuation
-readback. No new capability row, no ABI bump, no new OS grant, no resource
-authority, and the G boundary in `PRD_01_08` is unchanged.
+Contract owner: `prd/PRD_01_15_structured_control_disclosure.md`; work
+breakdown and gates: `plan/plan-0.0.11-structured-control-disclosure.md`.
+W1/W2 landed in `f0433d6`: 109 unit tests, four-configuration type gate,
+three-OS `observe_a11y` step and independent reader recompute.
 
 ```text
-0.0.11 — handle-addressed window targeting (planned)
-├── [_] E5b `hwnd` targeting + `target_hwnd` readback
-│        unlock: this plan; no separate PRD or grant needed
-├── [_] A5 / D2 model-visible image arm     unlock: PNG budget/retention
-├── [_] B7b bounded wait + D4 ceilings      unlock: loop/budget decision
+0.0.11 — structured control disclosure (W1/W2 delivered)
+├── [v] E5c `observe.a11y` + `a11y_controls[]` / `a11y_reason`
+│        Windows MSAA read-only tree; handle-addressed scan; additive row
+│        no new capability row; matrix 12/10/8/0; cu-abi 1.0
+├── [_] E5b `act:focus` hwnd + `target_hwnd`   moved to 0.0.12, PRD_01_14
+│        same measured motive: two windows both titled "WorkBuddy"
+├── [_] A4 AT-SPI (Linux) / AX (macOS) trees  unlock: OS grants + fixtures
+├── [_] A5 / D2 model-visible image arm       unlock: PNG budget/retention
+├── [_] B7b bounded wait + D4 ceilings        unlock: loop/budget decision
 │        hard L1 evidence: observe stale frames, act sequencing
-├── [_] A4 accessibility trees              unlock: OS grants + fixtures
-│        hard L1 evidence: welcome-page input box unreachable by CU focus
-├── [_] F3 app-level effect evidence        unlock: echo-window fixtures
-├── [_] C5 / C6 safety + hand-off           unlock: a policy PRD first
-└── [_] B8 batched actions[]                unlock: admission/stale design
+├── [_] F3 app-level effect evidence          unlock: echo-window fixtures
+├── [_] C5 / C6 safety + hand-off             unlock: a policy PRD first
+└── [_] B8 batched actions[]                  unlock: admission/stale design
 ```
 
-Ordering is not a version commitment. Implementation is dispatched to a
-sub-session through the client GUI, as `PRD_01_12` records; the controller
-only polls, verifies, decides the release gate and accepts from the owner's
-view.
+Ordering is not a version commitment. The controller implements, polls CI,
+independently recomputes the journey artifacts, decides the release gate and
+accepts from the owner's view.
 
 `[no]` carried forward unchanged: plugin host, permission policy engine,
 streaming, MCP, a scripting surface over the desktop, a second model loop,

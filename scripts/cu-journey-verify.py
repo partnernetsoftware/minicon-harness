@@ -433,9 +433,15 @@ def main() -> int:
                       f"observe_a11y: row {i} depth={depth!r} is outside 0..12")
                 check(isinstance(row.get("name"), str),
                       f"observe_a11y: row {i} name is not a string")
-                check(rect_values(row.get("rect")) is not None,
+                # a11y rows use the same [x, y, width, height] array shape as
+                # windows[] and controls[], not the {x,y,width,height} object
+                # that rect_values() reads for the display-scale rows.
+                rect = row.get("rect")
+                check(isinstance(rect, list) and len(rect) == 4
+                      and all(isinstance(v, int) and not isinstance(v, bool)
+                              for v in rect),
                       f"observe_a11y: row {i} rect is not an int rect: "
-                      f"{row.get('rect')!r}")
+                      f"{rect!r}")
 
     scale_disclosure = by_step.get("disclose_scales")
     check(scale_disclosure is not None,

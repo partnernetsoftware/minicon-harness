@@ -90,6 +90,20 @@ works **even when computer use was not granted**. A malformed scale set
 publishes no partial disclosure at all (`not_performed`). Contract:
 [`prd/PRD_01_13_display_scale_disclosure.md`](prd/PRD_01_13_display_scale_disclosure.md).
 
+**Structured control disclosure (0.0.11).** `op=observe` gains an optional
+`a11y` arm: `true` scans the foreground window, an integer scans that live
+`hwnd`. `evidence["a11y_controls"]` publishes a bounded, read-only tree with
+`name`, MSAA `role`, coarse `role_name`, `rect` in virtual-desktop
+coordinates, `depth` and `child_id`, plus `a11y_source`, `a11y_reason`,
+`a11y_truncated` and `a11y_role_basis`. This exists because the typed Win32
+`controls[]` arm reports only one `Chrome_RenderWidgetHostHWND` for a
+Chromium window, forcing a screenshot-and-vision fallback. Windows uses
+hand-written MSAA/IAccessible COM (no new crate, no OS grant, no elevation);
+Linux, macOS and the fallback publish an empty tree with a named reason until
+AT-SPI / AX trees have their own grants and fixtures. Additive evidence on
+`observe`: `cu-abi 1.0` and the 12/10/8/0 matrix are unchanged. Contract:
+[`prd/PRD_01_15_structured_control_disclosure.md`](prd/PRD_01_15_structured_control_disclosure.md).
+
 Above the mechanisms sits a **versioned host capability contract**
 (`src/cu.rs`, `prd/PRD_01_04_cu_base.md`): cu-abi 1.0, a discoverable
 capability manifest, typed inputs/outputs, observation generations with
