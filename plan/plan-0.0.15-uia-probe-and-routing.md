@@ -1,9 +1,13 @@
-# 0.0.15 — UIA probe first, then mixed structured routing (next planned version)
+# 0.0.15 — UIA probe first, then mixed structured routing (planning, not started)
 
-Status: `[_]` planned after `v0.0.14` was published as a public signed
-Release and accepted from the owner's view on 2026-11-06. **No source,
-version or Release change belongs to this document.** The source tree stays
-at `0.0.14` until this version's W4 runs.
+Status: `[_]` **PLANNING — not started**, after `v0.0.14` was published as a
+public signed Release and accepted from the owner's view on 2026-11-06.
+Under the owner's 2026-11-06 evening direction, this phase is study and
+structure: **no W1/W2 code, no test, no version bump and no Release chain
+until the plan is complete** (三思后行 / 分而治之). The plan-completeness
+checklist in `prd/PRD_01_23_capability_maturity_subtree.md` must pass first.
+**No source, version or Release change belongs to this document.** The source
+tree stays at `0.0.14` until this version's W4 runs.
 
 Baseline: `v0.0.14` published the normalised a11y node schema on top of the
 0.0.11 Windows MSAA tree. `cu-abi 1.0`, the 12/10/8/0 matrix, the

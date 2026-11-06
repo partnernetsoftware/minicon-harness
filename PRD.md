@@ -13,7 +13,142 @@ repository: native cells per OS/ISA, a Cosmopolitan fat-trampoline
 court before anything is published.
 
 Legend: `[v]` delivered with evidence, `[-]` partial/open, `[_]` planned,
-`[no]` explicit non-goal.
+`[no]` explicit non-goal, `[study]` research note with no implementation
+claim, `[decision]` an owner decision still pending.
+
+## Document tree, W0 learning ledger and multi-dimensional views
+
+Owner direction (2026-11-06 evening): keep learning the newest computer-use
+and resource-management knowledge, **keep the learning process notes in the
+PRD**, expand the PRD into **trees over several dimensions**, split large
+branches into `*_subtree.md` documents and index them here, and **do not
+start code or tests until the plan is complete** — 三思后行 (think three
+times before acting) and 分而治之 (divide and conquer). This replaces the
+earlier "implement next" pace for the current phase.
+
+**Current phase: STUDY + STRUCTURE.** No W1/W2 code, no test, no version bump
+and no Release chain is started for 0.0.15. Last shipped version is
+`v0.0.14`; all four version sources read `0.0.14`. Every tree node below is
+either `[v]` with three-OS evidence, `[study]`, `[_]`, `[no]` or `[decision]`;
+a research finding never becomes a capability by itself.
+
+### Document index (subtree documents)
+
+```text
+PRD.md                                     top index, trees, ledger, versions
+prd/
+├── PRD_01_08_computer_use_scope.md        K/V/M/W/S domain model + G boundary
+├── PRD_01_12_self_hosted_orchestration.md  L0-L3 end state
+├── PRD_01_17_frontier_radar.md            W0 learning ledger + candidate table
+├── PRD_01_19_cu_perception_subtree.md     T1 observation / perception
+├── PRD_01_20_cu_actuation_subtree.md      T2 actuation / input
+├── PRD_01_21_resource_domain_subtree.md   T3 resource domain (largest branch)
+├── PRD_01_22_platform_evidence_subtree.md T4 platform + T6 evidence
+├── PRD_01_23_capability_maturity_subtree.md T5 maturity + T7 version state
+├── PRD_01_01 .. PRD_01_16, PRD_01_18      per-version contracts (unchanged)
+└── prd-cu-openai.md                        external reference, NOT a contract
+plan/
+└── plan-0.0.15-uia-probe-and-routing.md   0.0.15 planning, NOT started
+```
+
+### T1 — perception (full tree: `PRD_01_19`)
+
+```text
+T1 perception
+├── P1 pixel arm            [v] bounded PNG + scale disclosure; [no] image arm
+├── P2 structured controls  [v] Win32 controls, MSAA tree, normalised schema
+│                           [_] UIA routing (probe gate), AT-SPI/AX, events
+├── P3 hybrid routing       [study] API -> tree -> pixels; [no] code-first here
+├── P4 target identity      [v] hwnd focus, target_hwnd, stale refusal
+├── P5 timing / freshness   [v] bounded wait + ceilings; [no] polling loop
+└── P6 grounding            [study] resolution budget, bidirectional scaling
+```
+
+### T2 — actuation (full tree: `PRD_01_20`)
+
+```text
+T2 actuation
+├── K keyboard    [v] type / key / held modifiers; [no] layout or IME claim
+├── M mouse       [v] click receipt / drag path / two-axis scroll
+├── W window      [v] title + hwnd focus, live re-validation
+├── A grammar     [v] one effect, why, verdicts, receipts; [_] batched actions
+├── C code-first  [study] emit-script-then-run; [no] in this repo
+└── S safety      [v] UIPI/TCC named refusals; [_] injection defence, approval
+```
+
+### T3 — resource domain (full tree: `PRD_01_21`, all `[study]` / `[no]`)
+
+```text
+T3 resource domain                     NOT screen authority (G)
+├── R1 process / pid / namespaces / pids.max
+├── R2 CPU       EEVDF, cpu.max/weight, throttling, cpuset, PSI
+├── R3 memory    max/high/low/min, oom.group, THP/HugeTLB, PSI
+├── R4 GPU       MIG, SR-IOV+IOMMU, vGPU, MPS, CUDA_VISIBLE_DEVICES
+├── R5 I/O       io.max/io.weight, io_uring, tmpfs, snapshots
+├── R6 net/device eBPF, default-deny egress, metadata block, LSM
+├── R7 isolation container -> gVisor -> microVM -> full KVM
+├── R8 lifecycle  credential broker, three timeouts, audit, quotas, stop
+├── R9 cost       PSI telemetry, 7.3x price spread, memory-dominant bills
+└── R10 acceptance guest-side read/cap/cleanup probes
+    └── [decision] (a) keep G closed (current) / (b) read-only telemetry / (c) control
+```
+
+### T4 — platform (full tree: `PRD_01_22`)
+
+```text
+T4 platform                             12 / 10 / 8 / 0 matrix
+├── PL1 Windows  [v] EnumWindows, MSAA, SendInput; [study] UIA, UIPI, WGC
+├── PL2 macOS    [v] 8/12, TCC boundaries, scale; [study] AX, bundle id
+├── PL3 Linux    [v] 10/12, XTest, empty a11y tree; [study] AT-SPI2, portals
+├── PL4 fallback [v] 0/12 with named reasons
+└── PL5 contract [v] four cfgs, identical native signatures, type gate
+```
+
+### T5 — capability maturity (full tree: `PRD_01_23`)
+
+```text
+T5 A-F capability index -> T1/T2/T4/T6 subtrees
+└── L0 read-only [v] -> L1 evidenced interaction [v]
+    -> L2 self-sustained loop [_] gates: A5/D2, B7b/D4 [v], A4, F3
+    -> L3 self-hosted orchestration [_] gates: L2 + F3 + C5/C6
+```
+
+### T6 — evidence (full tree: `PRD_01_22`)
+
+```text
+T6 evidence
+├── E1 CI gates          [v] platforms + journeys + four-cfg type gate
+├── E2 independent reader[v] producer never grades; no assertion weakened
+├── E3 typed rows        [v] receipts, grants, scales, a11y schema, wait
+├── E4 release chain     [v] receipts, sidecars, Authenticode, owner view
+├── E5 external methods  [study] OSWorld 2.1 release contract, accept+reject
+└── E6 evidence grades   [study] O / B / P / V / S / X; only X can be [v]
+```
+
+### T7 — version state (full tree: `PRD_01_23`)
+
+```text
+T7 versions
+├── V0.0.1 - V0.0.14   [v] published, accepted signed Releases
+├── V0.0.15            [_] PLANNING, not started (plan completeness first)
+├── candidate pool      [study] ordered by gate, never a version commitment
+└── standing [no]      [no] unchanged by any study pass
+```
+
+### W0 learning ledger (summary; full notes in `PRD_01_17` and each subtree)
+
+| Date | Pass | Query | Sources | Recorded caveat |
+|---|---|---|---|---|
+| 2026-11-06 | 1 | CU route + industry shape, resource isolation ladder | O/B/P/V/S | OSWorld metric + step-budget mismatch; vendor share numbers are V |
+| 2026-11-06 | 1 | UIA vs MSAA, WAA, UFO2, three-OS grants | O/P/S | WAA gain is one stack; "no grant on Windows" is integrity conditional |
+| 2026-11-06 | 2 | `IUIAutomation` vtable order and interop traps | O/S | RECT != UiaRect; swallowed HRESULT hides failure |
+| 2026-11-06 | 3 | perception, grounding, code-first, safety | S/P/O/V | per-step latency is not a controlled A/B; NOVA 57% is OSWorld-specific |
+| 2026-11-06 | 3 | cgroups v2, EEVDF, GPU virtualisation, sandbox cost | O/S/V | MPS shares failure domain; 7.3x spread has two KVM endpoints |
+| 2026-11-06 | 3 | grants, input tiers, OSWorld 2.1 release contract | O/P/S | 2.1 manifest disclaims a full 108-task evaluation |
+
+Evidence grades: **O** official, **B** benchmark board, **P** paper,
+**V** vendor claim, **S** survey / secondary, **X** local measurement. Only
+this repo's CI and owner-view acceptance (**X**) produce `[v]`.
 
 ## Product outcome
 
@@ -405,27 +540,34 @@ their unlock conditions. Contract owner:
 
 ## Continuous frontier learning (W0, owner direction 2026-11-06)
 
-The owner extended `/goal`: keep learning current computer-use **and**
-resource-management technology (process, CPU, memory, GPU, keyboard, video,
-mouse — all of it), keep upserting the PRD in place, then implement. This is
-W0 of every version cycle, owned by `prd/PRD_01_17_frontier_radar.md`:
+The owner extended `/goal` twice on 2026-11-06: first to keep learning
+current computer-use **and** resource-management technology (process, CPU,
+memory, GPU, keyboard, video, mouse — all of it) and upserting the PRD; then
+to keep the **learning process notes** in the PRD, expand it into
+**multi-dimensional trees**, split large branches into indexed subtree
+documents, and **not start code or tests until the plan is complete**. W0 is
+owned by `prd/PRD_01_17_frontier_radar.md`; the multi-dimensional index is at
+the top of this file.
 
-1. **Learn** — K / V / M / W / S perception, actuation, timing and safety,
-   plus process / CPU / memory / GPU / device / network isolation.
-2. **Upsert** — append or revise the radar and this file in place; never
-   overwrite a dated finding; record the source class (official doc,
-   benchmark board, vendor claim, survey) and the unlock condition.
-3. **Decide** — pick the highest candidate whose gate is open and which stays
-   inside `cu-abi 1.0`, the 12/10/8/0 matrix and `PRD_01_08`'s G boundary.
-   Ordering is a reason, not a version commitment.
-4. **Implement** — the usual W1/W2/W3/W4 chain; a capability is claimed from
-   three-OS CI plus the independent journey reader, never from an article.
+1. **Learn** — K / V / M / W / S perception, actuation, timing, verification
+   and safety, plus process / CPU / memory / GPU / device / network / storage
+   / credentials / lifecycle / cost.
+2. **Upsert** — append or revise the radar, the subtree documents and this
+   file's ledger in place; never overwrite a dated finding; record the query,
+   the source class, the caveat and where the finding went.
+3. **Structure** — fold each finding into the correct T1-T7 node and keep the
+   document index accurate.
+4. **Complete the plan** — pass the plan-completeness checklist in
+   `PRD_01_23`; **only then** implement through W1/W2/W3/W4. A capability is
+   claimed from three-OS CI plus the independent journey reader, never from
+   an article.
 
 **Learning is not authority.** `PRD_01_08` still assigns process, CPU,
 memory, GPU and device management outside `screen`; the radar records that
 whole domain as research and keeps the open decision (read-only telemetry vs.
 real resource control) explicitly undecided until the owner lifts it. No
-`[no]` is lifted by a research pass.
+`[no]` is lifted by a research pass. **Current phase: STUDY + STRUCTURE**,
+not implementation; 0.0.15 is planning only.
 
 First W0 pass (2026-11-06) produced three reusable conclusions: interface-
 first perception with UIA ahead of MSAA on Windows (WAA measured ~57%
@@ -465,9 +607,12 @@ hand-written `IUIAutomation` COM vtable with an unverified slot is a crash,
 not a named refusal. Resource-domain telemetry and control remain behind the
 open G decision recorded in `PRD_01_17`.
 
-## 0.0.15 next plan (after `v0.0.14` acceptance)
+## 0.0.15 next plan (planning, not started)
 
-The next planned version is **UIA probe-first, then mixed structured routing**
+**No code, test, version bump or Release chain is started for 0.0.15.** Under
+the owner's 2026-11-06 evening direction the phase is study and structure;
+the plan-completeness checklist in `PRD_01_23` must pass first. The next
+planned version is **UIA probe-first, then mixed structured routing**
 (`plan/plan-0.0.15-uia-probe-and-routing.md`). The second W0 pass published
 the `IUIAutomation` vtable order and three real traps — a four-int `RECT` is
 not a four-double `UiaRect`, a swallowed HRESULT hides a failed read, and UIA

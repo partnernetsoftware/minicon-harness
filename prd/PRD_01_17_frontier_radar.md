@@ -1,36 +1,97 @@
-# PRD 01.17 — continuous frontier radar (CU + resource domain)
+# PRD 01.17 — continuous frontier radar and W0 learning ledger
 
-Owner of **what this project learns, and how a learning becomes a candidate**.
-Status: **document only** — it changes no source, version, capability matrix,
-`cu-abi`, `[no]` row or the G boundary. Owner direction (2026-11-06):
+Owner of **what this project learns, how the learning is recorded, and how a
+finding becomes a candidate**. Status: **document only** — it changes no
+source, version, capability matrix, `cu-abi`, `[no]` row or the G boundary.
 
-> Continuously learn the newest computer-use and resource-management
-> technology (process, CPU, memory, GPU, keyboard, video, mouse — all of it),
-> continuously upsert the PRD, then implement.
+Owner directions, in order:
+
+- **2026-11-06 (day):** continuously learn the newest computer-use and
+  resource-management technology (process, CPU, memory, GPU, keyboard, video,
+  mouse — all of it), continuously upsert the PRD, then implement.
+- **2026-11-06 (evening):** keep learning, and **the learning process itself
+  must leave notes in the PRD**; the PRD must expand into **trees over several
+  dimensions**; large branches are split into `*_subtree.md` documents and
+  indexed in `PRD.md`; **do not start code or tests until the plan is
+  complete** — 三思后行 (think three times before acting) and 分而治之
+  (divide and conquer). This supersedes the "implement next" pace for the
+  current phase.
 
 Legend: `[v]` delivered with evidence, `[_]` candidate, `[no]` explicit
-non-goal. A dated finding is a **research note**, not a capability claim.
+non-goal, `[study]` research note with no implementation claim, `[decision]`
+an owner decision still pending. A dated finding is a **research note**, not
+a capability claim.
 
-## The W0 loop
+## The W0 loop (revised for the study phase)
 
-Every version cycle starts with W0, before W1:
-
-1. **Learn** — one research pass over (a) CU perception, actuation, timing and
-   safety (K / V / M / W / S), and (b) the resource domain: process, CPU,
-   memory, GPU, device, network and their isolation primitives.
-2. **Upsert** — append or revise this file and `PRD.md` in place. Never
-   overwrite a dated finding; record the date and the source class (official
-   doc, benchmark board, vendor claim, survey). Add the finding to the
-   candidate table with its unlock condition.
-3. **Decide** — pick the highest candidate whose gate is already open and
-   whose change stays inside `cu-abi 1.0`, the 12/10/8/0 matrix and the
-   G boundary of `PRD_01_08`. Ordering is a reason, not a version commitment.
-4. **Implement** — the usual W1/W2/W3/W4 chain. A capability is claimed only
-   from three-OS CI plus the independent journey reader, never from an article.
+1. **Learn** — one research pass over (a) CU perception, actuation, timing,
+   verification and safety (K / V / M / W / S), and (b) the resource domain:
+   process, CPU, memory, GPU, device, network, storage, credentials,
+   lifecycle and cost.
+2. **Upsert** — append or revise this file, the relevant subtree document and
+   the `PRD.md` ledger **in place**. Never overwrite a dated finding; record
+   the date, the query, the source class, the conflict or caveat and where
+   the finding went.
+3. **Structure** — fold each finding into the correct node of T1-T7, split
+   any oversized branch into its own subtree document, and keep `PRD.md`'s
+   document index accurate.
+4. **Complete the plan** — for the next version, write the contract, the
+   downgrade branch, the reader rules, the three-OS behaviour and the
+   non-goals, then pass the plan-completeness checklist in `PRD_01_23`.
+5. **Only then implement** — the usual W1/W2/W3/W4 chain. A capability is
+   claimed only from three-OS CI plus the independent journey reader, never
+   from an article.
 
 **Learning is not authority.** A published technique becomes a capability
-only after its own PRD, its own gate and — if it crosses G — an explicit owner
-decision. This file lifts no `[no]`, adds no verb, no grant and no tool.
+only after its own PRD, its own gate and — if it crosses G — an explicit
+owner decision. This file lifts no `[no]`, adds no verb, no grant and no tool.
+
+## Current phase
+
+```text
+STUDY -> STRUCTURE -> PLAN COMPLETION -> ONLY THEN CODE + TESTS
+```
+
+Current phase is **STUDY + STRUCTURE**. No W1/W2 code, no test, no version
+bump and no Release chain is started for 0.0.15. The last shipped version is
+`v0.0.14`; all four version sources read `0.0.14`.
+
+## Evidence grades
+
+| Grade | Meaning | Rule for this repo |
+|---|---|---|
+| **O** | official documentation / API reference | may inform a design decision |
+| **B** | benchmark leaderboard / official board | quote with metric and step budget |
+| **P** | paper / preprint | describe the method, not a product score |
+| **V** | vendor claim / marketing material | never treat as an independent fact |
+| **S** | survey / secondary engineering write-up | cross-check before quoting a number |
+| **X** | local measurement / this repo's CI | the only grade that can support `[v]` |
+
+Vendor share numbers, cross-environment cold-start times, partial-credit vs
+binary scores and results from different step budgets are **not comparable**.
+
+## Subtree map
+
+| Tree | Dimension | Owner document |
+|---|---|---|
+| T1 | observation / perception | `prd/PRD_01_19_cu_perception_subtree.md` |
+| T2 | actuation / input | `prd/PRD_01_20_cu_actuation_subtree.md` |
+| T3 | resource domain (largest) | `prd/PRD_01_21_resource_domain_subtree.md` |
+| T4 / T6 | platform + evidence | `prd/PRD_01_22_platform_evidence_subtree.md` |
+| T5 / T7 | capability maturity + versions | `prd/PRD_01_23_capability_maturity_subtree.md` |
+| domain model / G | K/V/M/W/S boundary | `prd/PRD_01_08_computer_use_scope.md` |
+| L0-L3 end state | self-hosted orchestration | `prd/PRD_01_12_self_hosted_orchestration.md` |
+
+## Learning log (process notes, dated)
+
+| Date | Pass | Query intent | Source classes | Conflict / caveat recorded | Went to |
+|---|---|---|---|---|---|
+| 2026-11-06 | 1 | CU technology route + industry shape; resource isolation ladder | O / B / P / V / S | OSWorld Verified >90% vs 2.0 binary ~20-44%; partial vs binary and 100 vs 500 steps are not comparable; domestic market shares are vendor self-reports | `PRD_01_17`, T1/T3/T7 |
+| 2026-11-06 | 1 | UIA vs MSAA, WAA, UFO2; three-OS a11y grants | O / P / S | WAA 8.6%->13.1% is one perception stack; "no grant on Windows" is integrity-level conditional | T1/T4 |
+| 2026-11-06 | 2 | `IUIAutomation` COM vtable order and interop traps | O / S (Go binding, MS Q&A) | `RECT` (4x int) != `UiaRect` (4x double); a swallowed HRESULT hides a failed read; physical pixels vs the 0.0.10 scale basis | T1 P2.4, `plan-0.0.15` |
+| 2026-11-06 | 3 | perception routes, grounding, code-first, safety | S / P / O / V | 150 ms vs 2.2-5 s per step are different setups, not a controlled A/B; code-first claims are vendor launches; NOVA's 57% is OSWorld-specific | T1/T2/T6 |
+| 2026-11-06 | 3 | cgroups v2 / EEVDF / PSI / GPU virtualisation / sandbox cost | O / S / V (multi-source) | MPS shares a failure domain; `CUDA_VISIBLE_DEVICES` is not a boundary; 7.3x price spread at equal specs has two full-KVM endpoints; memory is 72-80% of active-CPU bills | T3 |
+| 2026-11-06 | 3 | platform grants, input tiers, OSWorld 2.1 release contract | O / P / S | 2.1 manifest pins components but disclaims a full 108-task evaluation; a tag or smoke test is not full verification | T4/T6 |
 
 ## Findings, 2026-11-06
 

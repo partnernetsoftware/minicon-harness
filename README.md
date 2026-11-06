@@ -125,17 +125,26 @@ measured act/observation timing gap from the L1 trial. `cu-abi 1.0`, the
 12/10/8/0 matrix and the G boundary are unchanged. `v0.0.13` is a public
 signed Release accepted from the owner's view. Contract:
 [`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md). The next
-planned version is 0.0.15 UIA probe + mixed routing
+planned version is 0.0.15 UIA probe + mixed routing — **planning only, no
+code or tests yet**
 ([`plan/plan-0.0.15-uia-probe-and-routing.md`](plan/plan-0.0.15-uia-probe-and-routing.md)).
+The PRD is now a multi-dimensional tree with per-branch subtree documents and
+a dated W0 learning ledger: see the *Document tree* section of
+[`PRD.md`](PRD.md) and
+[`prd/PRD_01_17_frontier_radar.md`](prd/PRD_01_17_frontier_radar.md).
 `v0.0.14` is a public signed Release accepted from the owner's view
 ([`prd/PRD_01_18_normalised_a11y_nodes.md`](prd/PRD_01_18_normalised_a11y_nodes.md)).
 
 **Continuous frontier learning (W0).** Each version cycle starts by learning
 current computer-use and resource-domain technology (K, V, M, W, S plus
-process / CPU / memory / GPU / device / network), upserting the PRD in place,
-and implementing only the candidate whose gate is open. A research finding is
-not authority: no `[no]`, `cu-abi`, matrix row or G boundary changes because
-an article exists. Radar and candidate table:
+process / CPU / memory / GPU / device / network) and **keeping dated learning
+notes in the PRD**. Findings are folded into multi-dimensional trees (T1-T7)
+whose large branches have their own indexed subtree documents.
+**Implementation starts only after the plan is complete** (三思后行 /
+分而治之); 0.0.15 is planning only, with no code or tests started. A research
+finding is not authority: no `[no]`, `cu-abi`, matrix row or G boundary
+changes because an article exists. Ledger, evidence grades and candidate
+table:
 [`prd/PRD_01_17_frontier_radar.md`](prd/PRD_01_17_frontier_radar.md).
 
 Above the mechanisms sits a **versioned host capability contract**

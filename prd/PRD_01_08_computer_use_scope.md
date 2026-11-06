@@ -168,8 +168,13 @@ prd/
 ├── PRD_01_15_structured_control_disclosure.md [v] 0.0.11 a11y tree
 ├── PRD_01_14_handle_addressed_targeting.md  [v] 0.0.12 handle targeting
 ├── PRD_01_16_bounded_wait.md                [v] 0.0.13 bounded observation wait
-├── PRD_01_17_frontier_radar.md              W0 learn -> PRD upsert -> implement
+├── PRD_01_17_frontier_radar.md              W0 learning ledger + candidate table
 ├── PRD_01_18_normalised_a11y_nodes.md       [v] 0.0.14 a11y node schema
+├── PRD_01_19_cu_perception_subtree.md       T1 perception tree (PRD.md indexes)
+├── PRD_01_20_cu_actuation_subtree.md        T2 actuation tree
+├── PRD_01_21_resource_domain_subtree.md     T3 resource domain tree
+├── PRD_01_22_platform_evidence_subtree.md   T4 platform + T6 evidence trees
+├── PRD_01_23_capability_maturity_subtree.md T5 maturity + T7 version trees
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 
