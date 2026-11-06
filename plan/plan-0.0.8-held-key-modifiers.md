@@ -1,9 +1,10 @@
 # 0.0.8 — held-key modifiers: a keyboard state that can never be left stuck
 
-Status: `[_]` plan + contract delivered after `v0.0.7` was published, as the
-owner's "plan the next version after each public release" loop requires.
-**No source, version or Release change.** The version still in the source
-tree is `0.0.7` until W4 of this plan runs.
+Status: `[v]` W1/W2 green after `v0.0.7` was published, as the owner's
+"plan the next version after each public release" loop requires. W3 (the
+truth of the docs) and the W4 version bump are in the same commit as this
+status line. Compile gate **42154222974**, journeys **42154223003**; all
+three `cu-journey.json` artifacts were downloaded and re-read locally.
 
 Baseline: `v0.0.7` is a public company-signed Latest Release. Both halves of
 B6/B7 that are pure desktop verbs (path drag, two-axis scroll) are qualified
@@ -58,13 +59,13 @@ expressiveness and evidence of declared verbs before declaring new ones.
 
 ```text
 0.0.8 — held-key modifiers
-├── [_] W1 — the keyboard state machine in the contract
+├── [v] W1 — the keyboard state machine in the contract
 │   files: src/cu.rs, src/wire.rs, src/screen.rs, src/screen_macos.rs,
 │          src/screen_linux.rs, scripts/cu-cfg-check.py
 │   invariant: cu-abi 1.0, 12-row matrix unchanged, four cfgs type-check,
 │   cargo test --locked green on all three CI jobs
 │   evidence: cu-platforms.yml run, matrix test still 12/10/8/0
-├── [_] W2 — real held-key journeys in CI
+├── [v] W2 — real held-key journeys in CI
 │   files: examples/cu_journey.rs, scripts/cu-journey-verify.py,
 │          .github/workflows/cu-journeys.yml
 │   invariant: required steps act_key_hold, disclose_held,
@@ -72,7 +73,7 @@ expressiveness and evidence of declared verbs before declaring new ones.
 │   auto-release is unit-tested; the journey always ends with an empty set
 │   evidence: cu-journeys.yml run, three cu-journey.json artifacts,
 │   independent reader recomputing the held set and its release
-├── [_] W3 — the truth of the docs
+├── [v] W3 — the truth of the docs
 │   files: PRD.md, README.md, prd/PRD_01_03_computer_use.md,
 │   prd/PRD_01_08_computer_use_scope.md, prd/PRD_01_10_held_key_modifiers.md,
 │   release notes
@@ -167,6 +168,17 @@ locally against the receipt and sidecars, and the downloaded APE printing
 
 ## Delivery record
 
-Filled in as each W closes, with the CI run IDs, the three journey artifacts,
-the release chain runs and the owner-view anonymous acceptance result. Until
-then every W above stays `[_]` and the source version stays `0.0.7`.
+- W1: 90 unit tests pass locally; `scripts/cu-cfg-check.py` type-checks
+  windows / macos / linux / other with the new `set_modifier` and
+  `release_all_modifiers` signatures.
+- W2: compile gate **42154222974** and journeys **42154223003** are green on
+  all three OSes. Independent reader PASS on all three downloaded artifacts:
+  Linux 25 / macOS 22 / Windows 28 performed steps. `act_key_hold` reports
+  `keyboard.held=["ctrl"]`, `disclose_held` `held_keys=["ctrl"]`,
+  `act_key_release` `released=["ctrl"]` with an empty held set, and both
+  `disclose_released` and `disclose_final` report an empty set. Every
+  keyboard step has a null button actuation receipt.
+- W3: B6b is `[v]`, B7b/B8 stay `[_]` with their unlock conditions, and no
+  stale "planned" claim remains for a shipped verb.
+- W4: filled in after the public signed Release and its owner-view
+  anonymous acceptance are complete.

@@ -155,8 +155,8 @@ minicon-harness computer use
 │   │        post-observe live session                 shipped in 0.0.6
 │   ├── [v] B6a multi-point drag path                  qualified in 0.0.7
 │   │        16 bounded points, 12 steps per segment, `path_points` receipt
-│   ├── [_] B6b held-key modifiers                    planned 0.0.8
-│   │        unlock: three-backend keyboard state machine + release path
+│   ├── [v] B6b held-key modifiers                    qualified in 0.0.8
+│   │        host-owned held set, four-backend set/release, teardown release
 │   ├── [v] B7a two-axis scroll                      qualified in 0.0.7
 │   │        `delta_x`/`delta_y`, `delta` stays the vertical alias
 │   ├── [_] B7b explicit bounded wait                 deferred to 0.0.8+
@@ -215,27 +215,32 @@ Two directions of the gap, kept separate on purpose:
   signed-release evidence. The OpenAI tool surface specifies none of these.
   Aligning with it must never cost us one of them.
 - **They are ahead**: a model-visible image arm, batched actions, explicit
-  wait, two-axis scroll, multi-point drag, held keys, and a three-level
-  human-confirmation/safety-check policy. These are candidates, not debts:
-  each needs its own PRD, gate and owner decision before it enters a version.
+  wait and a three-level human-confirmation/safety-check policy. Two-axis
+  scroll, multi-point drag and held-key modifiers were delivered in 0.0.7 /
+  0.0.8 as additive verbs with their own evidence. The remaining candidates
+  are not debts: each needs its own PRD, gate and owner decision.
 
-## 0.0.8 frontier (planned, not started)
+## 0.0.8 frontier (implemented; Release pending)
 
 Planned after `v0.0.7` was published, per the owner's "plan the next version
-after each public release" loop. **No version bump, no code and no `[v]`
-claim exists here.** Direction unchanged: concentrate on computer use;
-harness-side capability work stays deferred. The plan is
-`plan/plan-0.0.8-held-key-modifiers.md`, the contract is
-`prd/PRD_01_10_held_key_modifiers.md`. A `[_]` is a chapter, **not** a
-lifted non-goal: anything marked `[no]` in an earlier frontier stays `[no]`
-until an owner decision lifts it and a version plan carries the gate.
+after each public release" loop, then implemented. Direction unchanged:
+concentrate on computer use; harness-side capability work stays deferred. The
+plan is `plan/plan-0.0.8-held-key-modifiers.md`, the contract is
+`prd/PRD_01_10_held_key_modifiers.md`. W1/W2 are green on three OSes:
+compile gate **42154222974**, journeys **42154223003**. The three
+`cu-journey.json` artifacts were downloaded and re-read locally (Linux 25 /
+macOS 22 / Windows 28 performed steps) with the held set recomputed from
+each record. The public signed Release and its owner-view acceptance are
+recorded here once W4 runs. A `[_]` is a chapter, **not** a lifted non-goal:
+anything marked `[no]` in an earlier frontier stays `[no]` until an owner
+decision lifts it and a version plan carries the gate.
 
 ```text
-0.0.8 — held-key modifiers (planned)
-├── [_] B6b held-key modifiers on `act:key`
-│        `hold` / `release`, whitelisted modifiers, bounded to four
+0.0.8 — held-key modifiers (implemented)
+├── [v] B6b held-key modifiers on `act:key`
+│        `hold` / `release`, four whitelisted modifiers, host-owned state
 │        auto-release on foreground change / lost grant / host teardown
-│        separate `evidence["keyboard"]`; never a button actuation receipt
+│        `evidence["keyboard"]` + `evidence["held_keys"]`; no button receipt
 │        matrix stays 12/10/8/0; cu-abi 1.0; additive wire params only
 ├── [_] B7b explicit bounded wait          deferred: loop/budget decision (D4)
 ├── [_] B8 batched actions[]               deferred: admission/stale design
@@ -297,8 +302,8 @@ APE prints `minicon-harness 0.0.7`.
 ├── [v] 0.7.3 path drag + two-axis scroll (B6a, B7a)
 │        unlock MET: 0.0.6 interaction closure green on three OSes
 │        matrix stays 12/10/8/0; cu-abi 1.0; additive wire params only
-├── [_] held-key modifiers (B6 half)                deferred to 0.0.8+
-│        unlock: three-backend keyboard state machine + guaranteed release
+├── [v] held-key modifiers (B6 half)                delivered in 0.0.8
+│        unlock MET: four-backend keyboard state machine + teardown release
 ├── [_] explicit bounded wait (B7 half)             deferred to 0.0.8+
 │        unlock: a loop/budget decision (D4), not a desktop verb
 ├── [_] batched actions[] (B8)                      deferred to 0.0.8+

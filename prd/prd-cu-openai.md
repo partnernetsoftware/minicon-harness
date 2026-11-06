@@ -251,9 +251,11 @@ OpenAI tool surface has no:
 
 Conversely it has things we have deliberately excluded: a model-visible
 **image arm** (base64 PNG every turn), batched `actions[]`, explicit
-`wait`, two-axis scroll, multi-point drag paths, held-key modifiers, a
-browser-navigation button enum, a three-level human-confirmation policy and
-`pending_safety_checks`. §6 of `PRD.md` turns both directions into a tree.
+`wait`, a browser-navigation button enum, a three-level human-confirmation
+policy and `pending_safety_checks`. Two-axis scroll and multi-point drag
+paths were delivered as additive verbs in 0.0.7 and held-key modifiers in
+0.0.8, each with its own evidence and three-OS CI journeys; they are no
+longer gap items. §6 of `PRD.md` turns both directions into a tree.
 
 ## 6. Using this reference
 

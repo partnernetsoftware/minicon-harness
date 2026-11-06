@@ -94,7 +94,8 @@ screen
     ├── [v] drag         x, y, to_x, to_y, button?, path?  (12 steps/segment;
     │                    2..16 pts; last-point readback + path_points receipt)
     ├── [v] type         text                             (foreground before/after)
-    ├── [v] key          keys ("ctrl+s", "win+left")     (foreground before/after)
+    ├── [v] key          keys, hold?, release?            (foreground before/after;
+    │                    "ctrl+s", "win+left"; held set + keyboard evidence)
     ├── [v] scroll       x, y, delta | delta_x, delta_y   (two-axis evidence +
     │                    pointer readback; delta stays the vertical alias)
     └── [v] control      control, press?, button?, double? (named target from the
@@ -111,6 +112,8 @@ Bounds, each a named constant beside the code that enforces it:
 | `SCREEN_TOOL_MAX_CAPTURE_FILES` | 12 | PNGs retained per task root |
 | `SCREEN_TOOL_MAX_REGION_PIXELS` | 8192 | one side of a capture region |
 | `SCREEN_TOOL_MAX_TYPE_CHARS` | 4096 | characters one `act:type` delivers |
+| `SCREEN_TOOL_MAX_HELD_MODIFIERS` | 4 | modifiers one host may hold across calls; a fifth is refused |
+| `SCREEN_TOOL_HELD_MODIFIERS` | `ctrl, shift, alt, win/cmd` | whitelist for `hold`; anything else is a named refusal |
 | `SCREEN_TOOL_MOVE_TOLERANCE_PX` | 4 | readback slack before a move counts as not performed |
 | `SCREEN_TOOL_POINTER_TOLERANCE_PX` | 4 | readback slack before a pointer action counts as not performed |
 | `SCREEN_TOOL_MAX_CONTROLS` | 128 | child controls in one scan; a hit is reported as `truncated` |
@@ -178,6 +181,7 @@ desktop geometry named.
 | `[v]` capture retention | -- | newest 12 tool-produced PNGs are kept per root; only names the tool composes are considered, other files are never touched |
 | `[v]` pointer-path qualification for drag/middle | 0.0.6 drove middle/right/double clicks, middle drag and a real `press=true` control click in three-OS CI journeys, each with an actuation receipt | `prd/PRD_01_07_interaction_closure.md` |
 | `[v]` richer actuation | 0.0.7 drives a three-point drag and both wheel axes as required steps on all three OSes; the independent reader recomputes the last point, `path_points` and both axes | `prd/PRD_01_09_richer_actuation.md` |
+| `[v]` held-key modifiers | 0.0.8 drives hold / disclose / release / disclose on all three OSes, plus a final empty-set disclosure; the independent reader recomputes the held set, the release and the absence of a button receipt | `prd/PRD_01_10_held_key_modifiers.md` |
 
 ## Where this goes next
 

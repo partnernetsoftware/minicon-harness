@@ -41,32 +41,35 @@ with an RFC 3161 timestamp. `signing-receipt.json` records the before/after
 SHA-256 of each signed file, while `build-receipt.json` and the `.sha256`
 sidecars bind every other asset to the packed source.
 
-Version VERSION widens two declared desktop verbs without declaring a new
-capability. `action=drag` accepts a bounded `path[]` of 2..16 points: each
-segment is interpolated with 12 stepped moves, the whole path is admitted
-against the virtual desktop before any native effect, and the pointer readback
-must land at the **last** point. The actuation receipt gains `path_points`,
-counted by the backend at the real dispatch sites. Omitting `path` keeps the
-0.0.6 single-leg drag bit-for-bit, and every button event still carries the
-receipt (`button`, `downs`, `ups`, `double`, `target`) introduced in 0.0.6.
+Version VERSION widens one declared keyboard verb without declaring a new
+capability. `action=key` accepts `hold: true` with exactly one whitelisted
+modifier (`ctrl`, `shift`, `alt`, `win`/`cmd`) and `release: true` to let the
+whole set go. `CuHost` owns the held set (at most four), `op=disclose`
+publishes `evidence["held_keys"]`, and each flagged call publishes
+`evidence["keyboard"]` with the held and released names **after** the native
+effect -- never an echo of the request. A changed foreground, a lost grant or
+host teardown releases everything before any further effect and reports the
+release; an unconfirmed keyboard effect is `unknown`, never `performed`.
+A keyboard step never carries a button actuation receipt.
 
-`action=scroll` accepts `delta_x` and `delta_y` within +-1440 and publishes
-them as structured `evidence["scroll"]`; `delta` stays accepted as the
-vertical alias so 0.0.6 callers keep working. Both axes zero is a named
-refusal, never a silent no-op. Win32 uses `MOUSEEVENTF_HWHEEL`, macOS uses the
-non-variadic `CGEventCreateScrollWheelEvent2` with two wheels, and X11/XTest
-uses buttons 6/7 for the horizontal axis; native button numbers and sign
-conventions never leak into evidence. A wheel event posts no button receipt
-and the tool claims no application scroll effect.
+Four native backends change together: Windows posts symmetric `SendInput`
+key-down/up pairs, macOS applies `CGEventSetFlags` on **every** event posted
+while a modifier is held (mouse, wheel and keyboard alike), Linux resolves
+X11 keysyms at runtime and reports an unmapped modifier as a named
+`unsupported`, and the unlisted-OS fallback refuses by name.
+`scripts/cu-cfg-check.py` type-checks all four configurations, so a signature
+drift cannot hide behind a `cfg`.
 
-`cu-abi 1.0`, the wire inputs and the capability matrix (windows 12/12,
-linux 10/12, macos 8/12) are unchanged. CI drives `act_drag_path`,
-`act_scroll_x` and `act_scroll_y` as required steps on all three OSes, and the
-independent reader recomputes the path's last point, `path_points` and both
-wheel axes on top of every 0.0.6 assertion (receipts, generations, live final
-frame, declared-but-skipped rule, BOUNDARY). `scripts/cu-cfg-check.py`
-type-checks four backend configurations -- Windows, macOS, Linux and the
-unlisted-OS fallback -- so a signature change cannot leave a backend behind.
+`cu-abi 1.0`, the wire action enum and the capability matrix (windows 12/12,
+linux 10/12, macos 8/12) are unchanged: `hold` / `release` are additive
+parameters, not new capabilities. CI drives `act_key_hold`, `disclose_held`,
+`act_key_release`, `disclose_released` and a final empty-set `disclose` as
+required steps on all three OSes. The independent reader recomputes the held
+set, the release, the final empty set and the absence of a button receipt on
+every keyboard step, on top of every 0.0.6/0.0.7 assertion (receipts,
+`path_points`, both scroll axes, generations, live final frame,
+declared-but-skipped rule, BOUNDARY). A named OS-grant boundary never excuses
+a stuck modifier.
 
 The three native backend families from 0.0.5 still use Win32 `user32`/`gdi32`,
 macOS `CoreGraphics`/`CoreFoundation` and Linux `X11`/`XTest`, resolved at

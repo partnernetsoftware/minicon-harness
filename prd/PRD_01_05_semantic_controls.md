@@ -136,10 +136,14 @@ refusal, and the real-desktop journey covers the performed path.
 
 1. Keep `cu-abi` stable: a new semantic capability is one manifest row, one
    `CuAction` variant, one wire enum value and one agreement test.
-2. Qualified in 0.0.7: a three-point drag and both wheel axes are required
+2. Qualified in 0.0.8: hold / disclose / release / disclose and an empty
+   final held set are required CI journey steps on all three OSes; the
+   independent reader recomputes the keyboard state and asserts that no
+   keyboard step carries a button actuation receipt.
+3. Qualified in 0.0.7: a three-point drag and both wheel axes are required
    CI journey steps on all three OSes, with an independent reader recomputing
    the last point, `path_points` and the axis pair.
-3. Qualified in 0.0.6: `press=true` clicks a harmless text box in the
+4. Qualified in 0.0.6: `press=true` clicks a harmless text box in the
    Windows CI journey and its actuation receipt is checked by the independent
    reader.
 4. Only after an immutable `unisacc`/`ujs` revision is inspected, design the

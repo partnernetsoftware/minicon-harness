@@ -1,7 +1,9 @@
 # PRD 01.10 — held-key modifiers
 
-Status: `[_]` specified after `v0.0.7` was published, **not implemented**.
-Owner of the **contract** for 0.0.8; `plan/plan-0.0.8-held-key-modifiers.md`
+Status: `[v]` implemented and qualified on three OSes (compile gate
+**42154222974**, journeys **42154223003**); the public signed Release and its
+owner-view acceptance are recorded in `plan/plan-0.0.8-held-key-modifiers.md`
+once W4 runs. Owner of the **contract** for 0.0.8; `plan/plan-0.0.8-held-key-modifiers.md`
 owns the work breakdown, gates and release chain. Nothing here claims a
 capability that a CI run has not produced. `PRD_01_03` owns the `screen`
 tool's bounds, `PRD_01_04` owns the host contract, `PRD_01_07` owns the button
@@ -46,8 +48,9 @@ disclose { op:"disclose" }  -> evidence["held_keys"]: [string, ...]
   `alt`, `win` / `cmd`); a combination or a non-modifier with `hold` is a
   named refusal. At most four modifiers may be held at once.
 - `release: true` releases every held modifier. Supplying `hold` and
-  `release` together, or `release` with a non-empty `keys` combination, is a
-  named refusal.
+  `release` together, or `release` with a multi-key `keys` combination (for
+  example `ctrl+s`), is a named refusal. An omitted, empty or single-modifier
+  `keys` is accepted with `release` and produces no extra keystroke.
 - No new capability name, no new `CuVerdict`, no ABI major bump. `cu-abi 1.0`
   is unchanged; `CAPABILITIES` gains two typed parameter rows and a test that
   the wire schema agrees with the manifest.

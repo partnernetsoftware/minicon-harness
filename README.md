@@ -42,6 +42,15 @@ additive wire parameters, not new capabilities: `cu-abi 1.0` and the 12-row
 matrix are unchanged. Contract:
 [`prd/PRD_01_09_richer_actuation.md`](prd/PRD_01_09_richer_actuation.md).
 
+**Held-key modifiers (0.0.8).** `action=key` accepts `hold: true` with one
+whitelisted modifier (`ctrl`, `shift`, `alt`, `win`/`cmd`) and `release: true`
+to let the set go. `CuHost` owns the held set, `op=disclose` publishes
+`evidence["held_keys"]`, and each flagged call publishes
+`evidence["keyboard"]` with the state after the call. A foreground change, a
+lost grant or host teardown releases everything before any further effect;
+keyboard steps never carry a button actuation receipt. Contract:
+[`prd/PRD_01_10_held_key_modifiers.md`](prd/PRD_01_10_held_key_modifiers.md).
+
 Above the mechanisms sits a **versioned host capability contract**
 (`src/cu.rs`, `prd/PRD_01_04_cu_base.md`): cu-abi 1.0, a discoverable
 capability manifest, typed inputs/outputs, observation generations with

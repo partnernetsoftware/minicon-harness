@@ -50,11 +50,12 @@ That last sentence is the whole boundary.
 
 | | |
 |---|---|
-| Delivered | `act:type` (4096 chars), `act:key` (`ctrl+s`, `win+left`); foreground title before/after is the evidence |
-| Native | `SendInput` (Windows), `CGEvent` (macOS), `XTest` (Linux), all via the compiled cell |
-| Bounds | `SCREEN_TOOL_MAX_TYPE_CHARS` 4096; a changed foreground is reported, not treated as failure |
-| Gaps | held-key modifiers / `keys[]` (B6), explicit `wait` (B7); no keyboard-layout or IME guarantee is claimed |
-| Owner | `PRD_01_03` (verbs), `PRD_01_06` (per-OS matrix), `PRD_01_07` (receipt discipline) |
+| Delivered | `act:type` (4096 chars), `act:key` (`ctrl+s`, `win+left`), and since 0.0.8 bounded `hold` / `release` of four whitelisted modifiers with a host-owned held set; foreground title before/after is the evidence |
+| Native | `SendInput` (Windows), `CGEvent` (macOS), `XTest` (Linux), all via the compiled cell; `set_modifier` / `release_all_modifiers` have identical signatures on all four configurations |
+| Bounds | `SCREEN_TOOL_MAX_TYPE_CHARS` 4096; `SCREEN_TOOL_MAX_HELD_MODIFIERS` 4; `SCREEN_TOOL_HELD_MODIFIERS` whitelist; a changed foreground is reported, not treated as failure |
+| State safety | a foreground change, a lost grant or `CuHost::drop` releases everything held before any further effect and reports the release; `op=disclose` publishes `evidence["held_keys"]` |
+| Gaps | explicit `wait` (B7), batched `actions[]` (B8); no keyboard-layout or IME guarantee is claimed |
+| Owner | `PRD_01_03` (verbs), `PRD_01_06` (per-OS matrix), `PRD_01_07` (button receipt), `PRD_01_10` (keyboard state) |
 
 ### V — video `[v]`
 
@@ -72,7 +73,7 @@ That last sentence is the whole boundary.
 |---|---|
 | Delivered | `act:hover`, `act:click` (left/middle/right, `double`), `act:drag` (12 steps per segment, optional 2..16-point `path[]`), `act:scroll` (two axes); pointer readback with 4 px tolerance |
 | Receipt | since 0.0.6 every button event carries a typed actuation receipt (`button`, `downs`, `ups`, `double`, `target`, since 0.0.7 `path_points`) counted by the backend; a missing receipt is `unknown`, a mismatched one is `not_performed` (`PRD_01_07`). A scroll posts no button event; it publishes `evidence["scroll"]` with both axes (`PRD_01_09`) |
-| Gaps | held-key modifiers (B6b), explicit bounded `wait` (B7b), batched `actions[]` (B8); each deferred with its own unlock condition |
+| Gaps | explicit bounded `wait` (B7b), batched `actions[]` (B8); each deferred with its own unlock condition. Held-key modifiers were delivered in 0.0.8 under K, not under M |
 | Owner | `PRD_01_03`, `PRD_01_07`, `PRD_01_09` |
 
 ### W — window and control target management `[v]` (deliberately narrow)
@@ -160,7 +161,7 @@ prd/
 ├── PRD_01_07_interaction_closure.md [v] 0.0.6 actuation receipt contract
 ├── PRD_01_08_computer_use_scope.md  domain model + resource boundary
 ├── PRD_01_09_richer_actuation.md    [v] 0.0.7 path drag + two-axis scroll
-├── PRD_01_10_held_key_modifiers.md  [_] 0.0.8 held-key modifiers
+├── PRD_01_10_held_key_modifiers.md  [v] 0.0.8 held-key modifiers
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 
