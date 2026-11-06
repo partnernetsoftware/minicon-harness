@@ -40,69 +40,64 @@ with an RFC 3161 timestamp. `signing-receipt.json` records the before/after
 SHA-256 of each signed file, while `build-receipt.json` and the `.sha256`
 sidecars bind every other asset to the packed source.
 
-## VERSION: handle-addressed window targeting
+## VERSION: bounded observation wait
 
-`op=act` with `action:"focus"` gains an optional `hwnd`: a positive integer
-taken from a prior `observe.windows[]` row. It is mutually exclusive with the
-existing `window` title; giving both, neither, a non-integer handle or zero is
-a named refusal before any native effect. Every call re-resolves the handle
-against a fresh live window list and re-checks the resolved window's current
-title. A stale, reused or mismatched handle is a named `stale` refusal, never
-a silent fallback to whatever happens to be in the foreground.
+`op=observe` gains an optional `wait_ms`: an integer 1..=2000. The host
+sleeps once for that interval before taking a fresh snapshot — the snapshot
+is never the frame that was already on screen. The result publishes additive
+`evidence["wait"]` with `requested_ms`, `elapsed_ms` measured from a
+monotonic clock, `cumulative_ms`, `wait_calls`, the new `generation`, and a
+named reason only when a ceiling is hit. An ordinary `observe` without
+`wait_ms` is unchanged.
 
-Focus evidence and readback now publish `target_hwnd`: the desktop's focused
-window handle at dispatch time, read from the live window list and never
-echoed from the request. The existing title-target spelling still publishes
-it, so old callers gain identity evidence without changing their calls. Focus
-posts no button event, so `evidence["actuation"]` stays `null`;
-`target_hwnd` is separate typed evidence, not a fabricated button receipt. A
-session that exposes no foreground window publishes `null` with a named
-`target_hwnd_reason`, never a plausible handle.
+Three ceilings are enforced per `CuHost` before any sleep: 2000 ms per call,
+8000 ms cumulative and 8 wait calls. Zero, negative, non-integer, over-bound
+and over-budget requests are named refusals. `disclose` publishes the
+remaining budget as additive evidence, so a caller can see what is left
+without guessing. This is one bounded sleep per call — not a polling loop,
+not a condition wait, not a model turn and not a new capability row.
 
-The reason is measured. In the L1 self-hosted orchestration trial two
-WorkBuddy client windows were both titled `WorkBuddy`; `act:focus` resolved a
-window by unique title, so the controller could not name the sub-session
-window it wanted and fell back to clicking pixel coordinates. A coordinate
-basis cannot fix an ambiguous identity: the same rectangle can belong to
-either window. The 0.0.11 `observe.a11y` arm made a handle a *scan* target;
-this version makes it an *act* target and reads the focused handle back.
+The reason is measured. In the L1 self-hosted orchestration trial an
+`observe` issued immediately after an `act` captured the pre-reflow Chromium
+frame, and `type` plus its send click had to be split into separate runs
+before the new state was visible. A coordinate basis (0.0.10), a structured
+Windows a11y tree (0.0.11) and an unambiguous window handle (0.0.12) do not
+fix stale timing. The 2026 frontier evidence points the same way: short-task
+grounding is largely solved while hour-long workflows still fail on losing
+constraints and skipping verification, so an explicit, bounded, evidenced
+wait is the smallest honest unit of a self-sustained loop.
 
-`native::window_by_handle(handle: u64) -> Option<WindowInfo>` is added with
-the same signature on Windows, macOS, Linux and the fallback cell. Windows
-resolves through the existing `EnumWindows` list and `IsWindow`; macOS and
-Linux resolve through their existing window enumerations; the fallback returns
-`None`. `scripts/cu-cfg-check.py` type-checks all four configurations in the
-same commit. No new crate, no link-time platform library, no OS grant, no
-window-manager behaviour and no process or memory authority: the G boundary
-in `PRD_01_08` is unchanged.
+This is additive evidence on the existing `observe` and `disclose`
+capabilities: `cu-abi 1.0`, the wire action enum, the capability matrix
+(windows 12/12, linux 10/12, macos 8/12, other 0/12), the four-backend
+type-check and every earlier reader assertion are unchanged. No new crate,
+no native surface change, no OS grant, no window-manager behaviour and no
+process, CPU, memory or GPU authority: the G boundary in `PRD_01_08` is
+unchanged.
 
-This is additive evidence on the existing `act:focus` capability: `cu-abi
-1.0`, the wire action enum and the capability matrix (windows 12/12, linux
-10/12, macos 8/12, other 0/12) are unchanged. `hwnd` is a typed optional
-parameter, not a new capability row. A cell whose published matrix declares
-`act:focus` unsupported produces a named `unsupported` boundary for the two
-handle steps; it never claims a performed focus.
+Alongside this release the project adds a recurring W0 frontier-learning
+loop (`prd/PRD_01_17_frontier_radar.md`): learn current computer-use and
+resource-domain technology, upsert the PRD in place, then implement only the
+candidate whose gate is open. A published technique is a research note, not
+authority; no `[no]` is lifted by a research pass.
 
-The model-visible image arm, explicit `wait`, batched actions, AT-SPI / AX
-a11y trees, app-level effect evidence and safety policy remain non-goals
-with their unlock conditions. The bounded Windows MSAA read-only subset
-shipped in 0.0.11 is unchanged.
+The model-visible image arm, batched actions, AT-SPI / AX a11y trees,
+app-level effect evidence, safety policy and UIA mixed routing remain
+non-goals or candidates with their unlock conditions. The bounded Windows
+MSAA read-only subset shipped in 0.0.11 is unchanged.
 
 ## Verification
 
-CI makes the handle a required step rather than a claim:
-`.github/workflows/cu-journeys.yml` drives `observe_focus_readback`,
-`act_focus_by_handle`, `observe_handle_focus_readback` and
-`act_focus_stale_handle` on all three OSes. The independent reader recomputes
-that every performed title- or handle-target focus publishes a positive
-`target_hwnd`, that the readback carries the same integer, that it equals the
-focused window in the very next observation, that the stale handle is absent
-from the live window list, and that a matrix-declared `act:focus=false` cell
-only produces a named capability boundary — on top of every 0.0.6-0.0.11
-assertion (receipts, `path_points`, both scroll axes, held keys, `grants[]`,
-`environment`, `display_scales[]`, the a11y tree, generations, live final
-frame, declared-but-skipped rule, BOUNDARY). A `BOUNDARY` note excuses
-nothing else.
+CI makes the wait a required step rather than a claim:
+`.github/workflows/cu-journeys.yml` drives `observe_wait_after_act` and an
+over-bound refusal on all three OSes. The independent reader recomputes
+`elapsed_ms >= requested_ms`, `elapsed_ms <= requested_ms + 500`, the
+cumulative sums, the call count, the generation increase and every ceiling
+refusal, and rejects a missing or mismatched `wait` field — on top of every
+0.0.6-0.0.12 assertion (receipts, `path_points`, both scroll axes, held
+keys, `grants[]`, `environment`, `display_scales[]`, the a11y tree,
+`target_hwnd`, generations, live final frame, declared-but-skipped rule,
+BOUNDARY). A `BOUNDARY` note excuses nothing else.
 
 `.github/workflows/cu-platforms.yml` builds, tests and release-links all
 three OSes; `.github/workflows/cu-journeys.yml` drives a real desktop on each

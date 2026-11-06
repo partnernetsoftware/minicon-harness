@@ -124,10 +124,10 @@ human-supervised sequence of single acts, which is what L1 already is.
   a controller cannot tell why a click did not land. `v0.0.10` delivered the
   coordinate basis (E5a), `v0.0.11` delivered bounded Windows MSAA structured
   control disclosure (E5c), and `v0.0.12` delivered handle-addressed window
-  targeting (E5b); all are published, accepted signed Releases. All four
-  version sources read `0.0.12`. `0.0.13` is the next planned version in
-  `PRD.md`: bounded observation wait (`PRD_01_16`); later versions are
-  **not planned**.
+  targeting (E5b); all are published, accepted signed Releases. `v0.0.13`
+  delivers bounded observation wait (`PRD_01_16`); all four version sources
+  read `0.0.13`. Later versions are **not planned**: the W0 frontier radar
+  (`PRD_01_17`) upserts candidates without promising a version.
 - The candidate pool stays *ordered* by what the L2/L3 loop needs: A5 / D2 ->
   B7b + D4 -> A4 -> F3 -> C5 / C6, with B8 and the other 0.7.x chapters
   keeping their recorded unlock conditions. B7b leads with the hard evidence

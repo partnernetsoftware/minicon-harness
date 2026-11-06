@@ -160,8 +160,8 @@ minicon-harness computer use
 │   │        host-owned held set, four-backend set/release, teardown release
 │   ├── [v] B7a two-axis scroll                      qualified in 0.0.7
 │   │        `delta_x`/`delta_y`, `delta` stays the vertical alias
-│   ├── [_] B7b explicit bounded wait                 deferred to 0.0.8+
-│   │        unlock: a loop/budget decision (D4), not a desktop verb
+│   ├── [v] B7b explicit bounded wait                 shipped in 0.0.13
+│   │        one sleep per observe call, monotonic elapsed evidence
 │   ├── [_] B8 batched `actions[]` with ordered receipts
 │   │        target 0.0.7+; needs its own admission/stale design
 │   └── [no] B9 browser-navigation buttons (`back`/`forward`/`wheel` as a
@@ -182,6 +182,8 @@ minicon-harness computer use
 │   ├── [_] D3 session continuity beyond `as_of` (OpenAI uses
 │   │        `previous_response_id`; it does NOT restore login/runtime state)
 │   └── [_] D4 bounded iterations / time / cost ceilings
+│            partial: per-host wait ceilings shipped in 0.0.13;
+│            iteration and cost ceilings stay gated on L2
 ├── E Platform and environment
 │   ├── [v] E1 three real backends: Win32, CG/CF, X11/XTest via dlopen
 │   ├── [v] E2 six cells cross-compiled on one runner, no link-time platform lib
@@ -367,31 +369,65 @@ takeover/owner-lock, any new crate or runtime, bun/WASM/ujs embedding
 (PRD 31 readiness stays BLOCKED), runtime backend selection, Wayland-native
 protocol and host-resource management (G; `PRD_01_08` owns the boundary).
 
-## 0.0.13 next plan (after `v0.0.12` acceptance)
+## 0.0.13 frontier (W1/W2/W3 delivered, W4 pending)
 
-The next planned version is **bounded observation wait** (`PRD_01_16`,
-`plan/plan-0.0.13-bounded-wait.md`): `op=observe` gains an optional
-`wait_ms` that sleeps for a bounded interval before taking a fresh snapshot
-and publishes `evidence["wait"]` with the requested, elapsed and cumulative
-milliseconds plus the new generation. It is an additive observe parameter,
-not a new verb or capability row: `cu-abi 1.0`, the 12/10/8/0 matrix, the
-four-backend surface and every earlier reader assertion stay unchanged.
+**0.0.13 = bounded observation wait.** `op=observe` gains an optional
+`wait_ms` (1..=2000): one bounded sleep, then a fresh snapshot and additive
+`evidence["wait"]` carrying requested, monotonic elapsed, cumulative and
+call-count values plus the new generation. Per-host ceilings (2000 ms per
+call, 8000 ms cumulative, 8 calls) are named refusals before any sleep;
+`disclose` publishes the remaining budget. W1/W2 landed in `40276ae`: the
+four-configuration type gate, examples build and three-OS CI
+`42213269581` / `42213269486` are success. W3 moves the four version sources
+to `0.0.13`; W4 runs the public signed Release chain. `cu-abi 1.0`, the
+12/10/8/0 matrix, every earlier reader assertion and the G boundary are
+unchanged.
 
-The measured reason is the L1 hard evidence already recorded for B7b: an
-`observe` issued immediately after an `act` captured a pre-reflow Chromium
-frame, and `type` plus its send click had to be split into separate runs.
-A coordinate basis, a11y tree and a window handle do not fix stale timing.
-D4 ceilings are part of the same gate: per-call, cumulative and call-count
-bounds, with named refusals before any sleep. This is still not a model loop
-and does not claim L2.
-
-Under the standing `/goal` delegation, the controller lifts the older
-`explicit wait` non-goal for this bounded read-only observe parameter only.
-A5 / D2 image arm, B8 batched actions, AT-SPI / AX a11y trees, F3 app-level
-effect evidence, C5 / C6 safety and window-manager behaviour remain `[no]`
-with their unlock conditions. Contract owner:
+The measured reason is the L1 hard evidence recorded for B7b: an `observe`
+issued immediately after an `act` captured a pre-reflow Chromium frame, and
+`type` plus its send click had to be split into separate runs. A coordinate
+basis, an a11y tree and a window handle do not fix stale timing. Under the
+standing `/goal` delegation, the controller lifts the older `explicit wait`
+non-goal for this bounded read-only observe parameter only. A5 / D2 image
+arm, B8 batched actions, AT-SPI / AX a11y trees, F3 app-level effect
+evidence, C5 / C6 safety and window-manager behaviour remain `[no]` with
+their unlock conditions. Contract owner:
 `prd/PRD_01_16_bounded_wait.md`; work breakdown:
 `plan/plan-0.0.13-bounded-wait.md`.
+
+## Continuous frontier learning (W0, owner direction 2026-11-06)
+
+The owner extended `/goal`: keep learning current computer-use **and**
+resource-management technology (process, CPU, memory, GPU, keyboard, video,
+mouse — all of it), keep upserting the PRD in place, then implement. This is
+W0 of every version cycle, owned by `prd/PRD_01_17_frontier_radar.md`:
+
+1. **Learn** — K / V / M / W / S perception, actuation, timing and safety,
+   plus process / CPU / memory / GPU / device / network isolation.
+2. **Upsert** — append or revise the radar and this file in place; never
+   overwrite a dated finding; record the source class (official doc,
+   benchmark board, vendor claim, survey) and the unlock condition.
+3. **Decide** — pick the highest candidate whose gate is open and which stays
+   inside `cu-abi 1.0`, the 12/10/8/0 matrix and `PRD_01_08`'s G boundary.
+   Ordering is a reason, not a version commitment.
+4. **Implement** — the usual W1/W2/W3/W4 chain; a capability is claimed from
+   three-OS CI plus the independent journey reader, never from an article.
+
+**Learning is not authority.** `PRD_01_08` still assigns process, CPU,
+memory, GPU and device management outside `screen`; the radar records that
+whole domain as research and keeps the open decision (read-only telemetry vs.
+real resource control) explicitly undecided until the owner lifts it. No
+`[no]` is lifted by a research pass.
+
+First W0 pass (2026-11-06) produced three reusable conclusions: interface-
+first perception with UIA ahead of MSAA on Windows (WAA measured ~57%
+relative gain from the UIA tree; `v0.0.11` shipped only the MSAA subset);
+OSWorld-Verified vs 2.0 showing short-task grounding is solved while
+hour-long workflows fail on timing and verification (the same B7b / D4 gap
+this version closes); and the resource-domain ladder from cgroups v2 /
+Landlock / seccomp / MIG to per-task microVMs with four production
+boundaries. The open-gate implementation candidate is UIA-first mixed
+structured observation; resource-domain work stays gated behind G.
 
 ## 0.0.9 frontier (shipped as a public signed Release)
 

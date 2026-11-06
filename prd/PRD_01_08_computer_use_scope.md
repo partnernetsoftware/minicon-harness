@@ -167,7 +167,8 @@ prd/
 ├── PRD_01_13_display_scale_disclosure.md   [v] 0.0.10 coordinate basis
 ├── PRD_01_15_structured_control_disclosure.md [v] 0.0.11 a11y tree
 ├── PRD_01_14_handle_addressed_targeting.md  [v] 0.0.12 handle targeting
-├── PRD_01_16_bounded_wait.md                [_] 0.0.13 bounded observation wait
+├── PRD_01_16_bounded_wait.md                [v] 0.0.13 bounded observation wait
+├── PRD_01_17_frontier_radar.md              W0 learn -> PRD upsert -> implement
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 

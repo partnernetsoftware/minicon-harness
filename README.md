@@ -113,8 +113,25 @@ event was posted. Four backends expose `window_by_handle`; `cu-abi 1.0` and
 the 12/10/8/0 matrix are unchanged. `v0.0.12` is a public signed Release
 accepted from the owner's view. Contract:
 [`prd/PRD_01_14_handle_addressed_targeting.md`](prd/PRD_01_14_handle_addressed_targeting.md).
-The next planned version is 0.0.13 bounded observation wait
-([`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md)).
+
+**Bounded observation wait (0.0.13).** `op=observe` gains an optional
+`wait_ms` (1..=2000): one bounded sleep before a fresh snapshot, then
+additive `evidence["wait"]` with requested, monotonic elapsed, cumulative
+and call-count values plus the new generation. Ceilings are 2000 ms per
+call, 8000 ms cumulative and 8 calls per `CuHost`; every over-bound request
+is a named refusal before any sleep. `disclose` publishes the remaining
+budget. It is one sleep, not a polling loop or a model turn. This closes the
+measured act/observation timing gap from the L1 trial. `cu-abi 1.0`, the
+12/10/8/0 matrix and the G boundary are unchanged. Contract:
+[`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md).
+
+**Continuous frontier learning (W0).** Each version cycle starts by learning
+current computer-use and resource-domain technology (K, V, M, W, S plus
+process / CPU / memory / GPU / device / network), upserting the PRD in place,
+and implementing only the candidate whose gate is open. A research finding is
+not authority: no `[no]`, `cu-abi`, matrix row or G boundary changes because
+an article exists. Radar and candidate table:
+[`prd/PRD_01_17_frontier_radar.md`](prd/PRD_01_17_frontier_radar.md).
 
 Above the mechanisms sits a **versioned host capability contract**
 (`src/cu.rs`, `prd/PRD_01_04_cu_base.md`): cu-abi 1.0, a discoverable

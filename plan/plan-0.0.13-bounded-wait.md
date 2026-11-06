@@ -1,9 +1,9 @@
 # 0.0.13 — bounded observation wait (next planned version)
 
-Status: `[_]` planned after `v0.0.12` was published as a public signed
-Release and accepted from the owner's view on 2026-11-06. **No source,
-version or Release change belongs to this document.** The source tree stays
-at `0.0.12` until this version's W4 runs.
+Status: `[v]` W1/W2 delivered in `40276ae`; W3/W4 in the release commit,
+after `v0.0.12` was published as a public signed Release and accepted from
+the owner's view on 2026-11-06. Three-OS CI `42213269581` / `42213269486`
+are success. The source tree stayed at `0.0.12` until W3.
 
 Baseline: `v0.0.12` published handle-addressed window targeting
 (`act:focus` by `hwnd`, `target_hwnd` readback) with three-OS CI evidence and
@@ -67,22 +67,22 @@ cells are untouched.
 
 ```text
 0.0.13 — bounded observation wait
-├── [_] W1 — the bounded wait contract
+├── [v] W1 — the bounded wait contract
 │   files: src/cu.rs, src/wire.rs
 │   invariant: cu-abi 1.0, 12-row matrix unchanged, four cfgs type-check,
 │   cargo test --locked green, no new capability row, no new grant,
 │   no native surface change
-├── [_] W2 — a real wait journey in CI
+├── [v] W2 — a real wait journey in CI
 │   files: examples/cu_journey.rs, scripts/cu-journey-verify.py,
 │          .github/workflows/cu-journeys.yml
 │   invariant: required observe_wait_after_act + over-bound refusal on all
 │   three OSes; reader recomputes wait evidence and generation freshness
-├── [_] W3 — the truth of the docs
+├── [v] W3 — the truth of the docs
 │   files: PRD.md, README.md, PRD_01_08, PRD_01_12, PRD_01_16,
-│   this plan, release notes
+│   PRD_01_17, this plan, release notes
 │   invariant: B7b / D4 marked delivered; A5/B8/AT-SPI/AX/F3/C5/C6 and
 │   the model loop stay deferred; the lifted [no] is recorded as an
-│   owner-delegated decision
+│   owner-delegated decision; the W0 learning loop is recorded
 └── [_] W4 — version bump and public signed Release
     files: Cargo.toml, Cargo.lock, release-policy.json,
            loader/ape-version.rc, .github/release-notes.md
