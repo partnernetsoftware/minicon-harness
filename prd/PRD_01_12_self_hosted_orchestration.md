@@ -78,7 +78,8 @@ L2 self-sustained loop                                     [_] not shipped
            pre-reflow Chromium frame; `type` and its send click had to be
            split into separate runs before the new state was visible
    every turn still carries generation / as_of, a receipt and a readback
-   unlock: each item keeps its own PRD, gate and owner decision
+   unlock: each item keeps its own PRD, gate and dated controller decision
+           (T8, `PRD_01_24`)
 
 L3 self-hosted orchestration                    [_] target, not shipped
    L2 plus F3 app-level effect evidence and C5 / C6 safety + human hand-off
@@ -141,8 +142,9 @@ human-supervised sequence of single acts, which is what L1 already is.
   read-only `observe.wait_ms` parameter in `PRD_01_16`; A5 / D2, B8, AT-SPI /
   AX trees, F3 and C5 / C6 remain deferred. Ordering is a reason to consider
   an item first, **not a version commitment**. L2 is still not reached.
-- Each candidate still needs its own PRD, its own gate, an owner decision and a
-  version plan that carries the gate before it enters a version. The next
+- Each candidate still needs its own PRD, its own gate, a dated controller
+  decision (T8) and a version plan that carries the gate before it enters a
+  version. The next
   version is planned only after the previous one is published as a public
   signed Release and accepted from the owner's view.
 - The owner's standing direction holds: concentrate on computer use; harness

@@ -52,8 +52,8 @@ T7 Versions / candidates (state, not a promise)
 ├── V0.0.12  handle-addressed focus + target_hwnd                        [v]
 ├── V0.0.13  bounded observation wait + wait budget                      [v]
 ├── V0.0.14  normalised a11y node schema                                 [v]
-├── V0.0.15  UIA probe-first / mixed routing  **planning, not started**  [_]
-│   ├── W1 Rust UIA diagnostic probe (raw HRESULTs)                      [_]
+├── V0.0.15  UIA probe-first / mixed routing  **plan complete 6/6**        [_]
+│   ├── W1 Rust UIA diagnostic probe (raw HRESULTs)                      [_] eligible
 │   ├── W2 UIA-first + MSAA fallback, only if W1 passes                  [_]
 │   ├── W3 docs truth                                                     [_]
 │   └── W4 version bump + public signed Release                          [_]
@@ -65,7 +65,7 @@ T7 Versions / candidates (state, not a promise)
 │   ├── C5 F3 app-level effect evidence   gate: side-effect-free fixture [_]
 │   ├── C6 C5/C6 safety + hand-off       gate: policy PRD first          [_]
 │   ├── C7 B8 batched actions            gate: admission/stale design    [_]
-│   └── C8 resource-domain telemetry     gate: explicit G decision       [decision]
+│   └── C8 resource-domain telemetry     gate: 4 triggers (T8), G closed  [_] deferred
 └── Standing [no] (unchanged by any study pass)                          [no]
     ├── plugin host, permission policy engine, streaming, MCP
     ├── a scripting surface over the desktop, a second model loop
@@ -80,31 +80,44 @@ T7 Versions / candidates (state, not a promise)
 STUDY  ->  STRUCTURE  ->  PLAN COMPLETION  ->  ONLY THEN CODE + TESTS
   ^            ^                ^
   |            |                |
-  W0 passes    T1-T7 trees     0.0.15 plan completeness checklist
+  W0 passes    T1-T8 trees     0.0.15 plan completeness checklist
   + notes      + subtrees      (plan/plan-0.0.15-uia-probe-and-routing.md)
 ```
 
 No W1/W2 code, no test, no version bump and no Release chain is started for
 0.0.15. The last shipped version stays `v0.0.14`; all four version sources
-read `0.0.14`. "Three思后行" (think three times before acting) and "分而治之"
+read `0.0.14`. "三思后行" (think three times before acting) and "分而治之"
 (divide and conquer) are the governing discipline of this phase: a large
 branch gets its own subtree document and an explicit unlock condition before
-any implementation is considered.
+any implementation is considered. W0 pass 4 closed the plan-completeness
+checklist (6/6) by replacing the second-hand vtable claim with the installed
+Windows SDK headers; W1 is eligible but not started. Decision authority is
+T8 (`PRD_01_24`): the controller arranges the cadence itself.
 
-## Plan-completeness checklist for 0.0.15 (all must be true before W1)
+## Plan-completeness checklist for 0.0.15 — 6/6 passed 2026-11-06
 
-1. The probe's exact COM surface is written down: CLSID/IID values, the
-   vtable slots to be called, the `RECT` layout, and the HRESULT pass/fail
-   rule.
-2. The downgrade branch is written down: what happens on a hung provider, a
-   zero rectangle with a successful HRESULT, or a missing pattern.
-3. The reader contract is written down: which new evidence rows are additive,
-   which earlier assertions stay, and what rejects a UIA scan.
-4. The three-OS behaviour is written down: Windows does the probe; macOS /
-   Linux / fallback keep their named reasons and empty trees.
-5. The non-goals and the G boundary are restated; no `[no]` is lifted by the
-   plan.
-6. Only then does W1 (a Rust diagnostic example) become eligible to start.
+W0 pass 4 verified the COM surface against the installed Windows SDK headers
+(`PRD_01_17`, grade O) and the plan now writes down all six items
+(`plan/plan-0.0.15-uia-probe-and-routing.md`). This is a **plan** fact only:
+no source, test, version bump or Release asset changed.
+
+1. `[v]` Exact COM surface: `CLSID_CUIAutomation`, three IIDs, the exact
+   `IUIAutomation` / `IUIAutomationElement` / `IUIAutomationElementArray`
+   vtable slots, `UIA_HWND`, `TreeScope_Subtree`, the `RECT` -> `[x,y,w,h]`
+   conversion and the raw-HRESULT pass/fail rule.
+2. `[v]` Downgrade branch: failed HRESULT, hung provider, unenumerable
+   array, zero rectangle indistinguishable from a read failure, missing
+   pattern — each stops with the failing slot named.
+3. `[v]` Reader contract: additive `a11y_source` / `a11y_reason`, the 0.0.14
+   schema kept intact, `state_names` recomputed, negative width/height
+   rejected, every 0.0.6-0.0.14 assertion retained.
+4. `[v]` Three-OS behaviour: Windows probes and falls back to MSAA with a
+   named reason; macOS / Linux / fallback keep empty trees and named reasons;
+   the four-backend type gate types all four configurations.
+5. `[v]` Non-goals and the G boundary restated; G (a) is a decided
+   controller decision (`PRD_01_24`), no `[no]` is lifted.
+6. `[v]` W1 is **eligible, not started**. The controller starts it in its own
+   cadence with no owner choice required.
 
 ## Learning notes (dated, process not just conclusions)
 
@@ -114,6 +127,7 @@ any implementation is considered.
 | 2026-11-06 | 2 | UIA gate downgrade to "probe required" | O / S | a published vtable order is not a verified slot on this machine | `PRD_01_17`, C1 |
 | 2026-11-06 | 3 | candidate ordering by unlock condition | X + S | ordering is a reason to consider first, never a version commitment | T7 |
 | 2026-11-06 | 3 | owner instruction to slow down before code | owner direction | earlier "implement next" delegation is superseded for this phase | this file, current phase |
+| 2026-11-06 | 4 | installed Windows SDK COM headers, resource-telemetry trust, decision authority | O (installed SDK) / P / S / owner direction | a header proves slots for its SDK, not runtime behaviour; `RECT` != `[x,y,w,h]`; a reversible default was wrongly escalated | `PRD_01_17` pass 4, `PRD_01_24`, this checklist |
 
 ## Non-goals
 
@@ -121,4 +135,5 @@ any implementation is considered.
   from a study pass.
 - `[no]` starting 0.0.15 W1/W2 code or tests before the checklist above is
   complete.
-- `[no]` widening `screen` into host resources; C8 remains `[decision]`.
+- `[no]` widening `screen` into host resources; C8 is deferred, G direction
+  (a) is decided by the controller (`PRD_01_24`), not pending.

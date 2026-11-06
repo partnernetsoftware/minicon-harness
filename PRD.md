@@ -14,7 +14,9 @@ court before anything is published.
 
 Legend: `[v]` delivered with evidence, `[-]` partial/open, `[_]` planned,
 `[no]` explicit non-goal, `[study]` research note with no implementation
-claim, `[decision]` an owner decision still pending.
+claim, `[decision]` a dated controller decision already taken
+(`prd/PRD_01_24_decision_authority_subtree.md`). The owner keeps a veto, not
+an approval queue; no document here asks the owner to choose.
 
 ## Document tree, W0 learning ledger and multi-dimensional views
 
@@ -45,6 +47,7 @@ prd/
 ├── PRD_01_21_resource_domain_subtree.md   T3 resource domain (largest branch)
 ├── PRD_01_22_platform_evidence_subtree.md T4 platform + T6 evidence
 ├── PRD_01_23_capability_maturity_subtree.md T5 maturity + T7 version state
+├── PRD_01_24_decision_authority_subtree.md T8 who decides what (controller)
 ├── PRD_01_01 .. PRD_01_16, PRD_01_18      per-version contracts (unchanged)
 └── prd-cu-openai.md                        external reference, NOT a contract
 plan/
@@ -90,7 +93,7 @@ T3 resource domain                     NOT screen authority (G)
 ├── R8 lifecycle  credential broker, three timeouts, audit, quotas, stop
 ├── R9 cost       PSI telemetry, 7.3x price spread, memory-dominant bills
 └── R10 acceptance guest-side read/cap/cleanup probes
-    └── [decision] (a) keep G closed (current) / (b) read-only telemetry / (c) control
+    └── [decision] (a) keep G closed — controller decision 2026-11-06, T8
 ```
 
 ### T4 — platform (full tree: `PRD_01_22`)
@@ -130,10 +133,36 @@ T6 evidence
 ```text
 T7 versions
 ├── V0.0.1 - V0.0.14   [v] published, accepted signed Releases
-├── V0.0.15            [_] PLANNING, not started (plan completeness first)
+├── V0.0.15            [_] plan complete 6/6, W1 eligible, not started
 ├── candidate pool      [study] ordered by gate, never a version commitment
 └── standing [no]      [no] unchanged by any study pass
 ```
+
+### T8 — decision authority (full tree: `PRD_01_24`)
+
+```text
+T8 decision authority (controller-autonomous under /goal)
+├── D1 owner directions, dated and recorded verbatim                [v]
+├── D2 controller decisions, no prior owner approval              [decision]
+│   ├── version topic / ordering / gate / W1-W4 timing
+│   ├── additive capability inside cu-abi 1.0 + 12/10/8/0 matrix
+│   ├── lifting one [no] with dated reason and bounds
+│   ├── G boundary direction: (a) keep closed, 2026-11-06
+│   └── release chain, CI gates, owner-view acceptance
+├── D3 owner veto after the fact, never a pre-approval gate         [v]
+├── D4 escalation discipline                                       [no]
+│   └── [no] pasting options + waiting on a reversible default
+└── D5 decision record: date / choice / reason / evidence / trigger [v]
+```
+
+Owner direction (2026-11-06 22:15): "为什么要我做决定，你能自己安排吗？" —
+an explicit correction of an escalation error. The controller had pushed a
+reversible, high-confidence G-boundary choice back to the owner. Under the
+standing `/goal` delegation the controller owns learn -> structure -> plan
+-> order -> gate -> implement -> release -> accept, and reports the decision
+with its reason. `[decision]` now means **a dated controller decision already
+taken**, not "pending owner". Historical "owner decision" wording is kept
+where the owner actually spoke (e.g. the 0.0.11 a11y lift).
 
 ### W0 learning ledger (summary; full notes in `PRD_01_17` and each subtree)
 
@@ -145,6 +174,9 @@ T7 versions
 | 2026-11-06 | 3 | perception, grounding, code-first, safety | S/P/O/V | per-step latency is not a controlled A/B; NOVA 57% is OSWorld-specific |
 | 2026-11-06 | 3 | cgroups v2, EEVDF, GPU virtualisation, sandbox cost | O/S/V | MPS shares failure domain; 7.3x spread has two KVM endpoints |
 | 2026-11-06 | 3 | grants, input tiers, OSWorld 2.1 release contract | O/P/S | 2.1 manifest disclaims a full 108-task evaluation |
+| 2026-11-06 | 4 | local Windows SDK `UIAutomationClient.h`/`.idl`: CLSID, IIDs, vtable slots, `RECT`, `TreeScope` | O (installed SDK 10.0.22000.0) | `RECT` is left/top/right/bottom, **not** `[x,y,w,h]`; header is authoritative for its SDK, not for the runtime; probe must still print raw HRESULTs |
+| 2026-11-06 | 4 | host-side vs guest-side resource telemetry trust boundary | O/P/S | guest self-report is debugging data, not a security boundary; host-side signals sit on the far side of isolation |
+| 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default must not be escalated; owner keeps a veto, not an approval queue |
 
 Evidence grades: **O** official, **B** benchmark board, **P** paper,
 **V** vendor claim, **S** survey / secondary, **X** local measurement. Only
@@ -214,7 +246,7 @@ minicon-harness — one-file bounded agent worker
     protocol stays out; `screen` exposes eight bounded operations, not an
     automation language)
     authority. The model API cannot execute tools; the tools cannot reach the
-    model API. Scope extensions need a new owner decision here.
+    model API. Scope extensions need a dated controller decision (T8).
 ```
 
 ## Governing invariants
@@ -362,7 +394,8 @@ Two directions of the gap, kept separate on purpose:
   wait and a three-level human-confirmation/safety-check policy. Two-axis
   scroll, multi-point drag and held-key modifiers were delivered in 0.0.7 /
   0.0.8 as additive verbs with their own evidence. The remaining candidates
-  are not debts: each needs its own PRD, gate and owner decision.
+  are not debts: each needs its own PRD, gate and dated controller decision
+  (T8).
 
 ## Capability levels and the self-hosted orchestration target
 
@@ -382,8 +415,8 @@ image arm) -> B7b + D4 (bounded wait and ceilings) -> A4
 (reliable target location; the client is Electron / Chromium, so A2's Win32
 child controls do not reach it) -> F3 (app-level effect evidence) -> C5 / C6
 (safety and hand-off). Ordering is **not** a version commitment: every item
-still needs its own PRD, its own gate, an owner decision and a version plan
-that carries the gate. The next version is planned only after the previous one
+still needs its own PRD, its own gate, a dated controller decision and a
+version plan that carries the gate. The next version is planned only after the previous one
 is published and accepted. Plan 0.0.9 and its frontier are unchanged; E3 / E4
 read-only grant disclosure is the precondition that explains why a click
 cannot land before any of L2 exists.
@@ -540,14 +573,16 @@ their unlock conditions. Contract owner:
 
 ## Continuous frontier learning (W0, owner direction 2026-11-06)
 
-The owner extended `/goal` twice on 2026-11-06: first to keep learning
+The owner extended `/goal` three times on 2026-11-06: first to keep learning
 current computer-use **and** resource-management technology (process, CPU,
 memory, GPU, keyboard, video, mouse — all of it) and upserting the PRD; then
 to keep the **learning process notes** in the PRD, expand it into
 **multi-dimensional trees**, split large branches into indexed subtree
-documents, and **not start code or tests until the plan is complete**. W0 is
-owned by `prd/PRD_01_17_frontier_radar.md`; the multi-dimensional index is at
-the top of this file.
+documents, and **not start code or tests until the plan is complete**; and at
+22:15 to stop escalating reversible choices — the controller decides and
+reports the reason (T8, `PRD_01_24`). W0 is owned by
+`prd/PRD_01_17_frontier_radar.md`; the multi-dimensional index is at the top
+of this file.
 
 1. **Learn** — K / V / M / W / S perception, actuation, timing, verification
    and safety, plus process / CPU / memory / GPU / device / network / storage
@@ -555,19 +590,21 @@ the top of this file.
 2. **Upsert** — append or revise the radar, the subtree documents and this
    file's ledger in place; never overwrite a dated finding; record the query,
    the source class, the caveat and where the finding went.
-3. **Structure** — fold each finding into the correct T1-T7 node and keep the
+3. **Structure** — fold each finding into the correct T1-T8 node and keep the
    document index accurate.
 4. **Complete the plan** — pass the plan-completeness checklist in
    `PRD_01_23`; **only then** implement through W1/W2/W3/W4. A capability is
    claimed from three-OS CI plus the independent journey reader, never from
-   an article.
+   an article. Pass 4 completed the 0.0.15 plan (6/6) on 2026-11-06.
 
 **Learning is not authority.** `PRD_01_08` still assigns process, CPU,
 memory, GPU and device management outside `screen`; the radar records that
-whole domain as research and keeps the open decision (read-only telemetry vs.
-real resource control) explicitly undecided until the owner lifts it. No
-`[no]` is lifted by a research pass. **Current phase: STUDY + STRUCTURE**,
-not implementation; 0.0.15 is planning only.
+whole domain as research. The G direction is **decided by the controller on
+2026-11-06**: keep G closed (a), with four explicit reopen triggers for
+read-only telemetry and `[no]` for real resource control
+(`PRD_01_24`). No `[no]` is lifted by a research pass. **Current phase:
+STUDY + STRUCTURE**, not implementation; the 0.0.15 plan is complete (6/6)
+and W1 is eligible but not started.
 
 First W0 pass (2026-11-06) produced three reusable conclusions: interface-
 first perception with UIA ahead of MSAA on Windows (WAA measured ~57%
@@ -602,27 +639,35 @@ journeys were independently recomputed PASS on all three OSes. `cu-abi 1.0`,
 the 12/10/8/0 matrix, the native signature, every earlier reader assertion
 and the G boundary are unchanged.
 
-UIA-first mixed routing stays a W0 candidate with a closed gate: a
-hand-written `IUIAutomation` COM vtable with an unverified slot is a crash,
-not a named refusal. Resource-domain telemetry and control remain behind the
-open G decision recorded in `PRD_01_17`.
+UIA-first mixed routing stays a W0 candidate with a probe gate: the installed
+Windows SDK headers now prove the vtable slots, but a real-desktop Rust probe
+must still print raw HRESULTs before any production routing. Resource-domain
+telemetry and control remain behind the G boundary, whose direction (a) is a
+dated controller decision in `PRD_01_24`.
 
-## 0.0.15 next plan (planning, not started)
+## 0.0.15 next plan (plan complete 6/6, W1 eligible, not started)
 
 **No code, test, version bump or Release chain is started for 0.0.15.** Under
 the owner's 2026-11-06 evening direction the phase is study and structure;
-the plan-completeness checklist in `PRD_01_23` must pass first. The next
-planned version is **UIA probe-first, then mixed structured routing**
-(`plan/plan-0.0.15-uia-probe-and-routing.md`). The second W0 pass published
-the `IUIAutomation` vtable order and three real traps — a four-int `RECT` is
-not a four-double `UiaRect`, a swallowed HRESULT hides a failed read, and UIA
-bounds are physical pixels that must be reconciled with the `v0.0.10` scale
-basis — but a wrong COM slot is still a process crash. W1 is a Rust
-diagnostic probe printing raw HRESULTs; W2 ships UIA-first + MSAA fallback
-**only if** the probe passes on a real Windows desktop. A failed probe stops
-the version with a diagnosis and a downgrade to the next W0 candidate: no
-guessed slots, no half-working route and no weakened reader. `cu-abi 1.0`,
-the 12/10/8/0 matrix and the G boundary stay unchanged.
+W0 pass 4 completed the plan-completeness checklist in `PRD_01_23` (6/6) on
+2026-11-06 and the controller starts W1 in its own cadence (`PRD_01_24`).
+The next planned version is **UIA probe-first, then mixed structured routing**
+(`plan/plan-0.0.15-uia-probe-and-routing.md`).
+
+Pass 4 replaced the second-hand vtable claim with the **installed Windows SDK
+10.0.22000.0 headers**: `CLSID_CUIAutomation`, three IIDs and the exact
+vtable slots (`ElementFromHandle` 6, `CreateTrueCondition` 21, `FindAll` 6,
+`get_CurrentName` 23, `get_CurrentBoundingRectangle` 43). It also found a new
+trap — `RECT` is left/top/right/bottom while this repo publishes
+`[x,y,width,height]`, so the adapter must convert, and the independent reader
+rejects a negative width/height. Every COM call prints raw HRESULTs; a wrong
+slot is still a process crash. W1 is a Rust diagnostic probe; W2 ships
+UIA-first + MSAA fallback **only if** the probe passes on a real Windows
+desktop. A failed probe stops the version with a diagnosis and a downgrade to
+the next W0 candidate: no guessed slots, no half-working route and no
+weakened reader. `cu-abi 1.0`, the 12/10/8/0 matrix and the G boundary stay
+unchanged; G direction (a) is a decided controller decision, not a choice
+offered back to the owner.
 
 ## 0.0.9 frontier (shipped as a public signed Release)
 
@@ -638,7 +683,7 @@ on computer use; harness-side capability work stays deferred. The plan is
 `plan/plan-0.0.9-grant-disclosure.md`, the contract is
 `prd/PRD_01_11_grant_disclosure.md`. A `[_]` is a chapter, **not** a
 lifted non-goal: anything marked `[no]` in an earlier frontier stays `[no]`
-until an owner decision lifts it and a version plan carries the gate.
+until a dated controller decision lifts it and a version plan carries the gate.
 
 ```text
 0.0.9 — grant and environment disclosure (implemented)
@@ -674,7 +719,7 @@ macOS 22 / Windows 28 performed steps) with the held set recomputed from
 each record. W3/W4 are complete; the Release chain and the owner-view
 acceptance are recorded below. A `[_]` is a chapter, **not** a lifted
 non-goal: anything marked `[no]` in an earlier frontier stays `[no]` until
-an owner decision lifts it and a version plan carries the gate.
+a dated controller decision lifts it and a version plan carries the gate.
 
 ```text
 0.0.8 — held-key modifiers (implemented, shipped)
@@ -717,7 +762,7 @@ harness-side capability work stays deferred. The plan is
 `plan/plan-0.0.7-richer-actuation.md`, the contract is
 `prd/PRD_01_09_richer_actuation.md`. A `[_]` is a chapter, **not** a lifted
 non-goal: anything marked `[no]` in an earlier frontier stays `[no]` until an
-owner decision lifts it and a version plan carries the gate.
+dated controller decision lifts it and a version plan carries the gate.
 
 [v] `act:drag` accepts a bounded `path[]` (2..16 points, every segment
 interpolated with 12 stepped moves, whole path admitted against the virtual

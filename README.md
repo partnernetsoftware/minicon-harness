@@ -125,9 +125,12 @@ measured act/observation timing gap from the L1 trial. `cu-abi 1.0`, the
 12/10/8/0 matrix and the G boundary are unchanged. `v0.0.13` is a public
 signed Release accepted from the owner's view. Contract:
 [`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md). The next
-planned version is 0.0.15 UIA probe + mixed routing — **planning only, no
-code or tests yet**
+planned version is 0.0.15 UIA probe + mixed routing — **plan complete (6/6),
+W1 eligible, no code or tests started**
 ([`plan/plan-0.0.15-uia-probe-and-routing.md`](plan/plan-0.0.15-uia-probe-and-routing.md)).
+The plan's COM surface was verified against the installed Windows SDK headers
+rather than a secondary binding; the `RECT` -> `[x,y,w,h]` conversion is now a
+named adapter rule with an independent-reader rejection.
 The PRD is now a multi-dimensional tree with per-branch subtree documents and
 a dated W0 learning ledger: see the *Document tree* section of
 [`PRD.md`](PRD.md) and
@@ -138,14 +141,19 @@ a dated W0 learning ledger: see the *Document tree* section of
 **Continuous frontier learning (W0).** Each version cycle starts by learning
 current computer-use and resource-domain technology (K, V, M, W, S plus
 process / CPU / memory / GPU / device / network) and **keeping dated learning
-notes in the PRD**. Findings are folded into multi-dimensional trees (T1-T7)
+notes in the PRD**. Findings are folded into multi-dimensional trees (T1-T8)
 whose large branches have their own indexed subtree documents.
 **Implementation starts only after the plan is complete** (三思后行 /
-分而治之); 0.0.15 is planning only, with no code or tests started. A research
+分而治之); the 0.0.15 plan is complete (6/6), W1 is eligible and no code or
+tests have started. A research
 finding is not authority: no `[no]`, `cu-abi`, matrix row or G boundary
 changes because an article exists. Ledger, evidence grades and candidate
 table:
 [`prd/PRD_01_17_frontier_radar.md`](prd/PRD_01_17_frontier_radar.md).
+**Decision authority (T8)**: under `/goal` the controller decides version
+topics, gates, ordering and the G boundary, and reports the reason; the owner
+keeps a veto, not an approval queue
+([`prd/PRD_01_24_decision_authority_subtree.md`](prd/PRD_01_24_decision_authority_subtree.md)).
 
 Above the mechanisms sits a **versioned host capability contract**
 (`src/cu.rs`, `prd/PRD_01_04_cu_base.md`): cu-abi 1.0, a discoverable

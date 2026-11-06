@@ -175,6 +175,7 @@ prd/
 ├── PRD_01_21_resource_domain_subtree.md     T3 resource domain tree
 ├── PRD_01_22_platform_evidence_subtree.md   T4 platform + T6 evidence trees
 ├── PRD_01_23_capability_maturity_subtree.md T5 maturity + T7 version trees
+├── PRD_01_24_decision_authority_subtree.md T8 who decides what (controller)
 └── prd-cu-openai.md                 external reference, NOT this repo's contract
 ```
 
@@ -187,8 +188,8 @@ version status lives in `PRD.md`.
 
 ## If computer use is ever widened into host resources
 
-`[no]` until an owner decision lifts it. The unlock conditions are structural,
-not a matter of adding one verb:
+`[no]` until a dated controller decision lifts it (`PRD_01_24`, T8). The
+unlock conditions are structural, not a matter of adding one verb:
 
 1. A new PRD with its own threat model: process/memory/device state has a
    different authority surface from a pointer position, and `PRD_02_38`'s

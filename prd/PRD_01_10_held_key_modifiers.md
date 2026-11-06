@@ -157,4 +157,4 @@ native::release_all_modifiers()                 -> Result<(), String>
 Only after W1-W4 of plan 0.0.8 are green, including the owner-view Release
 acceptance, does the next version get planned. B7b, B8 and the 0.7.x
 chapters remain candidates, not debts: each needs its own PRD, its own gate
-and an owner decision before it enters a version.
+and a dated controller decision (T8) before it enters a version.

@@ -17,10 +17,15 @@ Owner directions, in order:
   (divide and conquer). This supersedes the "implement next" pace for the
   current phase.
 
+- **2026-11-06 (22:15):** 为什么要我做决定，你能自己安排吗？ — the owner
+  rejects having reversible choices escalated back. The controller decides
+  and reports the reason; the owner keeps a veto, not an approval queue
+  (`PRD_01_24`, T8).
+
 Legend: `[v]` delivered with evidence, `[_]` candidate, `[no]` explicit
 non-goal, `[study]` research note with no implementation claim, `[decision]`
-an owner decision still pending. A dated finding is a **research note**, not
-a capability claim.
+a dated controller decision already taken. A dated finding is a **research
+note**, not a capability claim.
 
 ## The W0 loop (revised for the study phase)
 
@@ -32,7 +37,7 @@ a capability claim.
    the `PRD.md` ledger **in place**. Never overwrite a dated finding; record
    the date, the query, the source class, the conflict or caveat and where
    the finding went.
-3. **Structure** — fold each finding into the correct node of T1-T7, split
+3. **Structure** — fold each finding into the correct node of T1-T8, split
    any oversized branch into its own subtree document, and keep `PRD.md`'s
    document index accurate.
 4. **Complete the plan** — for the next version, write the contract, the
@@ -43,8 +48,8 @@ a capability claim.
    from an article.
 
 **Learning is not authority.** A published technique becomes a capability
-only after its own PRD, its own gate and — if it crosses G — an explicit
-owner decision. This file lifts no `[no]`, adds no verb, no grant and no tool.
+only after its own PRD, its own gate and a dated controller decision
+(`PRD_01_24`). This file lifts no `[no]`, adds no verb, no grant and no tool.
 
 ## Current phase
 
@@ -53,8 +58,9 @@ STUDY -> STRUCTURE -> PLAN COMPLETION -> ONLY THEN CODE + TESTS
 ```
 
 Current phase is **STUDY + STRUCTURE**. No W1/W2 code, no test, no version
-bump and no Release chain is started for 0.0.15. The last shipped version is
-`v0.0.14`; all four version sources read `0.0.14`.
+bump and no Release chain is started for 0.0.15. W0 pass 4 completed the
+0.0.15 plan (6/6, `PRD_01_23`); W1 is eligible but not started. The last
+shipped version is `v0.0.14`; all four version sources read `0.0.14`.
 
 ## Evidence grades
 
@@ -79,6 +85,7 @@ binary scores and results from different step budgets are **not comparable**.
 | T3 | resource domain (largest) | `prd/PRD_01_21_resource_domain_subtree.md` |
 | T4 / T6 | platform + evidence | `prd/PRD_01_22_platform_evidence_subtree.md` |
 | T5 / T7 | capability maturity + versions | `prd/PRD_01_23_capability_maturity_subtree.md` |
+| T8 | decision authority | `prd/PRD_01_24_decision_authority_subtree.md` |
 | domain model / G | K/V/M/W/S boundary | `prd/PRD_01_08_computer_use_scope.md` |
 | L0-L3 end state | self-hosted orchestration | `prd/PRD_01_12_self_hosted_orchestration.md` |
 
@@ -92,6 +99,9 @@ binary scores and results from different step budgets are **not comparable**.
 | 2026-11-06 | 3 | perception routes, grounding, code-first, safety | S / P / O / V | 150 ms vs 2.2-5 s per step are different setups, not a controlled A/B; code-first claims are vendor launches; NOVA's 57% is OSWorld-specific | T1/T2/T6 |
 | 2026-11-06 | 3 | cgroups v2 / EEVDF / PSI / GPU virtualisation / sandbox cost | O / S / V (multi-source) | MPS shares a failure domain; `CUDA_VISIBLE_DEVICES` is not a boundary; 7.3x price spread at equal specs has two full-KVM endpoints; memory is 72-80% of active-CPU bills | T3 |
 | 2026-11-06 | 3 | platform grants, input tiers, OSWorld 2.1 release contract | O / P / S | 2.1 manifest pins components but disclaims a full 108-task evaluation; a tag or smoke test is not full verification | T4/T6 |
+| 2026-11-06 | 4 | local `UIAutomationClient.h` / `.idl` (SDK 10.0.22000.0): CLSID/IID, exact vtable slots, `RECT`, `TreeScope` | O (installed SDK) | `RECT` is left/top/right/bottom, not `[x,y,w,h]`; the header proves slots for this SDK, not for every runtime; raw HRESULTs still needed | T1 P2.4, `plan-0.0.15` |
+| 2026-11-06 | 4 | resource telemetry trust: host-side vs guest-side observability | O / P / S | guest self-report is debugging data, never a security boundary; host-side signals are on the far side of isolation | T3 R9/R10 |
+| 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default was wrongly escalated; owner veto replaces the approval queue | `PRD_01_24`, T8 |
 
 ## Findings, 2026-11-06
 
@@ -197,18 +207,17 @@ The owner's original model includes these; `PRD_01_08` records that they are
 A second W0 pass targeted the one candidate whose gate was closed for a
 technical reason rather than a policy one: hand-written UIA COM.
 
-- **The `IUIAutomation` vtable order is public.** The Go `w32uiautomation`
-  binding publishes `IUIAutomationVtbl` in full: after the three `IUnknown`
-  slots come `CompareElements`, `CompareRuntimeIds`, `GetRootElement`,
+- **The `IUIAutomation` vtable order was first published by a secondary
+  source** (Go `w32uiautomation` binding): after the three `IUnknown` slots
+  come `CompareElements`, `CompareRuntimeIds`, `GetRootElement`,
   `ElementFromHandle` (slot 6), `ElementFromPoint`, `GetFocusedElement`, the
   four `*BuildCache` variants, `CreateTreeWalker`, the three view walkers,
   the three view conditions, `CreateCacheRequest`, `CreateTrueCondition`
   (slot 21), `CreateFalseCondition`, `CreatePropertyCondition`, the
   and/or/not condition combinators, the event handlers, and finally
-  `ElementFromIAccessible` / `*BuildCache`. `IUIAutomationElement` exposes
-  `FindAll`, `FindFirst`, `Get_CurrentName`, `Get_CurrentBoundingRectangle`,
-  `Get_CurrentControlType`, `Get_CurrentNativeWindowHandle`, `SetFocus` and
-  cached equivalents.
+  `ElementFromIAccessible` / `*BuildCache`. **Pass 4 below verified these
+  slots against the installed Windows SDK headers** and is now the primary
+  source; the binding is retained only as the history of the finding.
 - **Three real failure modes are documented, not guessed** (Microsoft Q&A
   and Windows-MCP / UIA wrappers): `get_CurrentBoundingRectangle` returns a
   `RECT` of four 32-bit integers (left/top/right/bottom), **not** the
@@ -224,38 +233,84 @@ technical reason rather than a policy one: hand-written UIA COM.
   one `RECT`, prints the raw HRESULTs and exits — before any production
   routing. A wrong slot is still a crash, not a named refusal.
 
-**Gate status:** moved from *vtable unknown* to *vtable order published,
-real-desktop probe still required*. No UIA code ships in 0.0.14.
+**Gate status (pass 4):** *vtable order verified against the locally
+installed Windows SDK headers*, real-desktop probe still required. No UIA
+code ships in 0.0.14 or 0.0.15 until the probe prints raw HRESULTs.
+
+## Findings, 2026-11-06 (fourth pass, local SDK verification)
+
+The second pass cited a Go binding for `IUIAutomationVtbl`. Pass 4 replaces
+that secondary source with the **installed Windows SDK 10.0.22000.0**
+`UIAutomationClient.h` / `UIAutomationClient.idl` (grade O), read locally:
+
+- `CLSID_CUIAutomation = ff48dba4-60ef-4201-aa87-54103eef594e`;
+  `CLSID_CUIAutomation8 = e22ad333-b25f-460c-83d0-0581107395c9` (a different
+  proxy behaviour, **not** the class the probe should instantiate).
+- `IID_IUIAutomation = 30cbe57d-d9d0-452a-ab13-7ac5ac4825ee`;
+  `IID_IUIAutomationElement = d22108aa-8ac5-49a5-837b-37bbb3d7591e`;
+  `IID_IUIAutomationElementArray = 14314595-b4bc-4055-95f2-58f2e42c9855`.
+- Slot numbering is confirmed from the C vtable (`IUIAutomationVtbl`):
+  `QueryInterface` 0, `AddRef` 1, `Release` 2, `CompareElements` 3,
+  `CompareRuntimeIds` 4, `GetRootElement` 5, **`ElementFromHandle` 6**,
+  `ElementFromPoint` 7, `GetFocusedElement` 8, four `*BuildCache` 9-12,
+  `CreateTreeWalker` 13, three view walkers 14-16, three view conditions
+  17-19, `CreateCacheRequest` 20, **`CreateTrueCondition` 21**,
+  `CreateFalseCondition` 22, `CreatePropertyCondition` 23. The Go binding's
+  slots 6 / 21 are correct.
+- `IUIAutomationElement`: `SetFocus` 3, `GetRuntimeId` 4, `FindFirst` 5,
+  **`FindAll` 6**; `get_CurrentProcessId` 20, `get_CurrentControlType` 21,
+  `get_CurrentLocalizedControlType` 22, **`get_CurrentName` 23**, and after
+  the long propget run **`get_CurrentBoundingRectangle` 43**.
+  `IUIAutomationElementArray`: `get_Length` 3, `GetElement` 4.
+- **New trap discovered:** `get_CurrentBoundingRectangle` writes a Win32
+  `RECT` (four `LONG`: left / top / right / bottom), while this repo's
+  `a11y_controls[].rect` is `[x, y, width, height]`. The adapter must compute
+  `x=left, y=top, width=right-left, height=bottom-top`; passing the raw four
+  ints through would silently corrupt every rectangle. `TreeScope_Subtree`
+  is `0x1|0x2|0x4 = 7`; `UIA_HWND` is `void *`.
+- **Grade boundary:** a header is authoritative for the SDK it ships with.
+  It does not prove the runtime's provider behaviour, so the probe still has
+  to print raw HRESULTs before any production routing. This is why the gate
+  stays *probe required*, not *vtable solved*.
+
+The fourth pass also recorded the resource-telemetry trust split (host-side
+signals are evidence; guest self-reports are debugging data) in T3 and the
+decision-authority correction in `PRD_01_24` / T8.
 
 ## Candidate table (upserted, not promised)
 
 | Finding | Repo axis | Candidate | Unlock condition | This cycle |
 |---|---|---|---|---|
-| UIA supersedes MSAA; UIA-aware agents measurably better | A2 / A4 | UIA-first + MSAA fallback in `observe.a11y`, additive `a11y_source` | vtable order now published (second pass); still needs a real-desktop Rust probe of `ElementFromHandle` / `CreateTrueCondition` / `FindAll`, raw HRESULTs and `RECT` semantics | deferred (gate: probe) |
+| UIA supersedes MSAA; UIA-aware agents measurably better | A2 / A4 | UIA-first + MSAA fallback in `observe.a11y`, additive `a11y_source` | vtable slots + CLSID/IID verified against the installed SDK (pass 4); still needs a real-desktop Rust probe of `ElementFromHandle` / `CreateTrueCondition` / `FindAll`, raw HRESULTs and the `RECT` -> `[x,y,w,h]` conversion | deferred (gate: probe) |
 | WGA / PrintWindow black frames, DWM shadow rects | A5 / E | per-window capture router with named reason | image arm + PNG budget decision (A5/D2) | deferred |
 | Cross-platform agents need one normalised node schema | A4 | `a11y_controls[]` gains `state` / `state_names` / `value` plus `a11y_node_schema`; the reader recomputes the bit mask | none (gate open) | **shipped in 0.0.14 W1/W2** |
 | a11y trees are event streams | A4 / D | incremental change subscription | three-OS AT-SPI / AX grants + fixtures; the schema above is its prerequisite | deferred |
 | Wait before re-observation; budget ceilings | B7b / D4 | `observe.wait_ms` + `evidence["wait"]` | none (gate open) | **shipped in 0.0.13 W1/W2** |
 | Long-horizon verification and independent readers | F3 / L2 | app-level effect evidence | side-effect-free three-OS fixture | deferred |
-| Sandbox isolation ladder, quotas, credential brokerage | G / exec | resource-domain telemetry and control | separate PRD + explicit G decision | **not implemented; G unchanged** |
+| Sandbox isolation ladder, quotas, credential brokerage | G / exec | resource-domain telemetry and control | separate PRD + 4 reopen triggers (`PRD_01_24`) | **not implemented; G decided closed (a)** |
+| Host-side vs guest-side telemetry trust | G / T3 | typed pressure rows, only from the far side of isolation | three-OS X-grade probes + threat model + reader | deferred (study note, R9/R10) |
 | Guest-side acceptance of isolation | F / delivery | extend owner-view acceptance to resource cells | only if G is ever lifted | deferred |
 
-## Open decision, deliberately not taken here
+## G-boundary decision — taken by the controller (2026-11-06 22:15)
 
 `PRD_01_08` says the readback proves **desktop state, never process, memory
-or device state**. Three mutually exclusive directions exist; this cycle
-chooses (a) and records the other two without implementing them:
+or device state**. Three mutually exclusive directions exist; the controller
+**decides (a)** and records the other two with their unlock conditions. This
+is an escalation corrected by the owner's 22:15 direction, recorded with its
+reason in `PRD_01_24`, not a choice offered back:
 
-- **(a) keep G closed (chosen).** Learn and upsert the whole resource domain,
+- **(a) keep G closed (decided).** Learn and upsert the whole resource domain,
   implement only inside KVM + W + S. Cost: no process/CPU/memory/GPU verbs.
 - **(b) additive read-only telemetry in `disclose`.** Publish host CPU/memory
   pressure, process count or GPU inventory as typed rows, still no control.
   Cost: lifts one `[no]`, needs a three-OS probe with named `unknown` reasons
   and a fresh PRD; a "read-only" row still widens what `screen` may observe.
+  **Deferred**, with four explicit reopen triggers in `PRD_01_24`.
 - **(c) real resource control.** cgroups / MIG / microVM lifecycle actions.
   Cost: a new tool or ABI, new grants, a policy engine and an audit surface —
-  this is a different product from a bounded one-file worker.
+  this is a different product from a bounded one-file worker. **`[no]`**
+  unless the product definition itself changes.
 
-Any of (b) or (c) requires an explicit owner decision; a research finding is
-not one. Nothing in this file authorises a change to the 12/10/8/0 matrix,
-`cu-abi 1.0`, the six false cells or any shipped Release asset.
+A research finding is not a decision. Nothing in this file authorises a
+change to the 12/10/8/0 matrix, `cu-abi 1.0`, the six false cells or any
+shipped Release asset.

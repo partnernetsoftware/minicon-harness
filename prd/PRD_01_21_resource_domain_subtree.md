@@ -8,12 +8,14 @@ boundary. **Everything below is research and planning, not authority.**
 
 `PRD_01_08` assigns process / CPU / memory / GPU / device / network
 management outside `screen`; the readback proves desktop state, never process,
-memory or device state. `PRD_01_17` keeps the G decision explicitly open.
+memory or device state. `PRD_01_17` records the controller's G decision
+(2026-11-06): **keep G closed (a)**, with four reopen triggers in
+`PRD_01_24`.
 Sibling subtrees: `PRD_01_19` (T1), `PRD_01_20` (T2), `PRD_01_22` (T4/T6),
 `PRD_01_23` (T5/T7).
 
 Legend: `[study]` research note, `[no]` explicit non-goal for `screen`,
-`[decision]` an owner decision still pending. Evidence grades: **O**
+`[decision]` a dated controller decision already taken. Evidence grades: **O**
 official doc, **B** benchmark board, **P** paper / preprint, **V** vendor
 claim, **S** survey / secondary, **X** local measurement.
 
@@ -147,22 +149,33 @@ memory and confirm the cap fires without harming a neighbour; test cleanup on
 normal exit, crash, timeout and forced stop. This mirrors the owner-view rule
 this repo already applies to public Releases.
 
-## G boundary and the open decision
+## G boundary — decision taken 2026-11-06 22:15
 
 `PRD_01_08` lists four structural unlock conditions for ever widening CU into
 host resources: a new PRD with its own threat model, a fourth tool (or a
 widening of `exec`) with its own grant and bounds, a readback/evidence
 semantics with an independent reader and three-OS journey, and a version gate.
-`PRD_01_17` records three mutually exclusive directions:
+`PRD_01_17` records three mutually exclusive directions. **The controller
+decides (a)** under the standing `/goal` delegation; the owner's 22:15
+direction corrected an earlier escalation that offered this choice back.
+Full record and reopen triggers: `PRD_01_24` (T8).
 
 | Direction | Meaning | Cost | State |
 |---|---|---|---|
-| (a) keep G closed | learn and upsert the whole domain, implement only K/V/M/W/S | no process/CPU/memory/GPU verbs | **current, chosen for this cycle** |
-| (b) additive read-only telemetry | typed CPU/memory pressure, process count or GPU inventory in `disclose` | lifts one `[no]`; needs a three-OS probe, named `unknown` reasons and a fresh PRD | `[decision]` pending |
-| (c) real resource control | cgroups / MIG / microVM lifecycle actions | new tool or ABI, new grants, policy engine, audit surface — a different product | `[decision]` pending |
+| (a) keep G closed | learn and upsert the whole domain, implement only K/V/M/W/S | no process/CPU/memory/GPU verbs | **decided 2026-11-06** |
+| (b) additive read-only telemetry | typed CPU/memory pressure, process count or GPU inventory in `disclose` | lifts one `[no]`; needs a three-OS probe, named `unknown` reasons and a fresh PRD | `[_]` deferred, 4 triggers |
+| (c) real resource control | cgroups / MIG / microVM lifecycle actions | new tool or ABI, new grants, policy engine, audit surface — a different product | `[no]` |
 
-No research finding is an owner decision. This subtree implements none of
-(a/b/c) and grants `screen` no resource authority.
+**Telemetry trust split (pass 4).** Host-side signals (per-cgroup CPU/memory,
+KVM exits, egress flow records, OOM events) sit on the far side of the
+isolation boundary and can be evidence. Guest self-reports (process lists,
+in-guest usage) are debugging data: a compromised guest can forge them, so
+they can never be the sole basis of a security or quota decision. This is why
+direction (b) is not a harmless "read-only" row. Source classes O / P / S;
+no X-grade measurement exists in this repo.
+
+No research finding is a decision. This subtree implements none of (a/b/c)
+and grants `screen` no resource authority.
 
 ## Learning notes (dated, process not just conclusions)
 
@@ -175,6 +188,8 @@ No research finding is an owner decision. This subtree implements none of
 | 2026-11-06 | 3 | GPU virtualisation layers and overhead | S / V | 1-3% / 3-8% overhead figures are vendor-adjacent (V), not independent benchmarks | R4 |
 | 2026-11-06 | 3 | sandbox pricing, four-layer value chain, TCO | S / V (multi-source) | domestic share numbers are vendor self-reports; price tables age fast | R7/R9 |
 | 2026-11-06 | 3 | four production boundaries, `pids.max`, three timeouts | O / S | policy examples are representative shapes, not a standard | R6/R8 |
+| 2026-11-06 | 4 | host-side vs guest-side telemetry trust; PSI as a pressure signal | O / P / S | guest self-report is forgeable and is debugging data, not a security boundary; `usage/limit` is lagging, PSI `some`/`full` measures stall time | R9/R10, G decision |
+| 2026-11-06 | 4 | decision authority correction under `/goal` | owner direction | G (a) is decided by the controller; (b) has four triggers; (c) is `[no]` | `PRD_01_24`, T8 |
 
 ## Non-goals
 
@@ -183,4 +198,4 @@ No research finding is an owner decision. This subtree implements none of
 - `[no]` a runtime service, resident owner, durable job lease or colocated
   runtime library: these contradict "one file, one invocation".
 - `[no]` claiming any R-node as `[v]`. All are `[study]` until a separate PRD,
-  an owner decision and three-OS CI evidence exist.
+  a dated controller decision and three-OS CI evidence exist.

@@ -147,4 +147,5 @@ native::scroll(x, y, delta_x, delta_y)          -> (px, py)
 Only after W1-W4 of plan 0.0.7 are green (including the owner-view Release
 acceptance) does the next version get planned.
 The deferred halves of B6/B7 and B8 are candidates, not debts: each needs its
-own PRD, its own gate and an owner decision before it enters a version.
+own PRD, its own gate and a dated controller decision (T8) before it enters
+a version.
