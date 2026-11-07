@@ -125,29 +125,47 @@ measured act/observation timing gap from the L1 trial. `cu-abi 1.0`, the
 12/10/8/0 matrix and the G boundary are unchanged. `v0.0.13` is a public
 signed Release accepted from the owner's view. Contract:
 [`prd/PRD_01_16_bounded_wait.md`](prd/PRD_01_16_bounded_wait.md).
-The 0.0.15 UIA probe verdict: every COM slot and `RECT` conversion were
-verified on a real Windows desktop, but the target WorkBuddy provider exposes
-no addressable (non-Pane) controls and a cold-start zero-rectangle window, so
-the mandatory downgrade rule stopped the UIA-first route before any shipped
-capability, version bump or Release
+The 0.0.15 UIA probe verdict (kept verbatim as a W0 diagnostic record): every
+COM slot and `RECT` conversion were verified on a real Windows desktop, but
+the target WorkBuddy provider exposes no addressable (non-Pane) controls and a
+cold-start zero-rectangle window, so the mandatory downgrade rule stopped the
+UIA-first route before any shipped capability
 ([`plan/plan-0.0.15-uia-probe-and-routing.md`](plan/plan-0.0.15-uia-probe-and-routing.md),
-[`examples/cu_probe_uia.rs`](examples/cu_probe_uia.rs)). `v0.0.14` remains
-the last shipped Release.
+[`examples/cu_probe_uia.rs`](examples/cu_probe_uia.rs)).
+
+**A11y-addressed actuation (0.0.15, public signed Release).** W0 pass 7 then
+measured the *MSAA* arm on that same client: 43 nodes, 8 buttons, 11 named
+controls and 42 non-zero rectangles, while the Win32 `controls` scan is
+refused. `act:control` gains optional `source` (`"controls"` default /
+`"a11y"`) and `role`. The a11y arm resolves a normalised node by exact name
+then unique substring, vetoes `unavailable`/`invisible`/`offscreen` states,
+refuses ambiguity, unknown roles and an empty tree, pins the observation
+generation, and requires the pointer readback to land **inside the resolved
+node's rectangle**. Evidence publishes `source`, `a11y_node` (the 0.0.14
+schema) and `a11y_node_schema`; the independent journey reader recomputes
+`state_names`, the centre and containment. `press` still defaults to false,
+so resolving a target cannot click. No new capability row, verb, grant,
+crate, ABI bump, matrix cell or native signature. Tree:
+[`prd/PRD_01_25_semantic_addressing_subtree.md`](prd/PRD_01_25_semantic_addressing_subtree.md),
+plan: [`plan/plan-0.0.15-a11y-addressed-actuation.md`](plan/plan-0.0.15-a11y-addressed-actuation.md).
+The UIA W2 stays stopped; the route switch is a dated controller decision
+(`PRD_01_24`). `v0.0.15` is the latest public signed Release.
 The PRD is now a multi-dimensional tree with per-branch subtree documents and
 a dated W0 learning ledger: see the *Document tree* section of
 [`PRD.md`](PRD.md) and
 [`prd/PRD_01_17_frontier_radar.md`](prd/PRD_01_17_frontier_radar.md).
-`v0.0.14` is a public signed Release accepted from the owner's view
-([`prd/PRD_01_18_normalised_a11y_nodes.md`](prd/PRD_01_18_normalised_a11y_nodes.md)).
+`v0.0.15` is a public signed Release accepted from the owner's view
+([`prd/PRD_01_25_semantic_addressing_subtree.md`](prd/PRD_01_25_semantic_addressing_subtree.md)).
 
 **Continuous frontier learning (W0).** Each version cycle starts by learning
 current computer-use and resource-domain technology (K, V, M, W, S plus
 process / CPU / memory / GPU / device / network) and **keeping dated learning
-notes in the PRD**. Findings are folded into multi-dimensional trees (T1-T8)
+notes in the PRD**. Findings are folded into multi-dimensional trees (T1-T9)
 whose large branches have their own indexed subtree documents.
 **Implementation starts only after the plan is complete** (三思后行 /
-分而治之); the 0.0.15 probe was run only after its plan passed 6/6, and its
-downgrade rule stopped the implementation without an owner choice. A research
+分而治之); both 0.0.15 plans passed their 6/6 checklists before any code ran,
+and the UIA probe's downgrade rule stopped that route without an owner choice.
+W0 pass 7 then supplied X-grade evidence for the shipped route. A research
 finding is not authority: no `[no]`, `cu-abi`, matrix row or G boundary
 changes because an article exists. Ledger, evidence grades and candidate
 table:

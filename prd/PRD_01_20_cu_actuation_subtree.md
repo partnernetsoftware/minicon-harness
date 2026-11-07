@@ -1,9 +1,11 @@
 # PRD 01.20 — CU actuation subtree (T2)
 
-Status: **study + structure only** (owner direction 2026-11-06 evening: keep
-learning and structuring the PRD; **do not start code or tests until the plan
-is complete**). Changes no source, version, capability row, `cu-abi`, `[no]`
-row or the G boundary. Sibling subtrees: `PRD_01_19` (T1 perception),
+Status: **study + structure, plus the 0.0.15 shipped branch** (owner direction
+2026-11-06 evening: keep learning and structuring the PRD; **do not start
+code or tests until the plan is complete**). M4a / A4a started only after
+`plan/plan-0.0.15-a11y-addressed-actuation.md` passed 6/6; see `PRD_01_25`.
+No new capability row, verb, grant, crate, `cu-abi` bump, `[no]` lift or G
+change. Sibling subtrees: `PRD_01_19` (T1 perception),
 `PRD_01_21` (T3 resource domain), `PRD_01_22` (T4/T6),
 `PRD_01_23` (T5/T7). Learning ledger: `PRD_01_17_frontier_radar.md`.
 
@@ -26,6 +28,9 @@ T2 Actuation / input
 │   ├── M2 drag path 2..16 points, 12 steps/segment, path_points    [v] 0.0.7
 │   ├── M3 two-axis scroll delta_x/delta_y, ±1440, evidence         [v] 0.0.7
 │   ├── M4 hover / move / named control with press                   [v]
+│   ├── M4a named a11y node by identity (`source`/`role`)             [v] 0.0.15
+│   │        exact name -> unique substring -> role filter;
+│   │        invisible/offscreen/unavailable vetoed; readback inside rect
 │   └── M5 synthetic cursor per agent / background input             [no] here
 ├── W window target binding                                       [v] 0.0.12
 │   ├── W1 `act:focus` by title (exact, then unique substring)        [v]
@@ -37,6 +42,8 @@ T2 Actuation / input
 │   ├── A2 six typed verdicts + generation / as_of / stale refusal    [v]
 │   ├── A3 `evidence["actuation"]` button downs/ups/double/target     [v] 0.0.6
 │   ├── A4 `verify_actuation`: missing receipt -> unknown             [v]
+│   ├── A4a `source`/`role` admission refused before any pointer      [v] 0.0.15
+│   │        `a11y_node` + schema published; reader recomputes state_names
 │   ├── A5 batched `actions[]` with ordered receipts                   [_] B8
 │   └── A6 post-action state verification / retry loop                [_] F3/L2
 ├── C code-first / hybrid execution (external)                     [study]

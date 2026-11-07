@@ -51,18 +51,19 @@ note**, not a capability claim.
 only after its own PRD, its own gate and a dated controller decision
 (`PRD_01_24`). This file lifts no `[no]`, adds no verb, no grant and no tool.
 
-## Current phase
+## Current phase (updated 2026-11-07)
 
 ```text
 STUDY -> STRUCTURE -> PLAN COMPLETION -> ONLY THEN CODE + TESTS
 ```
 
-Current phase is **STUDY + STRUCTURE**. No W1/W2 code, no test, no version
-bump and no Release chain is started for 0.0.15. W0 pass 4 completed the
-0.0.15 plan (6/6, `PRD_01_23`). W1 then ran on the real desktop (pass 5)
-and its downgrade rule stopped W2; no capability, version bump or Release
-chain started. The last
-shipped version is `v0.0.14`; all four version sources read `0.0.14`.
+The STUDY + STRUCTURE phase is **closed**. W0 pass 7 produced X-grade
+evidence that the L3 target is addressable on the MSAA arm (43 nodes, 8
+buttons, 11 named, while the Win32 scan is refused); a fresh 6/6 plan
+(`plan/plan-0.0.15-a11y-addressed-actuation.md`) was completed **before**
+any code started, and W1-W4 then ran. The 2026-11-06 UIA probe record is
+preserved verbatim above as history; its downgrade still holds for the UIA
+route. All four version sources now read `0.0.15`.
 
 ## Evidence grades
 
@@ -373,6 +374,65 @@ already fired and the missing tree is an app-launch precondition outside
 full accessibility mode enabled, and it adds Linux/macOS gate conditions to
 the AT-SPI / AX candidate. No implementation starts from this pass.
 
+## Findings, 2026-11-07 (seventh pass, semantic addressing and the real target)
+
+Pass 7 asked what the 2026 field considers a *reliable* target, and then
+measured the answer on this machine through the repo's own CU wire. Grades:
+O/P/S for the field notes, **X** for the local measurement. The full tree is
+`PRD_01_25_semantic_addressing_subtree.md` (new dimension T9).
+
+- **Addressable handles beat coordinates.** Surveys, OSWorld action/observation
+  analyses and grounding playbooks separate semantic grounding ("click
+  Submit") from spatial grounding (the pixel of Submit on this rendering at
+  this DPI); the latter dominates failures. The recommended shape is hybrid:
+  prefer an a11y handle where one exists, cross-check against the screen, and
+  verify after every action. **Caveat:** the published per-step reliability
+  arithmetic is model-specific, and a PyAutoGUI "step" can contain a Python
+  control structure, so cross-paper success rates are not a controlled A/B.
+  This repo claims no success-rate gain — only one more addressable target.
+- **A11y trees are not complete semantic descriptions.** OSWorld's own
+  observation notes (a11y tree / screenshot / screenshot+a11y_tree /
+  set-of-marks) say trees may be long, incomplete, redundant or wrong, while
+  screenshots preserve layout but not boundaries. With A5 `[no]`, this repo
+  implements the **cross-check** half via generation pinning and a pointer
+  readback inside the node rect; it explicitly does not do visual grounding.
+- **Native default action exists on all three OSes** — MSAA
+  `accDoDefaultAction`, macOS `AXUIElementPerformAction(kAXPressAction)`,
+  Linux `org.a11y.atspi.Action.DoAction` — and can press without a pointer,
+  focus or foreground. But an invoke has **no pointer readback**, which is this
+  repo's whole notion of evidence. It therefore stays `[study]` (T9 S7): a new
+  evidence kind is needed before it can become a capability.
+- **MSAA vs UIA is a provider/launch-mode question, not old vs new.** Flutter
+  and Chromium expose `IAccessible`(+`IAccessibleEx`) and
+  `IRawElementProviderFragment` from the same node, and UIA patterns are
+  optional. A correct `CoCreateInstance` can coexist with an unusable UIA tree
+  while MSAA on the same hwnd yields real buttons. This narrows the pass-5
+  finding to the **UIA provider**, which is what the W1 probe actually read.
+- **X-grade measurement on the L3 target (2026-11-07).**
+  `examples/cu_orchestrate.rs` drove `CuHost::invoke_json` — no Python, no
+  ctypes, no screenshot, no UIA: `observe` -> 16 windows, focused `WorkBuddy`
+  hwnd `33689578`; `{"op":"observe","a11y":33689578}` -> **43 nodes, 8
+  `button`, 11 named, 42 non-zero rects**; `{"op":"observe","controls":
+  33689578}` -> **refused** (no Win32 child window). Named bounded buttons:
+  `最小化`, `最大化`, `关闭`, `对话内搜索`, `分享`, `打开右侧面板`,
+  `新建任务`, `窗口置顶`. So the client was *observable* but not
+  *addressable* — the gap between L1 and L3. This **does not overturn** the
+  W1 downgrade (UIA-first would still regress `observe.a11y`); it opens a
+  different, already-evidenced route.
+- **Linux/macOS gates and the resource cross-link stand.** AT-SPI2 needs a
+  session bus and toolkit flags; Wayland is semantic-only with portal input;
+  macOS binds two TCC grants to the responsible process and signature. An
+  `at-spi2-core` pidfd leak can wedge the portal into an `accept`-EMFILE spin
+  and make every tree walk hit the 15 s D-Bus timeout — a stale a11y tree can
+  be a host resource symptom. This is a reason G stays closed, not a grant of
+  process/fd authority.
+
+**What this changes in the plan.** `plan/plan-0.0.15-a11y-addressed-
+actuation.md` was written and passed its 6/6 checklist **before** any code
+started; it switches the 0.0.15 route to a11y-addressed actuation. The UIA
+W2 stays `[no]`. A study note is still not a decision: the switch is dated in
+`PRD_01_24`, and only three-OS CI plus owner-view acceptance produce `[v]`.
+
 ## Candidate table (upserted, not promised)
 
 | Finding | Repo axis | Candidate | Unlock condition | This cycle |
@@ -386,6 +446,8 @@ the AT-SPI / AX candidate. No implementation starts from this pass.
 | Sandbox isolation ladder, quotas, credential brokerage | G / exec | resource-domain telemetry and control | separate PRD + 4 reopen triggers (`PRD_01_24`) | **not implemented; G decided closed (a)** |
 | Host-side vs guest-side telemetry trust | G / T3 | typed pressure rows, only from the far side of isolation | three-OS X-grade probes + threat model + reader | deferred (study note, R9/R10) |
 | Guest-side acceptance of isolation | F / delivery | extend owner-view acceptance to resource cells | only if G is ever lifted | deferred |
+| Addressable a11y handles beat pixel grounding | A2 / A4 / T9 | `act:control` resolves the normalised MSAA node by identity (`source`/`role`) | **opened by W0 pass 7 X-grade measurement**; plan 6/6 complete | **shipped in 0.0.15** |
+| Native default action (`accDoDefaultAction` / AXPress / `atspi.DoAction`) | T9 S7 | press by identity without a pointer | three-OS probes + a new effect-evidence kind + a policy PRD | `[study]` — an invoke has no pointer readback |
 
 ## G-boundary decision — taken by the controller (2026-11-06 22:15)
 

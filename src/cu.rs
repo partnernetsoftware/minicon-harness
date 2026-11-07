@@ -30,8 +30,8 @@
 //! typed contract and refuse by name -- the ABI does not promise a desktop.
 
 use crate::screen::{
-    resolve_control, Act, Actuation, A11yTarget, CaptureTarget, ClickButton, ControlInfo,
-    ControlTarget, FocusTarget,
+    resolve_a11y_control, resolve_control, Act, Actuation, A11yTarget, CaptureTarget,
+    ClickButton, ControlInfo, ControlTarget, FocusTarget,
     DisplayScaleProbe, EnvironmentProbe, GrantProbe, Modifier, ScreenSnapshot, ScreenTool,
     WindowInfo, SCREEN_TOOL_HELD_MODIFIERS, SCREEN_TOOL_MAX_CAPTURE_SCALE,
     SCREEN_TOOL_MAX_HELD_MODIFIERS, SCREEN_TOOL_MAX_TYPE_CHARS,
@@ -130,6 +130,12 @@ const P_CONTROLS: CuParam =
 const P_A11Y: CuParam = CuParam { name: "a11y", ty: CuType::A11yScan, required: false };
 const P_CONTROL: CuParam = CuParam { name: "control", ty: CuType::String, required: true };
 const P_PRESS: CuParam = CuParam { name: "press", ty: CuType::Bool, required: false };
+// 0.0.15: `source` and `role` are additive parameters of act:control. A
+// semantic MSAA node is addressed by identity from the current generation's
+// a11y tree; `controls` stays the default so every 0.0.6-0.0.14 call is
+// byte-for-byte unchanged.
+const P_SOURCE: CuParam = CuParam { name: "source", ty: CuType::String, required: false };
+const P_ROLE: CuParam = CuParam { name: "role", ty: CuType::String, required: false };
 const P_SCALE: CuParam = CuParam { name: "scale", ty: CuType::Int, required: false };
 const P_WAIT_MS: CuParam = CuParam { name: "wait_ms", ty: CuType::Int, required: false };
 const P_WHY: CuParam = CuParam { name: "why", ty: CuType::String, required: true };
@@ -227,8 +233,8 @@ pub const CAPABILITIES: &[CuCapability] = &[
     CuCapability {
         name: "act:control",
         kind: CuKind::Act,
-        summary: "Resolve one control by name from the last observe and place the pointer at its centre; readback must land inside the control's rectangle. press=false by default (no click).",
-        params: &[P_WHY, P_CONTROL, P_PRESS, P_BUTTON, P_DOUBLE],
+        summary: "Resolve one control by name from the last observe and place the pointer at its centre; readback must land inside the control's rectangle. `source` defaults to `controls` (Win32); `source:\"a11y\"` resolves a named MSAA node from the same generation's normalised a11y tree, with an optional `role` filter. press=false by default (no click).",
+        params: &[P_WHY, P_CONTROL, P_PRESS, P_BUTTON, P_DOUBLE, P_SOURCE, P_ROLE],
     },
 ];
 
@@ -354,6 +360,30 @@ impl CuVerdict {
         }
     }
 
+}
+
+/// One addressable target after `act:control` resolution. 0.0.15 gives both
+/// arms the same shape: a name, a coarse role, a rectangle and — only for the
+/// a11y arm — the normalised node the independent reader recomputes. Pure host
+/// data; no native handle or coordinate from a previous frame is retained.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ResolvedTarget {
+    label: String,
+    role: String,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    a11y_node: Option<Value>,
+}
+
+impl ResolvedTarget {
+    fn center(&self) -> Option<(i32, i32)> {
+        if self.width <= 0 || self.height <= 0 {
+            return None;
+        }
+        Some((self.x + self.width / 2, self.y + self.height / 2))
+    }
 }
 
 /// One observation bound to a generation. `facts_as_of` is the age a caller
@@ -493,6 +523,35 @@ impl CuReceipt {
     }
 }
 
+/// 0.0.15: which inventory `act:control` resolves against. `Controls` keeps
+/// the 0.0.6 Win32 behaviour; `A11y` addresses the normalised MSAA tree from
+/// the very same frame. Pure data, so every cell can type-check both arms.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ControlSource {
+    Controls,
+    A11y,
+}
+
+impl ControlSource {
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Controls => "controls",
+            Self::A11y => "a11y",
+        }
+    }
+
+    fn parse(raw: Option<&str>) -> Result<Self, String> {
+        match raw.unwrap_or("controls") {
+            "controls" => Ok(Self::Controls),
+            "a11y" => Ok(Self::A11y),
+            other => Err(format!(
+                "screen: refused: unknown `source` {other:?}; act:control accepts only \
+                 \"controls\" or \"a11y\""
+            )),
+        }
+    }
+}
+
 /// The typed operation a caller asked the host to perform.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CuAction {
@@ -515,8 +574,17 @@ pub enum CuAction {
     Scroll { x: i32, y: i32, delta_x: i32, delta_y: i32 },
     /// Resolve a control from the current frame **by name**; see
     /// [`CuHost::act_control`]. `press` is opt-in so a semantic target can be
-    /// qualified on a real desktop without clicking anything.
-    Control { control: String, press: bool, button: ClickButton, double: bool },
+    /// qualified on a real desktop without clicking anything. `source` selects
+    /// the Win32 inventory (default) or the 0.0.15 normalised a11y tree;
+    /// `role` is an optional identity filter for the a11y arm only.
+    Control {
+        control: String,
+        press: bool,
+        button: ClickButton,
+        double: bool,
+        source: ControlSource,
+        role: Option<String>,
+    },
 }
 
 impl CuAction {
@@ -1023,8 +1091,10 @@ impl CuHost {
                 self.observe(&capability, window, capture, controls, a11y, scale, wait_ms)
             }
             CuCall::Act { why, action } => match action {
-                CuAction::Control { control, press, button, double } => {
-                    self.act_control(&capability, why, control, press, button, double)
+                CuAction::Control { control, press, button, double, source, role } => {
+                    self.act_control(
+                        &capability, why, control, press, button, double, source, role,
+                    )
                 }
                 CuAction::Key { keys, hold, release } if hold || release => {
                     self.act_key_modifier(&capability, why, keys, release)
@@ -1390,6 +1460,8 @@ impl CuHost {
         press: bool,
         button: ClickButton,
         double: bool,
+        source: ControlSource,
+        role: Option<String>,
     ) -> CuResult {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         let generation = state.generation;
@@ -1420,38 +1492,113 @@ impl CuHost {
                 json!({ "frame_generation": frame.generation, "current_generation": generation }),
             );
         }
-        if frame.snapshot.controls.is_empty() {
-            return self.result_with_state(
-                &mut state,
-                CuVerdict::Refused,
-                capability,
-                "screen: refused: the last observation contains no controls; observe with \
-                 `controls` set to true or a window title. Self-drawn UIs expose no Win32 \
-                 child windows, and an empty inventory is reported, not guessed"
-                    .to_owned(),
-                json!({ "reason": "no_controls", "controls_source": frame.snapshot.controls_source }),
-            );
-        }
-        let resolved = match resolve_control(&frame.snapshot.controls, &control) {
-            Ok(control) => control.clone(),
-            Err(reason) => {
-                return self.result_with_state(&mut state, CuVerdict::Refused, capability, reason, json!({ "control": control }));
+        // 0.0.15: both arms resolve a name into the same bounded target. The
+        // a11y arm never falls back to Win32 rows or to a coordinate the
+        // caller computed from an older frame.
+        let resolved = match source {
+            ControlSource::Controls => {
+                if frame.snapshot.controls.is_empty() {
+                    return self.result_with_state(
+                        &mut state,
+                        CuVerdict::Refused,
+                        capability,
+                        "screen: refused: the last observation contains no controls; observe with \
+                         `controls` set to true or a window title. Self-drawn UIs expose no Win32 \
+                         child windows, and an empty inventory is reported, not guessed"
+                            .to_owned(),
+                        json!({ "reason": "no_controls", "controls_source": frame.snapshot.controls_source }),
+                    );
+                }
+                match resolve_control(&frame.snapshot.controls, &control) {
+                    Ok(control) => {
+                        if !control.visible || !control.enabled {
+                            return self.result_with_state(
+                                &mut state,
+                                CuVerdict::Refused,
+                                capability,
+                                format!(
+                                    "screen: refused: control {:?} is {} and cannot be operated; \
+                                     the operation was not performed",
+                                    control.label,
+                                    if !control.visible { "hidden" } else { "disabled" }
+                                ),
+                                json!({ "control": control.label, "visible": control.visible, "enabled": control.enabled }),
+                            );
+                        }
+                        ResolvedTarget {
+                            label: control.label.clone(),
+                            role: control.role.to_owned(),
+                            x: control.x,
+                            y: control.y,
+                            width: control.width,
+                            height: control.height,
+                            a11y_node: None,
+                        }
+                    }
+                    Err(reason) => {
+                        return self.result_with_state(
+                            &mut state,
+                            CuVerdict::Refused,
+                            capability,
+                            reason,
+                            json!({ "control": control }),
+                        )
+                    }
+                }
+            }
+            ControlSource::A11y => {
+                if frame.snapshot.a11y_controls.is_empty() {
+                    return self.result_with_state(
+                        &mut state,
+                        CuVerdict::Refused,
+                        capability,
+                        "screen: refused: the current generation has no a11y nodes; call \
+                         op=observe with `a11y` on a live window. A semantic target is never \
+                         guessed from Win32 rows or from raw coordinates"
+                            .to_owned(),
+                        json!({
+                            "reason": "no_a11y_tree",
+                            "a11y_source": frame.snapshot.a11y_source,
+                            "a11y_reason": frame.snapshot.a11y_reason,
+                        }),
+                    );
+                }
+                match resolve_a11y_control(
+                    &frame.snapshot.a11y_controls,
+                    &control,
+                    role.as_deref(),
+                ) {
+                    Ok(node) => ResolvedTarget {
+                        label: node.name.clone(),
+                        role: node.role_name.to_owned(),
+                        x: node.x,
+                        y: node.y,
+                        width: node.width,
+                        height: node.height,
+                        a11y_node: Some(json!({
+                            "name": node.name,
+                            "value": node.value,
+                            "role": node.role,
+                            "role_name": node.role_name,
+                            "state": node.state,
+                            "state_names": crate::screen::a11y_state_names(node.state),
+                            "rect": [node.x, node.y, node.width, node.height],
+                            "depth": node.depth,
+                            "child_id": node.child_id,
+                        })),
+                    },
+                    Err(reason) => {
+                        return self.result_with_state(
+                            &mut state,
+                            CuVerdict::Refused,
+                            capability,
+                            reason,
+                            json!({ "control": control, "source": "a11y", "role": role }),
+                        )
+                    }
+                }
             }
         };
-        if !resolved.visible || !resolved.enabled {
-            return self.result_with_state(
-                &mut state,
-                CuVerdict::Refused,
-                capability,
-                format!(
-                    "screen: refused: control {:?} is {} and cannot be operated; the operation \
-                     was not performed",
-                    resolved.label,
-                    if !resolved.visible { "hidden" } else { "disabled" }
-                ),
-                json!({ "control": resolved.label, "visible": resolved.visible, "enabled": resolved.enabled }),
-            );
-        }
         let (x, y) = match resolved.center() {
             Some(point) => point,
             None => {
@@ -1549,7 +1696,7 @@ impl CuHost {
             verdict.tag()
         ));
         let generation = state.generation;
-        let evidence = json!({
+        let mut evidence = json!({
             "action": outcome.action,
             "control": resolved.label,
             "role": resolved.role,
@@ -1565,7 +1712,14 @@ impl CuHost {
             })).unwrap_or(Value::Null),
             "target_hwnd": outcome.target_hwnd,
             "target_hwnd_reason": outcome.target_hwnd_reason.clone(),
+            // 0.0.15: additive rows. Old calls publish source="controls" and
+            // a11y_node=null; the reader recomputes state_names from `state`.
+            "source": source.tag(),
+            "a11y_node": resolved.a11y_node.clone().unwrap_or(Value::Null),
         });
+        if source == ControlSource::A11y {
+            evidence["a11y_node_schema"] = json!("role-name-state-value-bounds-depth");
+        }
         self.record(
             &mut state,
             CuReceipt {
@@ -2398,30 +2552,73 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                         delta_y,
                     }
                 }
-                "control" => CuAction::Control {
-                    control: arguments
-                        .get("control")
-                        .and_then(Value::as_str)
-                        .filter(|value| !value.trim().is_empty())
-                        .ok_or_else(|| {
-                            "screen: refused: action \"control\" needs a `control` name from \
-                             the last observe"
-                                .to_owned()
-                        })?
-                        .to_owned(),
-                    // Hover is the default: resolving a named target must not
-                    // be able to click a button just because a caller omitted
-                    // a flag.
-                    press: arguments
-                        .get("press")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
-                    button: button(),
-                    double: arguments
-                        .get("double")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
-                },
+                "control" => {
+                    // 0.0.15: `source` and `role` are admitted here, before any
+                    // pointer exists. A mistyped or misapplied parameter is a
+                    // named refusal, never a silent fallback to coordinates.
+                    let source = match arguments.get("source") {
+                        None => ControlSource::Controls,
+                        Some(Value::String(value)) => ControlSource::parse(Some(value))?,
+                        Some(_) => {
+                            return Err(
+                                "screen: refused: `source` must be a string: \"controls\" \
+                                 or \"a11y\""
+                                    .to_owned(),
+                            )
+                        }
+                    };
+                    let role = match arguments.get("role") {
+                        None => None,
+                        Some(Value::String(value)) if !value.trim().is_empty() => {
+                            Some(value.to_owned())
+                        }
+                        Some(Value::String(_)) => {
+                            return Err(
+                                "screen: refused: `role` must name a non-empty a11y role"
+                                    .to_owned(),
+                            )
+                        }
+                        Some(_) => {
+                            return Err(
+                                "screen: refused: `role` must be a string naming an a11y role"
+                                    .to_owned(),
+                            )
+                        }
+                    };
+                    if role.is_some() && source != ControlSource::A11y {
+                        return Err(
+                            "screen: refused: `role` applies only to source=\"a11y\"; \
+                             the operation was not performed"
+                                .to_owned(),
+                        );
+                    }
+                    CuAction::Control {
+                        control: arguments
+                            .get("control")
+                            .and_then(Value::as_str)
+                            .filter(|value| !value.trim().is_empty())
+                            .ok_or_else(|| {
+                                "screen: refused: action \"control\" needs a `control` name \
+                                 from the last observe"
+                                    .to_owned()
+                            })?
+                            .to_owned(),
+                        // Hover is the default: resolving a named target must
+                        // not be able to click a button just because a caller
+                        // omitted a flag.
+                        press: arguments
+                            .get("press")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        button: button(),
+                        double: arguments
+                            .get("double")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        source,
+                        role,
+                    }
+                }
                 other => {
                     return Err(format!(
                         "screen: refused: unknown action {other:?}; act accepts focus, move, \
@@ -2582,6 +2779,65 @@ mod tests {
         });
         drop(state);
         host
+    }
+
+    /// 0.0.15: a frame carrying a normalised a11y tree instead of Win32 rows.
+    fn host_with_a11y_frame(
+        a11y_controls: Vec<crate::screen::A11yControl>,
+        frame_generation: u64,
+        current_generation: u64,
+        desktop: (i32, i32, i32, i32),
+    ) -> CuHost {
+        let host = host(true);
+        let snapshot = ScreenSnapshot {
+            platform: "windows".to_owned(),
+            qualified: true,
+            desktop,
+            displays: Vec::new(),
+            display_scales: Vec::new(),
+            windows: Vec::new(),
+            controls_source: None,
+            controls_truncated: false,
+            controls: Vec::new(),
+            a11y_controls,
+            a11y_source: Some("handle:33689578 window:\"WorkBuddy\"".to_owned()),
+            a11y_reason: None,
+            a11y_truncated: false,
+            capture: None,
+        };
+        let mut state = host.state.lock().unwrap();
+        state.generation = current_generation;
+        state.frame = Some(CuFrame {
+            generation: frame_generation,
+            facts_as_of_ms: 0,
+            snapshot,
+        });
+        drop(state);
+        host
+    }
+
+    fn synthetic_a11y_node(
+        name: &str,
+        role: i32,
+        state: i32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> crate::screen::A11yControl {
+        crate::screen::A11yControl {
+            name: name.to_owned(),
+            value: String::new(),
+            role,
+            role_name: crate::screen::a11y_role_name(role),
+            state,
+            x,
+            y,
+            width,
+            height,
+            depth: 6,
+            child_id: 0,
+        }
     }
 
     fn synthetic_control(label: &str, x: i32, y: i32, width: i32, height: i32) -> ControlInfo {
@@ -4603,6 +4859,175 @@ mod tests {
         assert_eq!(row["child_id"], 0);
         assert_eq!(CAPABILITIES.len(), 11);
         assert_eq!((CU_ABI_MAJOR, CU_ABI_MINOR), (1, 0));
+    }
+
+    // ---- 0.0.15: a11y-addressed actuation --------------------------------
+
+    #[test]
+    fn control_source_is_admitted_before_any_pointer_exists() {
+        let plain = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "OK"
+        }))
+        .unwrap();
+        assert!(matches!(
+            plain.call,
+            CuCall::Act {
+                action: CuAction::Control {
+                    source: ControlSource::Controls,
+                    role: None,
+                    ..
+                },
+                ..
+            }
+        ));
+        let semantic = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "新建任务",
+            "source": "a11y", "role": "button"
+        }))
+        .unwrap();
+        assert!(matches!(
+            semantic.call,
+            CuCall::Act {
+                action: CuAction::Control {
+                    source: ControlSource::A11y,
+                    role: Some(ref role),
+                    ..
+                },
+                ..
+            } if role == "button"
+        ));
+        let errors: Vec<String> = [
+            json!({ "op": "act", "why": "x", "action": "control", "control": "OK", "source": "uia" }),
+            json!({ "op": "act", "why": "x", "action": "control", "control": "OK", "source": 1 }),
+            json!({ "op": "act", "why": "x", "action": "control", "control": "OK", "role": "button" }),
+            json!({ "op": "act", "why": "x", "action": "control", "control": "OK", "source": "a11y", "role": 7 }),
+            json!({ "op": "act", "why": "x", "action": "control", "control": "OK", "source": "a11y", "role": "  " }),
+        ]
+        .iter()
+        .map(|request| parse_request(request).unwrap_err())
+        .collect();
+        assert!(errors[0].contains("unknown `source`"), "{}", errors[0]);
+        assert!(errors[1].contains("`source` must be a string"), "{}", errors[1]);
+        assert!(errors[2].contains("`role` applies only"), "{}", errors[2]);
+        assert!(errors[3].contains("`role` must be a string"), "{}", errors[3]);
+        assert!(errors[4].contains("non-empty a11y role"), "{}", errors[4]);
+        assert_eq!(ControlSource::Controls.tag(), "controls");
+        assert_eq!(ControlSource::A11y.tag(), "a11y");
+    }
+
+    #[test]
+    fn control_capability_discloses_the_two_additive_params() {
+        let entry = capability("act:control").unwrap();
+        let params: Vec<&str> = entry.params.iter().map(|param| param.name).collect();
+        assert!(params.contains(&"source"), "{params:?}");
+        assert!(params.contains(&"role"), "{params:?}");
+        assert!(!entry.params.iter().any(|param| param.name == "source" && param.required));
+        assert_eq!(CAPABILITIES.len(), 11, "source is a parameter, not a new capability");
+        let schema = crate::wire::tool_definitions();
+        let rendered = serde_json::to_string(&schema).unwrap();
+        assert!(rendered.contains("\"enum\":[\"controls\",\"a11y\"]"), "{rendered}");
+    }
+
+    #[test]
+    fn an_empty_a11y_tree_is_a_named_refusal_not_a_coordinate_fallback() {
+        let empty = host_with_a11y_frame(Vec::new(), 1, 1, (0, 0, 800, 600));
+        let result = empty.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "新建任务", "source": "a11y"
+        }));
+        assert_ne!(result.verdict, CuVerdict::Performed, "{}", result.text);
+        if result.evidence["reason"] == "no_a11y_tree" {
+            assert!(result.text.contains("no a11y nodes"), "{}", result.text);
+        }
+        // A stale a11y frame is stale, exactly like a Win32 frame.
+        let stale = host_with_a11y_frame(
+            vec![synthetic_a11y_node("新建任务", 43, 0x100000, 500, 16, 32, 32)],
+            1,
+            2,
+            (0, 0, 800, 600),
+        );
+        let stale_result = stale.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "新建任务", "source": "a11y"
+        }));
+        assert_eq!(stale_result.verdict, CuVerdict::Stale, "{}", stale_result.text);
+    }
+
+    #[test]
+    fn an_a11y_target_never_guesses_ambiguous_or_inoperable_nodes() {
+        let host = host_with_a11y_frame(
+            vec![
+                synthetic_a11y_node("OK", 43, 0x100000, 10, 10, 40, 20),
+                synthetic_a11y_node("OK", 43, 0x100000, 60, 10, 40, 20),
+            ],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        let ambiguous = host.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "OK", "source": "a11y"
+        }));
+        assert_ne!(ambiguous.verdict, CuVerdict::Performed);
+        assert!(ambiguous.text.contains("matches 2"), "{}", ambiguous.text);
+
+        let vetoed = host_with_a11y_frame(
+            vec![synthetic_a11y_node("关闭", 43, 0x8000, 10, 10, 40, 20)],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        let refused = vetoed.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "关闭", "source": "a11y"
+        }));
+        assert_ne!(refused.verdict, CuVerdict::Performed);
+        assert!(refused.text.contains("invisible"), "{}", refused.text);
+
+        let outside = host_with_a11y_frame(
+            vec![synthetic_a11y_node("最大化", 43, 0x100000, 900, 10, 40, 20)],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        let out = outside.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "最大化", "source": "a11y"
+        }));
+        assert_ne!(out.verdict, CuVerdict::Performed);
+        assert!(out.text.contains("outside the virtual desktop"), "{}", out.text);
+    }
+
+    #[test]
+    fn a_resolved_a11y_target_publishes_recomputable_evidence() {
+        let host = host_with_a11y_frame(
+            vec![synthetic_a11y_node("新建任务", 43, 0x4 | 0x100000, 500, 16, 32, 32)],
+            1,
+            1,
+            (0, 0, 1680, 1050),
+        );
+        let result = host.invoke_json(&json!({
+            "op": "act", "why": "CU journey: semantic target",
+            "action": "control", "control": "新建任务", "source": "a11y", "role": "button"
+        }));
+        // On a real Windows desktop this performs a hover; on a cell without
+        // act:control it is a named platform refusal. Neither may invent rows.
+        if result.verdict == CuVerdict::Performed {
+            assert_eq!(result.evidence["source"], "a11y");
+            assert_eq!(result.evidence["a11y_node_schema"], "role-name-state-value-bounds-depth");
+            let node = &result.evidence["a11y_node"];
+            assert_eq!(node["name"], "新建任务");
+            assert_eq!(node["role_name"], "button");
+            assert_eq!(node["state"], 0x4 | 0x100000);
+            assert_eq!(node["state_names"], json!(["focused", "focusable"]));
+            assert_eq!(node["rect"], json!([500, 16, 32, 32]));
+            assert_eq!(result.evidence["rect"], json!([500, 16, 32, 32]));
+            assert_eq!(result.evidence["center"], json!([516, 32]));
+            assert_eq!(result.evidence["press"], false);
+        } else {
+            assert!(
+                matches!(result.verdict, CuVerdict::Refused | CuVerdict::Unsupported),
+                "{}",
+                result.text
+            );
+        }
     }
 
 }

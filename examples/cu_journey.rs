@@ -113,21 +113,90 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 0.0.11: a handle is the only unambiguous window identity when two
     // windows share a title. The a11y scan is addressed by that handle, never
     // by guessing which foreground window the runner happens to have.
+    // 0.0.15: the very next step addresses one of these nodes **by identity**
+    // in the same generation. No other observe may run between the scan and
+    // that act, or the frame would no longer carry the tree.
     let a11y_hwnd = evidence["windows"]
         .as_array()
         .and_then(|windows| windows.first())
         .and_then(|window| window["hwnd"].as_u64());
 
-    if let Some(hwnd) = a11y_hwnd {
-        journey.run(
+    let a11y_target: Option<(String, String)> = if let Some(hwnd) = a11y_hwnd {
+        let scan = journey.run(
             "observe_a11y",
             "observe",
             caps.observe,
             true,
             json!({ "op": "observe", "a11y": hwnd }),
         );
+        scan["evidence"]["a11y_controls"]
+            .as_array()
+            .and_then(|rows| {
+                // Prefer an interactive role over a container root: the
+                // semantic target should be a real button/textbox, not the
+                // document node that merely happens to be named first.
+                const INTERACTIVE: &[&str] = &[
+                    "button", "textbox", "checkbox", "combobox", "menuitem",
+                    "tabitem", "listitem", "slider", "link",
+                ];
+                rows.iter()
+                    .find(|row| {
+                        let name = row["name"].as_str().unwrap_or("");
+                        let rect = row["rect"].as_array();
+                        let state = row["state"].as_i64().unwrap_or(0) as i32;
+                        let operable = state & (0x1 | 0x8000 | 0x10000) == 0;
+                        let bounded = rect.is_some_and(|r| {
+                            r.len() == 4
+                                && r[2].as_i64().unwrap_or(0) > 0
+                                && r[3].as_i64().unwrap_or(0) > 0
+                        });
+                        let centre_inside = rect.is_some_and(|r| {
+                            let cx = r[0].as_i64().unwrap_or(0) + r[2].as_i64().unwrap_or(0) / 2;
+                            let cy = r[1].as_i64().unwrap_or(0) + r[3].as_i64().unwrap_or(0) / 2;
+                            cx >= dx
+                                && cy >= dy
+                                && cx < dx + dw as i64
+                                && cy < dy + dh as i64
+                        });
+                        let interactive = INTERACTIVE.contains(
+                            &row["role_name"].as_str().unwrap_or("unknown"),
+                        );
+                        !name.trim().is_empty()
+                            && interactive
+                            && operable
+                            && bounded
+                            && centre_inside
+                    })
+                    .map(|row| {
+                        (
+                            row["name"].as_str().unwrap_or("").to_owned(),
+                            row["role_name"].as_str().unwrap_or("unknown").to_owned(),
+                        )
+                    })
+            })
     } else {
         journey.skip("observe_a11y", "observe", "no live window handle to scan");
+        None
+    };
+
+    // 0.0.15: a semantic target from the a11y tree, hover only (no press), so
+    // the journey never clicks a real button. On cells without act:control or
+    // without an addressable node this is a named capability/tree refusal; the
+    // independent reader decides which one is admissible.
+    {
+        let request = match &a11y_target {
+            Some((name, role)) => json!({
+                "op": "act", "why": "CU journey: semantic a11y target by identity",
+                "action": "control", "control": name,
+                "source": "a11y", "role": role,
+            }),
+            None => json!({
+                "op": "act", "why": "CU journey: semantic target with no tree",
+                "action": "control", "control": "no-such-a11y-node",
+                "source": "a11y",
+            }),
+        };
+        journey.run("act_control_a11y", "act:control", caps.act_control, false, request);
     }
 
     if caps.capture {

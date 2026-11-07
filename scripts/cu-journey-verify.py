@@ -68,6 +68,11 @@ FOCUS_TARGET_STEPS = (
     "act_focus", "act_focus_by_handle", "act_refocus_after_right_click",
 )
 FOCUS_HANDLE_STEPS = frozenset({"act_focus_by_handle", "act_focus_stale_handle"})
+# 0.0.15: a semantic a11y target. A performed one is recomputed from the
+# normalised node schema; a refused one must be a named boundary, never a
+# silent guess. No earlier 0.0.6-0.0.14 assertion is weakened.
+A11Y_CONTROL_STEP = "act_control_a11y"
+A11Y_STATE_VETO = 0x1 | 0x8000 | 0x10000
 FOCUS_READBACK_PAIRS = (
     ("act_focus", "observe_focus_readback"),
     ("act_focus_by_handle", "observe_handle_focus_readback"),
@@ -539,6 +544,83 @@ def main() -> int:
                       f"observe_a11y: row {i} state_names has a non-whitelist value")
                 check(isinstance(row.get("value"), str),
                       f"observe_a11y: row {i} value is not a string")
+
+    # 0.0.15: a11y-addressed actuation. The reader recomputes the resolved
+    # node from the observe_a11y rows published in the same journey, then
+    # checks the act evidence against that row. A named tree/capability
+    # refusal is admissible; a guessed target or a guessed state set is not.
+    sem = by_step.get(A11Y_CONTROL_STEP)
+    check(sem is not None,
+          f"{A11Y_CONTROL_STEP}: required 0.0.15 step is missing")
+    if sem:
+        request = sem.get("request") or {}
+        check(request.get("source") == "a11y",
+              f"{A11Y_CONTROL_STEP}: request did not ask for source=a11y")
+        check(request.get("press") is not True,
+              f"{A11Y_CONTROL_STEP}: journey must not press a real button")
+        ev = sem.get("evidence", {})
+        if sem.get("verdict") == "performed":
+            check(ev.get("source") == "a11y",
+                  f"{A11Y_CONTROL_STEP}: performed without source=a11y evidence")
+            check(ev.get("a11y_node_schema") == "role-name-state-value-bounds-depth",
+                  f"{A11Y_CONTROL_STEP}: normalised node schema is missing or wrong")
+            node = ev.get("a11y_node")
+            check(isinstance(node, dict),
+                  f"{A11Y_CONTROL_STEP}: performed with no resolved a11y node")
+            if isinstance(node, dict):
+                check(node.get("name") == request.get("control"),
+                      f"{A11Y_CONTROL_STEP}: resolved name={node.get('name')!r} "
+                      f"!= requested {request.get('control')!r}")
+                if request.get("role") is not None:
+                    check(node.get("role_name") == request.get("role"),
+                          f"{A11Y_CONTROL_STEP}: role filter {request.get('role')!r} "
+                          f"resolved to {node.get('role_name')!r}")
+                check(node.get("role_name") in a11y_roles,
+                      f"{A11Y_CONTROL_STEP}: node role_name is outside the role set")
+                state = node.get("state")
+                check(isinstance(state, int) and not isinstance(state, bool) and state >= 0,
+                      f"{A11Y_CONTROL_STEP}: node state={state!r} is not a bit mask")
+                if isinstance(state, int) and not isinstance(state, bool):
+                    check(state & A11Y_STATE_VETO == 0,
+                          f"{A11Y_CONTROL_STEP}: selected an unavailable/invisible/offscreen node")
+                    expected = [name for bit, name in a11y_state_bits if state & bit]
+                    check(node.get("state_names") == expected,
+                          f"{A11Y_CONTROL_STEP}: state_names={node.get('state_names')!r} "
+                          f"!= recomputed {expected!r}")
+                rect = node.get("rect")
+                check(isinstance(rect, list) and len(rect) == 4
+                      and all(isinstance(v, int) and not isinstance(v, bool) for v in rect)
+                      and rect[2] > 0 and rect[3] > 0,
+                      f"{A11Y_CONTROL_STEP}: node rect={rect!r} is not a positive int rect")
+                check(ev.get("rect") == rect,
+                      f"{A11Y_CONTROL_STEP}: act rect={ev.get('rect')!r} != node rect={rect!r}")
+                if isinstance(rect, list) and len(rect) == 4:
+                    centre = [rect[0] + rect[2] // 2, rect[1] + rect[3] // 2]
+                    check(ev.get("center") == centre,
+                          f"{A11Y_CONTROL_STEP}: center={ev.get('center')!r} "
+                          f"!= recomputed {centre!r}")
+                    match = re.search(r"pointer at (-?\d+),\s*(-?\d+)",
+                                      ev.get("readback", ""))
+                    check(match is not None,
+                          f"{A11Y_CONTROL_STEP}: performed with no pointer readback")
+                    if match:
+                        px, py = int(match.group(1)), int(match.group(2))
+                        check(rect[0] <= px < rect[0] + rect[2]
+                              and rect[1] <= py < rect[1] + rect[3],
+                              f"{A11Y_CONTROL_STEP}: pointer {px},{py} landed outside "
+                              f"the resolved node rect {rect!r}")
+                check(ev.get("actuation") is None,
+                      f"{A11Y_CONTROL_STEP}: a hover published a button receipt")
+        else:
+            text = sem.get("text", "")
+            named = ("no a11y nodes" in text or "no a11y node matches" in text
+                     or "unknown a11y role" in text or "unavailable, invisible" in text
+                     or "act:control" in text or platform in text)
+            check(named,
+                  f"{A11Y_CONTROL_STEP}: refusal has no named reason: {text[:120]!r}")
+            check(ev.get("a11y_node") in (None, {}),
+                  f"{A11Y_CONTROL_STEP}: a refused act published a resolved node")
+            notes.append(f"REFUSAL {A11Y_CONTROL_STEP}: named boundary, not counted as [v]")
 
     # 0.0.12: recompute handle-addressed focus. A performed title or handle
     # focus must publish a desktop-read target_hwnd; the handle steps must be

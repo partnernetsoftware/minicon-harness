@@ -440,11 +440,20 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         },
                         "control": {
                             "type": "string",
-                            "description": "For action=control: the exact label (or a unique substring) of a control from the last op=observe with `controls`. An ambiguous or unobserved name is refused, never guessed."
+                            "description": "For action=control: the exact label (or a unique substring) of a control from the last op=observe with `controls`, or of a named a11y node from that same generation's `a11y` tree when source=\"a11y\". An ambiguous or unobserved name is refused, never guessed."
                         },
                         "press": {
                             "type": "boolean",
                             "description": "For action=control: false (default) only hovers at the control's centre; true clicks it. Readback must land inside the control's rectangle."
+                        },
+                        "source": {
+                            "type": "string",
+                            "enum": ["controls", "a11y"],
+                            "description": "For action=control only: which inventory to resolve. `controls` (default) uses typed Win32 child windows; `a11y` uses the normalised MSAA nodes from the same generation's op=observe with `a11y`. An empty a11y tree is a named refusal, never a fallback to coordinates."
+                        },
+                        "role": {
+                            "type": "string",
+                            "description": "For action=control with source=\"a11y\" only: an optional coarse a11y role filter (button, textbox, label, ...). An unknown role is refused, not ignored; `role` with source=\"controls\" is refused."
                         }
                     },
                     "required": ["op"]

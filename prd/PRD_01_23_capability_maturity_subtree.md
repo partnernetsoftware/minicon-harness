@@ -52,12 +52,11 @@ T7 Versions / candidates (state, not a promise)
 ├── V0.0.12  handle-addressed focus + target_hwnd                        [v]
 ├── V0.0.13  bounded observation wait + wait budget                      [v]
 ├── V0.0.14  normalised a11y node schema                                 [v]
-├── V0.0.15  UIA probe verdict — W1 delivered, W2 stopped             [v] diagnostic
-│   ├── W1 Rust UIA diagnostic probe, run on a real desktop            [v] X-grade
-│   ├── W2 UIA-first + MSAA fallback                                   [no] downgraded
-│   ├── W3 docs truth                                                   [no] not needed
-│   └── W4 version bump + public signed Release                         [no] not started
-│   └── note: no version bump; `v0.0.14` remains the last shipped Release
+├── V0.0.15  a11y-addressed actuation — public signed Release           [v]
+│   ├── W0 pass 5: UIA diagnostic probe (X-grade, kept as evidence)    [v]
+│   ├── W0 pass 7: real MSAA target measurement + route switch         [v]
+│   ├── W1/W2: `source`/`role`, resolver, reader, four-cfg gate        [v]
+│   └── W3/W4: four version sources + public signed Release            [v]
 ├── Candidate pool (ordered by gate, not by version)                     [study]
 │   ├── C1 UIA mixed routing              gate: **closed by pass 5 probe** [no]
 │   ├── C2 AT-SPI / AX trees              gate: OS grants + 3-OS fixture [_]
@@ -75,7 +74,7 @@ T7 Versions / candidates (state, not a promise)
     └── host-resource management (G; PRD_01_08 owns the boundary)
 ```
 
-## Current phase (owner direction 2026-11-06 evening)
+## Current phase on 2026-11-06 evening (historical record, kept verbatim)
 
 ```text
 STUDY  ->  STRUCTURE  ->  PLAN COMPLETION  ->  ONLY THEN CODE + TESTS
@@ -96,7 +95,25 @@ Windows SDK headers. W1 then ran on the real desktop and its downgrade rule
 stopped W2, so no version bump or Release chain started. Decision authority is
 T8 (`PRD_01_24`): the controller arranges the cadence itself.
 
-## Plan-completeness checklist for 0.0.15 — 6/6 passed 2026-11-06
+## Current phase (owner direction 2026-11-06 evening; closed 2026-11-07)
+
+```text
+STUDY  ->  STRUCTURE  ->  PLAN COMPLETION  ->  ONLY THEN CODE + TESTS
+  ^            ^                ^
+  |            |                |
+  W0 passes    T1-T9 trees     two 0.0.15 plan completeness checklists
+  + notes      + subtrees      (UIA diagnostic, then the shipped route)
+```
+
+The STUDY + STRUCTURE phase is **closed**: W0 pass 7 measured an addressable
+MSAA tree on the real L3 target, `plan/plan-0.0.15-a11y-addressed-actuation.md`
+passed its own 6/6 checklist **before** any code started, and W1-W4 ran. The
+2026-11-06 UIA probe record is preserved verbatim as history; the route
+switch is a dated controller decision (`PRD_01_24`). "三思后行" and
+"分而治之" still govern: T9 got its own subtree and an explicit unlock
+condition before implementation. Decision authority is T8.
+
+## Plan-completeness checklist for 0.0.15 — 6/6 passed 2026-11-06 (UIA probe)
 
 W0 pass 4 verified the COM surface against the installed Windows SDK headers
 (`PRD_01_17`, grade O) and the plan now writes down all six items
@@ -121,6 +138,18 @@ no source, test, version bump or Release asset changed.
 6. `[v]` W1 became eligible after 1-5, ran on 2026-11-06, and its verdict
    closed C1. W2, W3 and W4 are `[no]` for this cycle — the downgrade rule
    fired on the target WorkBuddy provider's empty rectangles.
+
+## Plan-completeness checklist for 0.0.15 (shipped route) — 6/6 passed 2026-11-07
+
+`plan/plan-0.0.15-a11y-addressed-actuation.md` was written and closed **before
+W1 started**, after W0 pass 7's X-grade measurement. All six items: exact
+`source`/`role` contract and resolution order (1), the downgrade branch for an
+empty tree / zero rect / ambiguity / bad readback (2), the additive reader
+contract with every earlier assertion retained (3), three-OS behaviour plus
+the four-cfg gate (4), non-goals and the G boundary (5), and W1 eligibility
+only after 1-5 (6). W1/W2 then produced 126 passing unit tests, a real-desktop
+semantic hover on the `最小化` button, four green backend configurations and
+an independent reader recomputing centre, containment and `state_names`.
 
 ## Learning notes (dated, process not just conclusions)
 

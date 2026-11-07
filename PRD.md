@@ -28,11 +28,16 @@ start code or tests until the plan is complete** — 三思后行 (think three
 times before acting) and 分而治之 (divide and conquer). This replaces the
 earlier "implement next" pace for the current phase.
 
-**Current phase: STUDY + STRUCTURE.** No W1/W2 code, no test, no version bump
-and no Release chain is started for 0.0.15. Last shipped version is
-`v0.0.14`; all four version sources read `0.0.14`. Every tree node below is
-either `[v]` with three-OS evidence, `[study]`, `[_]`, `[no]` or `[decision]`;
-a research finding never becomes a capability by itself.
+**Current phase: SHIP 0.0.15 (route switched by a dated controller decision
+on 2026-11-07).** The STUDY + STRUCTURE phase of 2026-11-06 is closed: W0
+pass 7 produced X-grade evidence that the target *is* addressable on the MSAA
+arm, the 0.0.15 plan was rewritten and passed 6/6 **before** any code started,
+and W1-W4 then ran. Last published Release before this cycle was `v0.0.14`.
+Every tree node is either `[v]` with three-OS evidence, `[study]`, `[_]`,
+`[no]` or `[decision]`; a research finding never becomes a capability by
+itself. The UIA probe and its downgrade decision are kept verbatim as the W0
+diagnostic record (`plan/plan-0.0.15-uia-probe-and-routing.md`); the route
+switch is dated in `PRD_01_24`, not a rewrite of that record.
 
 ### Document index (subtree documents)
 
@@ -48,10 +53,12 @@ prd/
 ├── PRD_01_22_platform_evidence_subtree.md T4 platform + T6 evidence
 ├── PRD_01_23_capability_maturity_subtree.md T5 maturity + T7 version state
 ├── PRD_01_24_decision_authority_subtree.md T8 who decides what (controller)
+├── PRD_01_25_semantic_addressing_subtree.md T9 identity -> bounded effect
 ├── PRD_01_01 .. PRD_01_16, PRD_01_18      per-version contracts (unchanged)
 └── prd-cu-openai.md                        external reference, NOT a contract
 plan/
-└── plan-0.0.15-uia-probe-and-routing.md   0.0.15 planning, NOT started
+├── plan-0.0.15-uia-probe-and-routing.md   W0 diagnostic record, UIA W2 stopped
+└── plan-0.0.15-a11y-addressed-actuation.md 0.0.15 shipped route, plan 6/6
 ```
 
 ### T1 — perception (full tree: `PRD_01_19`)
@@ -60,6 +67,7 @@ plan/
 T1 perception
 ├── P1 pixel arm            [v] bounded PNG + scale disclosure; [no] image arm
 ├── P2 structured controls  [v] Win32 controls, MSAA tree, normalised schema
+│                           [v] a11y node is an act target (0.0.15)
 │                           [no] UIA routing (pass 5 downgrade);
 │                           [_] AT-SPI/AX, incremental events
 ├── P3 hybrid routing       [study] API -> tree -> pixels; [no] code-first here
@@ -75,7 +83,9 @@ T2 actuation
 ├── K keyboard    [v] type / key / held modifiers; [no] layout or IME claim
 ├── M mouse       [v] click receipt / drag path / two-axis scroll
 ├── W window      [v] title + hwnd focus, live re-validation
-├── A grammar     [v] one effect, why, verdicts, receipts; [_] batched actions
+├── A grammar     [v] one effect, why, verdicts, receipts;
+│                 [v] `source`/`role` admission (0.0.15);
+│                 [_] batched actions
 ├── C code-first  [study] emit-script-then-run; [no] in this repo
 └── S safety      [v] UIPI/TCC named refusals; [_] injection defence, approval
 ```
@@ -134,9 +144,29 @@ T6 evidence
 ```text
 T7 versions
 ├── V0.0.1 - V0.0.14   [v] published, accepted signed Releases
-├── V0.0.15            [v] W1 diagnostic probe; [no] W2-W4 (downgrade fired)
+├── V0.0.15            [v] W1 UIA diagnostic probe; [v] a11y-addressed
+│                      actuation shipped as a public signed Release
 ├── candidate pool      [study] ordered by gate, never a version commitment
 └── standing [no]      [no] unchanged by any study pass
+```
+
+### T9 — semantic addressing (full tree: `PRD_01_25`) — added 2026-11-07
+
+```text
+T9 semantic addressing          identity -> bounded effect -> readback
+├── S1 identity   [v] Win32 controls, MSAA a11y nodes, live hwnd;
+│                 [no] a pixel coordinate as an identity
+├── S2 resolver   [v] exact name -> unique substring -> optional role filter;
+│                 [v] ambiguity / unknown role / vetoed state refused
+├── S3 admission  [v] `source` enum, generation pin, empty tree named refusal;
+│                 [v] press=false default, no click from a bare resolution
+├── S4 effect     [v] same hover/click backend, readback inside the node rect;
+│                 [study] native default-action dispatch (no readback yet)
+├── S5 evidence   [v] `a11y_node` schema, reader recomputes state_names,
+│                 centre and containment; no earlier assertion weakened
+├── S6 three OS   [v] Windows real button hover; other cells named refusal;
+│                 [v] 12/10/8/0 matrix and four-cfg gate unchanged
+└── S7 maturity   [v] L1 addressable interaction; [_] L2 / L3 gates unchanged
 ```
 
 ### T8 — decision authority (full tree: `PRD_01_24`)
@@ -177,6 +207,9 @@ where the owner actually spoke (e.g. the 0.0.11 a11y lift).
 | 2026-11-06 | 3 | grants, input tiers, OSWorld 2.1 release contract | O/P/S | 2.1 manifest disclaims a full 108-task evaluation |
 | 2026-11-06 | 4 | local Windows SDK `UIAutomationClient.h`/`.idl`: CLSID, IIDs, vtable slots, `RECT`, `TreeScope` | O (installed SDK 10.0.22000.0) | `RECT` is left/top/right/bottom, **not** `[x,y,w,h]`; header is authoritative for its SDK, not for the runtime; probe must still print raw HRESULTs |
 | 2026-11-06 | 4 | host-side vs guest-side resource telemetry trust boundary | O/P/S | guest self-report is debugging data, not a security boundary; host-side signals sit on the far side of isolation |
+| 2026-11-07 | 7 | semantic grounding / addressable targets, OSWorld observation spaces, hybrid AX+vision | O/P/S | reliability arithmetic is model-specific; a PyAutoGUI "step" can contain a control structure, so cross-paper rates are not a controlled A/B. No success-rate claim is made here |
+| 2026-11-07 | 7 | MSAA `accDoDefaultAction`, `AXUIElementPerformAction`, `atspi.Action.DoAction`, Flutter/Chromium dual MSAA+UIA providers | O/S | native press has no pointer readback, so it cannot satisfy this repo's evidence invariant; provider population is a launch-mode question, not an API-version one |
+| 2026-11-07 | 7 | real-desktop `observe.a11y` vs `observe.controls` on the WorkBuddy self-drawn window | X (this machine) | 43 MSAA nodes / 8 button / 11 named / 42 non-zero rects, while the Win32 scan is refused; UIA's "zero addressable controls" holds only for the UIA provider, not for MSAA |
 | 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default must not be escalated; owner keeps a veto, not an approval queue |
 | 2026-11-06 | 5 | W1 UIA probe verdict on the real desktop | X (this machine) | all COM slots S_OK + desktop root `0,0,1680,1050`, yet the target WorkBuddy provider gives 8 Pane nodes / 0 non-Pane controls; cold-start RECTs were zero then stable on re-run. A callable interface is neither a useful provider nor a stable first read |
 | 2026-11-06 | 6 | Electron lazy `AXMode`, AT-SPI2/Wayland tiers, macOS dual TCC, AT-SPI pidfd exhaustion | O/S/V | an empty a11y tree is a target-app launch precondition, not a CU verb; TCC binds to the responsible process + code signature; Wayland is semantic-only; a wedged portal stalls every tree walk for 15 s |
@@ -648,10 +681,18 @@ surface is correct, but the target WorkBuddy provider exposes only Pane nodes
 with no addressable controls and a cold-start zero-rectangle window. Resource-domain telemetry and control remain behind the G
 boundary, whose direction (a) is a dated controller decision in `PRD_01_24`.
 
-## 0.0.15 — W1 probe verdict, W2 stopped (no version bump)
+## 0.0.15 — 2026-11-06 W0 diagnostic record (kept verbatim)
 
-**No shipped capability, version bump or Release chain for 0.0.15.**
-`v0.0.14` remains the last shipped Release and all four version sources
+The section below is the **dated state of 2026-11-06**, preserved as the
+diagnostic history of the UIA probe. It is not rewritten: the 2026-11-07
+controller decision that switched the 0.0.15 route is recorded separately in
+`PRD_01_24` and `plan/plan-0.0.15-a11y-addressed-actuation.md`. At the time it
+was written, "no shipped capability, version bump or Release chain for
+0.0.15" was true; pass 7 then supplied new X-grade evidence on the **MSAA**
+arm that the UIA probe did not cover.
+
+**At that date: no shipped capability, version bump or Release chain for
+0.0.15.** `v0.0.14` was the last shipped Release and all four version sources
 still read `0.0.14`. W0 pass 4 completed the plan-completeness checklist
 (6/6); pass 5 ran `examples/cu_probe_uia.rs` on a real Windows desktop.
 
@@ -683,6 +724,43 @@ the responsible process. Enabling any of those in the target app is outside
 `screen`; no implementation starts from that pass. `cu-abi 1.0`, the
 12/10/8/0 matrix and the G boundary are unchanged; G direction (a) is a
 dated controller decision, not a choice offered back to the owner.
+
+## 0.0.15 frontier — a11y-addressed actuation (public signed Release)
+
+**Decision (controller, 2026-11-07, T8 D2.1 + D2.3):** switch the 0.0.15
+route from UIA-first routing (stopped by the W1 downgrade) to **semantic
+addressing on the already-shipped MSAA tree**. Reason: W0 pass 7 measured on
+the real target that `observe.a11y` yields 43 nodes / 8 buttons / 11 named /
+42 non-zero rects while `observe.controls` is refused — the L3 client is
+unaddressable only on the Win32 and UIA arms, not on MSAA. The UIA W2 stays
+`[no]`; no half-working COM route ships. No owner choice was requested; the
+owner keeps the veto. Full contract:
+`plan/plan-0.0.15-a11y-addressed-actuation.md`, tree: `PRD_01_25`.
+
+**What shipped (additive inside `cu-abi 1.0`):** `act:control` gains optional
+`source` (`"controls"` default / `"a11y"`) and `role`; the a11y arm resolves a
+node by exact name then unique substring, vetoes `unavailable`/`invisible`/
+`offscreen` states, refuses ambiguity and unknown roles, pins the observation
+generation, and requires the pointer readback to land **inside the resolved
+node's rectangle**. Evidence publishes `source`, `a11y_node` with the 0.0.14
+normalised schema and `state_names` recomputed by the independent reader.
+No new capability row, verb, grant, crate, ABI bump, matrix cell or native
+signature. `press` still defaults to false, so resolution cannot click.
+
+**Acceptance:** W1/W2 unit tests, the four-backend type gate, a real-desktop
+semantic hover on `最小化` (button, rect `400,40 48x64`, centre `424,72`,
+readback `pointer at 424,72` inside the node), three-OS CI journeys with an
+independent reader recomputing centre, containment and the state bit mask,
+then W3/W4 version sources and a public signed Release accepted from the
+owner's view. The `act_move` step on this particular desktop is a **named
+maximised-window refusal** (the window manager kept `520x600`), not a 0.0.15
+regression: it is the pre-existing "a system that keeps its own geometry
+produces a failure that names both rectangles" invariant.
+
+**Next version is planned only after this one is published and accepted.**
+G direction (a) stays decided; native default-action dispatch
+(`accDoDefaultAction` / `AXUIElementPerformAction` / `atspi.DoAction`) remains
+`[study]` because an invoke has no pointer readback.
 
 ## 0.0.9 frontier (shipped as a public signed Release)
 

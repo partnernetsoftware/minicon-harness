@@ -414,6 +414,110 @@ pub fn resolve_control<'a>(
     }
 }
 
+/// `STATE_SYSTEM_*` bits that make a node inoperable. `UNAVAILABLE` (0x1) is
+/// deliberately absent from `a11y_state_names`: it stays in the raw published
+/// mask, but here it is a veto rather than a guessed name.
+pub const A11Y_STATE_UNAVAILABLE: i32 = 0x1;
+pub const A11Y_STATE_INVISIBLE: i32 = 0x8000;
+pub const A11Y_STATE_OFFSCREEN: i32 = 0x10000;
+
+/// Pure: a node with any of these bits is never a target for an act. The
+/// independent reader can recompute the same predicate from `state`.
+pub fn a11y_node_operable(state: i32) -> bool {
+    state & (A11Y_STATE_UNAVAILABLE | A11Y_STATE_INVISIBLE | A11Y_STATE_OFFSCREEN) == 0
+}
+
+/// The coarse role vocabulary, as a fixed table so an unknown `role` filter
+/// is refused instead of silently ignored. Mirrors `a11y_role_name` above and
+/// the independent reader's role whitelist; `unknown` stays addressable.
+pub const A11Y_ROLE_NAMES: &[&str] = &[
+    "menubar", "window", "client", "menuitem", "document", "dialog", "group",
+    "separator", "toolbar", "list", "listitem", "tab", "graphic", "label",
+    "textbox", "button", "checkbox", "combobox", "slider", "tabitem", "unknown",
+];
+
+/// 0.0.15: resolve one semantic MSAA node from a normalised a11y tree by
+/// identity (name, optionally narrowed by `role`), never by a coordinate.
+/// Pure and back-end independent, so all four configurations type-check it and
+/// every refusal is unit-testable without touching a desktop.
+pub fn resolve_a11y_control<'a>(
+    rows: &'a [A11yControl],
+    needle: &str,
+    role: Option<&str>,
+) -> Result<&'a A11yControl, String> {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return Err(
+            "screen: refused: `control` must name an a11y node from the last observe".to_owned(),
+        );
+    }
+    let role_filter = match role {
+        None => None,
+        Some(raw) => {
+            let wanted = raw.trim().to_lowercase();
+            if !A11Y_ROLE_NAMES.contains(&wanted.as_str()) {
+                return Err(format!(
+                    "screen: refused: unknown a11y role {wanted:?}; expected one of {}",
+                    A11Y_ROLE_NAMES.join(", ")
+                ));
+            }
+            Some(wanted)
+        }
+    };
+    let pool: Vec<&A11yControl> = rows
+        .iter()
+        .filter(|control| {
+            role_filter.as_deref().map_or(true, |wanted| control.role_name == wanted)
+        })
+        .collect();
+    let exact: Vec<&A11yControl> =
+        pool.iter().copied().filter(|control| control.name == needle).collect();
+    let matched: Vec<&A11yControl> = if !exact.is_empty() {
+        exact
+    } else {
+        let lower = needle.to_lowercase();
+        pool.iter()
+            .copied()
+            .filter(|control| {
+                control.name.to_lowercase().contains(&lower)
+                    || control.value.to_lowercase().contains(&lower)
+            })
+            .collect()
+    };
+    if matched.is_empty() {
+        return Err(format!(
+            "screen: refused: no a11y node matches {needle:?} in the current frame; call \
+             op=observe with `a11y` first",
+        ));
+    }
+    let operable: Vec<&A11yControl> = matched
+        .iter()
+        .copied()
+        .filter(|control| a11y_node_operable(control.state))
+        .collect();
+    if operable.is_empty() {
+        return Err(format!(
+            "screen: refused: a11y node {:?} is unavailable, invisible or offscreen \
+             (state={}); no operation was performed",
+            matched[0].name, matched[0].state,
+        ));
+    }
+    if operable.len() > 1 {
+        return Err(format!(
+            "screen: refused: {needle:?} matches {} operable a11y nodes ({}); name one exactly \
+             or narrow it with `role`, the operation was not performed",
+            operable.len(),
+            operable
+                .iter()
+                .take(6)
+                .map(|control| format!("{}:{}", control.role_name, control.name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    Ok(operable[0])
+}
+
 /// One observation, as typed state. The CU host binds a generation to this
 /// value; nothing here is a rendered prompt string.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3735,6 +3839,74 @@ mod native {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 0.0.15: a normalised MSAA node, pure data with no COM or desktop.
+    fn node(name: &str, value: &str, role: i32, state: i32) -> A11yControl {
+        A11yControl {
+            name: name.to_owned(),
+            value: value.to_owned(),
+            role,
+            role_name: a11y_role_name(role),
+            state,
+            x: 500,
+            y: 16,
+            width: 32,
+            height: 32,
+            depth: 6,
+            child_id: 0,
+        }
+    }
+
+    #[test]
+    fn a11y_targets_are_resolved_by_identity_never_by_a_guess() {
+        let rows = vec![
+            node("新建任务", "", 43, 0x100000),
+            node("分享", "", 43, 0x100000),
+            node("", "search hint", 42, 0x100000),
+        ];
+        // Exact name wins, case-insensitive substring over name or value is
+        // unique, and an unknown role is refused rather than ignored.
+        assert_eq!(resolve_a11y_control(&rows, "新建任务", None).unwrap().name, "新建任务");
+        assert_eq!(resolve_a11y_control(&rows, "分享", Some("button")).unwrap().name, "分享");
+        assert_eq!(resolve_a11y_control(&rows, "SEARCH HINT", None).unwrap().role, 42);
+        assert!(resolve_a11y_control(&rows, "新建任务", Some("invented"))
+            .unwrap_err()
+            .contains("unknown a11y role"));
+        assert!(resolve_a11y_control(&rows, "新建任务", Some("textbox"))
+            .unwrap_err()
+            .contains("no a11y node matches"));
+        assert!(resolve_a11y_control(&rows, "  ", None).unwrap_err().contains("must name"));
+        assert!(resolve_a11y_control(&[], "新建任务", None)
+            .unwrap_err()
+            .contains("no a11y node matches"));
+    }
+
+    #[test]
+    fn a11y_targets_refuse_ambiguity_and_inoperable_states() {
+        let rows = vec![
+            node("OK", "first", 43, 0x100000),
+            node("OK", "second", 43, 0x100000),
+        ];
+        let ambiguous = resolve_a11y_control(&rows, "OK", None).unwrap_err();
+        assert!(ambiguous.contains("matches 2 operable a11y nodes"), "{ambiguous}");
+        // A role filter can disambiguate only when it actually separates them.
+        let rows = vec![
+            node("OK", "", 43, 0x100000),
+            node("OK", "", 42, 0x100000),
+        ];
+        assert_eq!(resolve_a11y_control(&rows, "OK", Some("textbox")).unwrap().role, 42);
+
+        for veto in [A11Y_STATE_UNAVAILABLE, A11Y_STATE_INVISIBLE, A11Y_STATE_OFFSCREEN] {
+            let rows = vec![node("关闭", "", 43, veto)];
+            let reason = resolve_a11y_control(&rows, "关闭", None).unwrap_err();
+            assert!(reason.contains("unavailable, invisible or offscreen"), "{reason}");
+            assert!(!a11y_node_operable(veto));
+        }
+        assert!(a11y_node_operable(0x100000));
+        assert!(a11y_node_operable(0x4 | 0x40 | 0x100000));
+        // `unavailable` stays in the raw mask but is never published as a name.
+        assert!(a11y_state_names(A11Y_STATE_UNAVAILABLE).is_empty());
+    }
 
     fn control(label: &str, text: &str, x: i32, y: i32) -> ControlInfo {
         ControlInfo {

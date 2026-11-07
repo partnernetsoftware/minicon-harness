@@ -1,11 +1,12 @@
 # PRD 01.19 — CU perception subtree (T1)
 
-Status: **study + structure only**. Owner direction (2026-11-06, evening):
-keep learning the newest computer-use and resource-management technology, keep
-the learning notes in the PRD, expand the PRD into multi-dimensional trees,
-split large branches into subtree documents, and **do not start code or tests
-until the plan is complete**. This document changes no source, version,
-capability row, `cu-abi`, `[no]` row or the G boundary.
+Status: **study + structure, plus the 0.0.15 shipped branch**. Owner direction
+(2026-11-06, evening): keep learning the newest computer-use and
+resource-management technology, keep the learning notes in the PRD, expand
+the PRD into multi-dimensional trees, split large branches into subtree
+documents, and **do not start code or tests until the plan is complete**.
+The 0.0.15 a11y-target branch (P2.3a) started only after its own 6/6 plan;
+see `plan/plan-0.0.15-a11y-addressed-actuation.md` and `PRD_01_25`.
 
 Owner of the **observation / perception branch**. Sibling subtrees:
 `PRD_01_20_cu_actuation_subtree.md` (T2),
@@ -33,6 +34,7 @@ T1 Observation / perception
 │   ├── P2.1 Win32 EnumChildWindows + WM_GETTEXT `controls[]`        [v] 0.0.5
 │   ├── P2.2 Windows MSAA / IAccessible read-only tree               [v] 0.0.11
 │   ├── P2.3 normalised node schema (state/value/schema tag)         [v] 0.0.14
+│   ├── P2.3a a11y node as an addressable act target                  [v] 0.0.15
 │   ├── P2.4 UIA control-view walker + MSAA fallback                [no] W2 stopped
 │   │        (pass 4: vtable + GUIDs verified against installed SDK;
 │   │         pass 5: probe verified every COM slot on 6 windows, but the

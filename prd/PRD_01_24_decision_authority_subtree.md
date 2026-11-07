@@ -127,6 +127,37 @@ a choice:
 5. Continue W0 with the next open-gate candidate; report decisions, reasons
    and results, not a menu.
 
+## Decision record 2026-11-07 — switch the 0.0.15 route
+
+**Choice:** re-scope 0.0.15 from "UIA probe verdict, W2 stopped, no version
+bump" to **a11y-addressed actuation**: `act:control` gains `source` and
+`role`, with a semantic MSAA-node arm. The UIA-first W2 stays `[no]`; the
+diagnostic plan and the pass-5 probe remain verbatim in the tree. W1-W4 run
+after a new 6/6 plan (`plan-0.0.15-a11y-addressed-actuation.md`) is complete.
+
+**Reason.** W0 pass 7 produced X-grade evidence from this repo's own CU wire
+on the real L3 target: `observe.a11y` reads 43 MSAA nodes, 8 buttons and 11
+named controls with 42 non-zero rectangles, while `observe.controls` is
+refused on that self-drawn window. The pass-5 "zero addressable controls"
+finding was **UIA-provider-specific** (Chromium builds its web a11y tree
+lazily); MSAA on the same hwnd is populated. The desktop was therefore
+observable but not addressable — a real gap in computer use, and the one the
+owner's end state needs. The new route is additive inside `cu-abi 1.0` and the
+12/10/8/0 matrix: no new verb, grant, crate, platform library, ABI bump or
+matrix cell, and no `[no]` beyond the already-stopped UIA W2 is lifted. The
+plan's downgrade rule was written before W1. Keeping G closed is unchanged.
+
+**Evidence grade:** X (local measurement, W0 pass 7), O/S (2026 grounding
+literature, study only). A study note did not authorise the switch; this dated
+controller decision did, under D2.1 (version topic) and D2.3 (lifting a
+scoped `[no]` with explicit bounds). No owner choice was requested or pasted;
+the owner keeps the post-hoc veto (D3).
+
+**Reopen trigger for the UIA W2:** unchanged from the 2026-11-06 record — a
+probe reading named, non-Pane, stable bounded nodes from a WorkBuddy client
+with full accessibility mode enabled, across repeated reads, plus its own PRD
+and independent reader rule. This decision does **not** satisfy that trigger.
+
 ## Learning notes (dated)
 
 | Date | Pass | What was queried | Source class | Conflict / caution recorded | Went to |
@@ -136,6 +167,7 @@ a choice:
 | 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default must not be escalated; the owner keeps a veto, not an approval queue | this file, T8 |
 | 2026-11-06 | 5 | W1 UIA probe verdict on the real desktop | X (this machine) | every slot S_OK + usable desktop root RECT, yet the target provider gave 8 Pane nodes / 0 non-Pane controls; cold-start zero RECTs became stable on re-run. The downgrade rule stopped W2 without an owner choice | `plan-0.0.15`, `PRD_01_17` pass 5, T7 |
 | 2026-11-06 | 6 | lazy Chromium `AXMode`, Linux/macOS a11y grant tiers | O / S / V | the empty tree is a target-app launch precondition outside `screen`; this sharpens the W2 reopen trigger but starts no implementation | `PRD_01_17` pass 6, this file |
+| 2026-11-07 | 7 | semantic grounding, native default action, MSAA/UIA provider split, real-target a11y vs Win32 scan | O / P / S / X | a native press has no pointer readback; "no addressable controls" was UIA-specific; MSAA on the same hwnd yields 8 buttons. Study does not authorise a route, a dated decision does | `PRD_01_17` pass 7, `PRD_01_25`, this file |
 
 ## Non-goals
 
