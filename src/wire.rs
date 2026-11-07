@@ -376,6 +376,34 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                                             requested_ms, elapsed_ms, cumulative_ms, \
                                             wait_calls and the fresh generation."
                         },
+                        "effect": {
+                            "type": "object",
+                            "description": "For op=observe only: additive effect readback. Compare one a11y node from the previous observation (the `before` frame, read before it is overwritten) against the fresh scan and publish evidence.a11y_effect with before/after rows, expect, observed and a verdict. The expect array must be written BEFORE the act it verifies; a post-hoc expectation is not evidence. Read-only: posts no input, never clicks, never falls back to pixels.",
+                            "properties": {
+                                "hwnd": {
+                                    "type": "integer",
+                                    "description": "The live window handle whose a11y tree was observed; identity is never inferred from a coordinate."
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "Exact a11y node name to match in both frames."
+                                },
+                                "role": {
+                                    "type": "string",
+                                    "description": "Optional coarse a11y role filter (button, textbox, ...); an unknown role cannot match."
+                                },
+                                "child_id": {
+                                    "type": "integer",
+                                    "description": "Optional MSAA child id to disambiguate identically named nodes."
+                                },
+                                "expect": {
+                                    "type": "array",
+                                    "items": { "type": "string", "enum": ["name", "rect", "state", "value"] },
+                                    "description": "Pre-declared, bounded whitelist of fields predicted to change. [] predicts no change. Duplicates are collapsed and the published set is sorted."
+                                }
+                            },
+                            "required": ["hwnd", "name", "expect"]
+                        },
                         "action": {
                             "type": "string",
                             "enum": ["focus", "move", "click", "hover", "drag", "type", "key", "scroll", "control"],

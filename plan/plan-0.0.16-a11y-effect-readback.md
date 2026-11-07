@@ -237,3 +237,32 @@ v0.0.18  CU: chosen likewise; still no harness-line work
 candidates with unlock conditions. What is decided here is the *line*: the
 computer-use branch owns versions up to and including 0.0.18, and the harness
 branch stays frozen until after that Release is accepted from the owner's view.
+
+## Delivery record (W1-W3, 2026-11-07; W4 pending)
+
+- **W1** (`src/cu.rs`, `src/wire.rs`): `CuType::Effect` + `P_EFFECT` disclosed
+  on `observe`; `parse_effect_request` admits `hwnd` / `name` / `role` /
+  `child_id` / `expect` (a missing `expect` is refused at admission, so no
+  post-hoc expectation can be attached); pure `normalise_expect`,
+  `a11y_effect_node_json`, `a11y_effect_observed`, `a11y_effect_evidence` and
+  `effect_refusal`; `observe` reads the old `state.frame` **before**
+  overwriting it and binds `before_generation` to the dispatch generation.
+  7 new unit tests (133 total), four-configuration type gate green.
+- **W2** (`examples/cu_journey.rs`, `scripts/cu-journey-verify.py`): two
+  required three-OS steps on the 0.0.15 no-op hover — `expect: []` →
+  `unchanged`, `expect: ["value"]` → `mismatch`. The independent reader (kept
+  in a local function so no 0.0.16 name shadows an earlier reader variable)
+  recomputes `state_names`, `observed`, `expect`, both generations, rects and
+  the verdict; it rejects a non-refused row on an empty a11y tree, rejects
+  `confirmed` without a matching non-empty `expect`, and admits named
+  refusals. Real-desktop X-grade probe: gen 1→2 `unchanged`, gen 2→3
+  `mismatch`, `state_names` recomputed from the raw masks. The only local
+  reader failure is the pre-existing maximised-window `act_move` refusal.
+- **Controller decision D7** (`PRD_01_24`): the three-OS journey uses the
+  existing side-effect-free hover rather than a second `act:type` against
+  Notepad; `confirmed` and `vanished` are covered by injected-frame unit
+  tests. No reader assertion is weakened; this avoids re-introducing the
+  0.0.15 Notepad dirty-marker race into a required step.
+- **W3**: four version sources → `0.0.16`; README/PRD truth updated. W4
+  (three-OS CI, public signed Release and owner-view acceptance) is not
+  claimed until it has actually run and been checked from the owner's view.

@@ -151,15 +151,25 @@ plan: [`plan/plan-0.0.15-a11y-addressed-actuation.md`](plan/plan-0.0.15-a11y-add
 The UIA W2 stays stopped; the route switch is a dated controller decision
 (`PRD_01_24`). `v0.0.15` is the latest public signed Release.
 
-**Next version (0.0.16, planned v2, NOT started).**
+**A11y effect readback (0.0.16, W1-W3 implemented, W4 pending).**
 [`plan/plan-0.0.16-a11y-effect-readback.md`](plan/plan-0.0.16-a11y-effect-readback.md)
-is a 6/6-complete plan for the bounded first half of F3: an
-**expect-vs-observed** typed readback of one a11y node across an act. W0 pass 8
-plus a real-desktop X-grade probe falsified the v1 "a non-empty `changed` means
-success" contract (43 identity-stable nodes, zero before/after differences, no
-editable `accValue` on the WorkBuddy window), so `expect` must be written
-before the act and `unchanged` / `mismatch` are honest verdicts. No code, test,
-version bump or Release has started; all four version sources remain `0.0.15`.
+is the 6/6-complete plan this version implements. `observe` gains an additive
+`effect` object: a **pre-declared** `expect` whitelist is compared with a
+recomputed `observed` set from the same a11y node in two published frames,
+yielding `confirmed` / `unchanged` / `mismatch` / `vanished` or a named
+refusal. The `before` frame is read *before* `state.frame` is overwritten and
+bound to the dispatch generation (TOCTOU); identity is name + role + child_id
++ depth, never a coordinate. W0 pass 8 plus a real-desktop X-grade probe
+falsified the v1 "a non-empty `changed` means success" contract (43
+identity-stable nodes, zero differences, no editable `accValue` on the
+WorkBuddy window), so `unchanged` and `mismatch` are first-class honest
+verdicts. No native API, OS grant, event subscription, image arm, new verb,
+capability row, `cu-abi` bump or matrix cell is added. W1/W2: 133 unit tests,
+the four-configuration type gate, a real-desktop probe (`unchanged` gen 1→2,
+`mismatch` gen 2→3) and two three-OS journey steps whose independent reader
+recomputes `state_names`, `observed` and the verdict. All four version sources
+now read `0.0.16`; the public signed Release and owner-view acceptance are
+recorded only after W4 completes.
 **Line freeze (owner direction 2026-11-07):** computer use owns versions
 through `v0.0.18`; the harness branch may be improved with omp (oh-my-Pi) as a
 reference only after `v0.0.18` is published and accepted from the owner's view.

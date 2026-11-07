@@ -91,6 +91,9 @@ pub enum CuType {
     Button,
     /// An array of `[x,y]` integer pairs, bounded by the drag path limit.
     Path,
+    /// 0.0.16: an `effect` object naming one a11y node identity plus a
+    /// pre-declared `expect` whitelist. It is evidence, not a new verb.
+    Effect,
 }
 
 impl CuType {
@@ -104,6 +107,7 @@ impl CuType {
             Self::A11yScan => "a11y-scan",
             Self::Button => "button",
             Self::Path => "int-pair-array",
+            Self::Effect => "effect-object",
         }
     }
 }
@@ -138,6 +142,8 @@ const P_SOURCE: CuParam = CuParam { name: "source", ty: CuType::String, required
 const P_ROLE: CuParam = CuParam { name: "role", ty: CuType::String, required: false };
 const P_SCALE: CuParam = CuParam { name: "scale", ty: CuType::Int, required: false };
 const P_WAIT_MS: CuParam = CuParam { name: "wait_ms", ty: CuType::Int, required: false };
+/// 0.0.16: one predicted effect, declared before the act it verifies.
+const P_EFFECT: CuParam = CuParam { name: "effect", ty: CuType::Effect, required: false };
 const P_WHY: CuParam = CuParam { name: "why", ty: CuType::String, required: true };
 const P_X: CuParam = CuParam { name: "x", ty: CuType::Int, required: true };
 const P_Y: CuParam = CuParam { name: "y", ty: CuType::Int, required: true };
@@ -173,8 +179,8 @@ pub const CAPABILITIES: &[CuCapability] = &[
     CuCapability {
         name: "observe",
         kind: CuKind::Observe,
-        summary: "Read virtual-desktop geometry, displays and windows; optionally publish one bounded PNG, scan one window's typed controls, or take one bounded wait before a fresh snapshot.",
-        params: &[P_WINDOW, P_CAPTURE, P_CONTROLS, P_A11Y, P_SCALE, P_WAIT_MS],
+        summary: "Read virtual-desktop geometry, displays and windows; optionally publish one bounded PNG, scan one window's typed controls, take one bounded wait before a fresh snapshot, or compare one a11y node against a pre-declared effect expectation.",
+        params: &[P_WINDOW, P_CAPTURE, P_CONTROLS, P_A11Y, P_SCALE, P_WAIT_MS, P_EFFECT],
     },
     CuCapability {
         name: "disclose",
@@ -482,6 +488,172 @@ fn a11y_control_json(control: &crate::screen::A11yControl) -> Value {
     })
 }
 
+/// 0.0.16: the only four fields an effect may predict or report. Sorted so
+/// the host and the independent reader derive the same ordered whitelist.
+const EFFECT_FIELDS: [&str; 4] = ["name", "rect", "state", "value"];
+
+fn normalise_expect(expect: &[String]) -> Result<Vec<String>, &'static str> {
+    let mut rows: Vec<String> = Vec::new();
+    for field in expect {
+        if !EFFECT_FIELDS.contains(&field.as_str()) {
+            return Err("invalid_expect");
+        }
+        if !rows.contains(field) {
+            rows.push(field.clone());
+        }
+    }
+    rows.sort();
+    Ok(rows)
+}
+
+/// The published shape of one node on one side of the comparison. `name` is
+/// included so the reader can recompute the `name` difference by itself.
+fn a11y_effect_node_json(node: &crate::screen::A11yControl) -> Value {
+    json!({
+        "name": node.name,
+        "value": node.value,
+        "state": node.state,
+        "state_names": crate::screen::a11y_state_names(node.state),
+        "rect": [node.x, node.y, node.width, node.height],
+        "depth": node.depth,
+        "child_id": node.child_id,
+        "role_name": node.role_name,
+    })
+}
+
+fn a11y_effect_observed(
+    before: &crate::screen::A11yControl,
+    after: &crate::screen::A11yControl,
+) -> Vec<String> {
+    let mut rows = Vec::new();
+    if before.value != after.value {
+        rows.push("value".to_owned());
+    }
+    if before.state != after.state {
+        rows.push("state".to_owned());
+    }
+    if [before.x, before.y, before.width, before.height]
+        != [after.x, after.y, after.width, after.height]
+    {
+        rows.push("rect".to_owned());
+    }
+    if before.name != after.name {
+        rows.push("name".to_owned());
+    }
+    rows.sort();
+    rows
+}
+
+/// Every refusal publishes the same empty row. No success is ever taken from
+/// the request, and a refused scan cannot leak a plausible `observed`.
+fn effect_refusal(reason: &str) -> Value {
+    json!({
+        "reason": reason,
+        "hwnd": Value::Null,
+        "name": Value::Null,
+        "role_name": Value::Null,
+        "before": Value::Null,
+        "after": Value::Null,
+        "expect": [],
+        "observed": [],
+        "verdict": "refused",
+        "before_generation": Value::Null,
+        "after_generation": Value::Null,
+    })
+}
+
+/// Pure comparison: no tool call, no native surface, no clock. `before` is
+/// the frame read **before** `state.frame` was overwritten, so its generation
+/// is the one the act was dispatched against (TOCTOU re-validation).
+fn a11y_effect_evidence(
+    before_frame: Option<&CuFrame>,
+    dispatch_generation: u64,
+    after: &ScreenSnapshot,
+    request: &EffectRequest,
+) -> Value {
+    let expect = match normalise_expect(&request.expect) {
+        Ok(rows) => rows,
+        Err(reason) => return effect_refusal(reason),
+    };
+    let frame = match before_frame {
+        Some(frame) => frame,
+        None => return effect_refusal("no_frame"),
+    };
+    if frame.generation != dispatch_generation {
+        return effect_refusal("stale");
+    }
+    if frame.snapshot.a11y_source.is_none() || frame.snapshot.a11y_controls.is_empty() {
+        return effect_refusal("no_a11y_tree");
+    }
+    if after.a11y_source.is_none() || after.a11y_controls.is_empty() {
+        return effect_refusal("no_a11y_tree");
+    }
+    let before_matches: Vec<&crate::screen::A11yControl> = frame
+        .snapshot
+        .a11y_controls
+        .iter()
+        .filter(|node| {
+            node.name == request.name
+                && request
+                    .role
+                    .as_deref()
+                    .map_or(true, |role| role == node.role_name)
+                && request
+                    .child_id
+                    .map_or(true, |child_id| child_id == node.child_id)
+        })
+        .collect();
+    let before_node = match before_matches.len() {
+        1 => before_matches[0],
+        0 => return effect_refusal("no_matching_node"),
+        _ => return effect_refusal("ambiguous_identity"),
+    };
+    // The after side is matched by the *full* published identity, never by a
+    // coordinate or a fresh name lookup that could resolve a different node.
+    let after_matches: Vec<&crate::screen::A11yControl> = after
+        .a11y_controls
+        .iter()
+        .filter(|node| {
+            node.name == before_node.name
+                && node.role_name == before_node.role_name
+                && node.child_id == before_node.child_id
+                && node.depth == before_node.depth
+        })
+        .collect();
+    let after_node = match after_matches.len() {
+        1 => Some(after_matches[0]),
+        0 => None,
+        _ => return effect_refusal("ambiguous_identity"),
+    };
+    let (after_json, observed, verdict) = match after_node {
+        None => (Value::Null, Vec::new(), "vanished"),
+        Some(node) => {
+            let observed = a11y_effect_observed(before_node, node);
+            let verdict = if !observed.is_empty() && observed == expect {
+                "confirmed"
+            } else if observed.is_empty() && expect.is_empty() {
+                "unchanged"
+            } else {
+                "mismatch"
+            };
+            (a11y_effect_node_json(node), observed, verdict)
+        }
+    };
+    json!({
+        "reason": Value::Null,
+        "hwnd": request.hwnd,
+        "name": before_node.name,
+        "role_name": before_node.role_name,
+        "before": a11y_effect_node_json(before_node),
+        "after": after_json,
+        "expect": expect,
+        "observed": observed,
+        "verdict": verdict,
+        "before_generation": frame.generation,
+        "after_generation": dispatch_generation + 1,
+    })
+}
+
 fn window_json(window: &WindowInfo) -> Value {
     json!({
         "hwnd": window.handle, "pid": window.pid,
@@ -603,6 +775,19 @@ impl CuAction {
     }
 }
 
+/// 0.0.16: one predicted effect, declared **before** the act it verifies.
+/// `expect` is kept in request order here; `normalise_expect` validates and
+/// sorts it at dispatch so a refused request still publishes a named empty
+/// row. An identity is never inferred from a coordinate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EffectRequest {
+    pub hwnd: u64,
+    pub name: String,
+    pub role: Option<String>,
+    pub child_id: Option<i32>,
+    pub expect: Vec<String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CuCall {
     Observe {
@@ -612,6 +797,7 @@ pub enum CuCall {
         a11y: Option<A11yTarget>,
         scale: u32,
         wait_ms: Option<u32>,
+        effect: Option<EffectRequest>,
     },
     Act {
         why: String,
@@ -1087,8 +1273,10 @@ impl CuHost {
         //    a display enumeration must never hold host state hostage.
         drop(state);
         match request.call {
-            CuCall::Observe { window, capture, controls, a11y, scale, wait_ms } => {
-                self.observe(&capability, window, capture, controls, a11y, scale, wait_ms)
+            CuCall::Observe { window, capture, controls, a11y, scale, wait_ms, effect } => {
+                self.observe(
+                    &capability, window, capture, controls, a11y, scale, wait_ms, effect,
+                )
             }
             CuCall::Act { why, action } => match action {
                 CuAction::Control { control, press, button, double, source, role } => {
@@ -1114,6 +1302,7 @@ impl CuHost {
         a11y: Option<A11yTarget>,
         scale: u32,
         wait_ms: Option<u32>,
+        effect: Option<EffectRequest>,
     ) -> CuResult {
         // 0.0.13: one bounded sleep before the fresh snapshot. Ceilings are
         // admitted under the lock; the sleep itself never holds host state.
@@ -1151,6 +1340,11 @@ impl CuHost {
         match self.tool.snapshot(window.as_deref(), capture, scale, controls, a11y) {
             Ok(snapshot) => {
                 let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+                // 0.0.16: the previous frame is the *only* admissible
+                // `before` side. It must be read before the overwrite and
+                // bound to the generation the act was dispatched against.
+                let before_frame = state.frame.clone();
+                let dispatch_generation = state.generation;
                 state.generation += 1;
                 let frame = CuFrame {
                     generation: state.generation,
@@ -1160,6 +1354,14 @@ impl CuHost {
                 let mut evidence = frame.to_json();
                 state.frame = Some(frame);
                 let generation = state.generation;
+                if let Some(effect) = &effect {
+                    evidence["a11y_effect"] = a11y_effect_evidence(
+                        before_frame.as_ref(),
+                        dispatch_generation,
+                        &snapshot,
+                        effect,
+                    );
+                }
                 let mut text = snapshot.to_text();
                 if let Some(wait) = &wait {
                     evidence["wait"] = json!({
@@ -2249,6 +2451,68 @@ fn bool_flag(name: &str, value: Option<&Value>) -> Result<bool, String> {
     }
 }
 
+/// 0.0.16: admission only. The `expect` whitelist is validated at dispatch
+/// (not here) so even an invalid expectation publishes a named empty effect
+/// row instead of a bare parse error that could be mistaken for success.
+fn parse_effect_request(value: &Value) -> Result<EffectRequest, String> {
+    let object = value.as_object().ok_or_else(|| {
+        "screen: refused: `effect` must be an object with hwnd, name and expect".to_owned()
+    })?;
+    let hwnd = object
+        .get("hwnd")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            "screen: refused: `effect.hwnd` must be a live window handle".to_owned()
+        })?;
+    let name = object
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| "screen: refused: `effect.name` must name one a11y node".to_owned())?
+        .to_owned();
+    let role = match object.get("role") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(role)) if !role.trim().is_empty() => Some(role.clone()),
+        Some(_) => {
+            return Err(
+                "screen: refused: `effect.role` must be a non-empty role name or null".to_owned(),
+            )
+        }
+    };
+    let child_id = match object.get("child_id") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            value
+                .as_i64()
+                .map(|id| id as i32)
+                .ok_or_else(|| {
+                    "screen: refused: `effect.child_id` must be an integer or null".to_owned()
+                })?,
+        ),
+    };
+    let expect = match object.get("expect") {
+        Some(Value::Array(rows)) => rows
+            .iter()
+            .map(|row| {
+                row.as_str().map(str::to_owned).ok_or_else(|| {
+                    "screen: refused: `effect.expect` must be an array of field names".to_owned()
+                })
+            })
+            .collect::<Result<Vec<String>, String>>()?,
+        Some(_) => {
+            return Err("screen: refused: `effect.expect` must be an array".to_owned())
+        }
+        None => {
+            return Err(
+                "screen: refused: `effect` needs a pre-declared `expect` array; use [] to \
+                 predict no change"
+                    .to_owned(),
+            )
+        }
+    };
+    Ok(EffectRequest { hwnd, name, role, child_id, expect })
+}
+
 pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
     let abi_major = match arguments.get("abi_major") {
         None => CU_ABI_MAJOR,
@@ -2366,7 +2630,13 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                         })?,
                 ),
             };
-            CuCall::Observe { window, capture, controls, a11y, scale, wait_ms }
+            // 0.0.16: an effect is additive evidence on `observe`, not a new
+            // verb. The expectation is declared here, before any act.
+            let effect = match arguments.get("effect") {
+                None | Some(Value::Null) => None,
+                Some(value) => Some(parse_effect_request(value)?),
+            };
+            CuCall::Observe { window, capture, controls, a11y, scale, wait_ms, effect }
         }
         "act" => {
             let why = arguments
@@ -2932,6 +3202,7 @@ mod tests {
                 a11y: None,
                 scale: 0,
                 wait_ms: None,
+                effect: None,
             }
         );
         let named = parse_request(&json!({ "op": "observe", "controls": "Notepad" })).unwrap();
@@ -5055,6 +5326,239 @@ mod tests {
                 result.text
             );
         }
+    }
+
+    // ---- 0.0.16: a11y effect readback (expect-vs-observed) ----
+
+    fn effect_node(
+        name: &str,
+        value: &str,
+        state: i32,
+        rect: (i32, i32, i32, i32),
+    ) -> crate::screen::A11yControl {
+        crate::screen::A11yControl {
+            name: name.to_owned(),
+            value: value.to_owned(),
+            role: 43,
+            role_name: "textbox",
+            state,
+            x: rect.0,
+            y: rect.1,
+            width: rect.2,
+            height: rect.3,
+            depth: 6,
+            child_id: 0,
+        }
+    }
+
+    fn effect_snapshot(rows: Vec<crate::screen::A11yControl>) -> ScreenSnapshot {
+        ScreenSnapshot {
+            platform: "windows".to_owned(),
+            qualified: true,
+            desktop: (0, 0, 800, 600),
+            displays: Vec::new(),
+            display_scales: Vec::new(),
+            windows: Vec::new(),
+            controls: Vec::new(),
+            controls_source: None,
+            controls_truncated: false,
+            a11y_controls: rows,
+            a11y_source: Some("handle:33689578 window:\"WorkBuddy\"".to_owned()),
+            a11y_reason: None,
+            a11y_truncated: false,
+            capture: None,
+        }
+    }
+
+    fn effect_frame(generation: u64, snapshot: ScreenSnapshot) -> CuFrame {
+        CuFrame { generation, facts_as_of_ms: 0, snapshot }
+    }
+
+    fn effect_request(name: &str, expect: &[&str]) -> EffectRequest {
+        EffectRequest {
+            hwnd: 33689578,
+            name: name.to_owned(),
+            role: Some("textbox".to_owned()),
+            child_id: None,
+            expect: expect.iter().map(|field| (*field).to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn expect_is_sorted_deduplicated_and_whitelisted() {
+        assert_eq!(
+            normalise_expect(&["value".to_owned(), "state".to_owned(), "value".to_owned()]),
+            Ok(vec!["state".to_owned(), "value".to_owned()])
+        );
+        assert_eq!(normalise_expect(&[]), Ok(vec![]));
+        assert_eq!(normalise_expect(&["pixels".to_owned()]), Err("invalid_expect"));
+    }
+
+    #[test]
+    fn effect_confirmed_only_when_observed_equals_the_pre_declared_expect() {
+        let before = effect_frame(
+            7,
+            effect_snapshot(vec![effect_node("Text Editor", "a", 0x100000, (10, 10, 40, 20))]),
+        );
+        let after = effect_snapshot(vec![effect_node(
+            "Text Editor", "b", 0x100000, (10, 10, 40, 20),
+        )]);
+        let row = a11y_effect_evidence(
+            Some(&before), 7, &after, &effect_request("Text Editor", &["value"]),
+        );
+        assert_eq!(row["verdict"], json!("confirmed"));
+        assert_eq!(row["expect"], json!(["value"]));
+        assert_eq!(row["observed"], json!(["value"]));
+        assert_eq!(row["before"]["value"], json!("a"));
+        assert_eq!(row["after"]["value"], json!("b"));
+        assert_eq!(row["before_generation"], json!(7));
+        assert_eq!(row["after_generation"], json!(8));
+        assert_eq!(
+            row["before"]["state_names"],
+            json!(crate::screen::a11y_state_names(0x100000))
+        );
+        assert_eq!(
+            row["after"]["state_names"],
+            json!(crate::screen::a11y_state_names(0x100000))
+        );
+    }
+
+    #[test]
+    fn a_no_op_is_unchanged_and_an_unmet_expectation_is_mismatch() {
+        let before = effect_frame(
+            3,
+            effect_snapshot(vec![effect_node("Text Editor", "", 0x100040, (1, 2, 30, 10))]),
+        );
+        let after = effect_snapshot(vec![effect_node(
+            "Text Editor", "", 0x100040, (1, 2, 30, 10),
+        )]);
+        let unchanged = a11y_effect_evidence(
+            Some(&before), 3, &after, &effect_request("Text Editor", &[]),
+        );
+        assert_eq!(unchanged["verdict"], json!("unchanged"));
+        assert_eq!(unchanged["observed"], json!([]));
+        let mismatch = a11y_effect_evidence(
+            Some(&before), 3, &after, &effect_request("Text Editor", &["value"]),
+        );
+        assert_eq!(mismatch["verdict"], json!("mismatch"));
+        assert_eq!(mismatch["observed"], json!([]));
+        assert_eq!(mismatch["expect"], json!(["value"]));
+    }
+
+    #[test]
+    fn observed_fields_are_recomputed_and_sorted_not_echoed() {
+        let before = effect_frame(
+            1,
+            effect_snapshot(vec![effect_node("Text Editor", "a", 0, (1, 2, 30, 10))]),
+        );
+        let after = effect_snapshot(vec![effect_node(
+            "Text Editor", "b", 0x4, (1, 2, 31, 10),
+        )]);
+        let row = a11y_effect_evidence(
+            Some(&before), 1, &after,
+            &effect_request("Text Editor", &["rect", "state", "value"]),
+        );
+        assert_eq!(row["observed"], json!(["rect", "state", "value"]));
+        assert_eq!(row["verdict"], json!("confirmed"));
+    }
+
+    #[test]
+    fn a_vanished_node_is_not_reported_as_a_change() {
+        let before = effect_frame(
+            2,
+            effect_snapshot(vec![effect_node("Text Editor", "", 0, (1, 2, 30, 10))]),
+        );
+        let after = effect_snapshot(vec![effect_node("Other", "", 0, (1, 2, 30, 10))]);
+        let row = a11y_effect_evidence(
+            Some(&before), 2, &after, &effect_request("Text Editor", &["value"]),
+        );
+        assert_eq!(row["verdict"], json!("vanished"));
+        assert_eq!(row["after"], Value::Null);
+        assert_eq!(row["observed"], json!([]));
+    }
+
+    #[test]
+    fn effect_refusals_are_named_and_never_publish_a_plausible_row() {
+        let node = effect_node("Text Editor", "", 0, (1, 2, 30, 10));
+        let frame = effect_frame(4, effect_snapshot(vec![node.clone()]));
+        let after = effect_snapshot(vec![node.clone()]);
+        let req = effect_request("Text Editor", &[]);
+        let mut empty_before = effect_frame(4, after.clone());
+        empty_before.snapshot.a11y_controls.clear();
+        let mut empty_after = after.clone();
+        empty_after.a11y_controls.clear();
+        let cases: Vec<(Option<CuFrame>, u64, ScreenSnapshot, EffectRequest, &str)> = vec![
+            (None, 4, after.clone(), req.clone(), "no_frame"),
+            (Some(frame.clone()), 5, after.clone(), req.clone(), "stale"),
+            (Some(empty_before), 4, after.clone(), req.clone(), "no_a11y_tree"),
+            (Some(frame.clone()), 4, empty_after, req.clone(), "no_a11y_tree"),
+            (
+                Some(frame.clone()), 4, after.clone(),
+                effect_request("missing", &[]), "no_matching_node",
+            ),
+            (
+                Some(effect_frame(4, effect_snapshot(vec![node.clone(), node.clone()]))),
+                4, after.clone(), req.clone(), "ambiguous_identity",
+            ),
+            (
+                Some(frame.clone()), 4, after.clone(),
+                effect_request("Text Editor", &["pixels"]), "invalid_expect",
+            ),
+        ];
+        for (before, generation, snapshot, request, reason) in cases {
+            let row = a11y_effect_evidence(before.as_ref(), generation, &snapshot, &request);
+            assert_eq!(row["verdict"], json!("refused"), "{reason}: {row}");
+            assert_eq!(row["reason"], json!(reason), "{reason}: {row}");
+            assert_eq!(row["observed"], json!([]), "{reason}: {row}");
+            assert_eq!(row["before"], Value::Null, "{reason}: {row}");
+            assert_eq!(row["after"], Value::Null, "{reason}: {row}");
+        }
+    }
+
+    #[test]
+    fn effect_is_admitted_before_the_act_and_disclosed_as_a_param() {
+        let parsed = parse_request(&json!({
+            "op": "observe", "a11y": 33689578,
+            "effect": {
+                "hwnd": 33689578, "name": "Text Editor",
+                "role": "textbox", "expect": ["value"]
+            }
+        }))
+        .unwrap();
+        assert_eq!(
+            parsed.call,
+            CuCall::Observe {
+                window: None,
+                capture: None,
+                controls: None,
+                a11y: Some(A11yTarget::Handle(33689578)),
+                scale: 0,
+                wait_ms: None,
+                effect: Some(EffectRequest {
+                    hwnd: 33689578,
+                    name: "Text Editor".to_owned(),
+                    role: Some("textbox".to_owned()),
+                    child_id: None,
+                    expect: vec!["value".to_owned()],
+                }),
+            }
+        );
+        // The expectation must be declared up front; a post-hoc one cannot be
+        // attached to a result, and a non-string field is refused.
+        assert!(parse_request(&json!({
+            "op": "observe", "effect": { "hwnd": 1, "name": "x" }
+        }))
+        .is_err());
+        assert!(parse_request(&json!({
+            "op": "observe", "effect": { "hwnd": 1, "name": "x", "expect": [7] }
+        }))
+        .is_err());
+        let observe = CAPABILITIES.iter().find(|cap| cap.name == "observe").unwrap();
+        assert!(observe
+            .params
+            .iter()
+            .any(|param| param.name == "effect" && param.ty == CuType::Effect));
+        assert_eq!(CuType::Effect.tag(), "effect-object");
     }
 
 }

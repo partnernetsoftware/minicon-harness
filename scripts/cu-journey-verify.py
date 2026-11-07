@@ -622,6 +622,105 @@ def main() -> int:
                   f"{A11Y_CONTROL_STEP}: a refused act published a resolved node")
             notes.append(f"REFUSAL {A11Y_CONTROL_STEP}: named boundary, not counted as [v]")
 
+    # 0.0.16: a11y effect readback. Every assertion above stays unchanged.
+    def check_effect_steps():
+        """Local scope: no 0.0.16 name may shadow an earlier reader name."""
+        # The reader recomputes state_names, the observed whitelist and the
+        # verdict from the two published rows; it never trusts the request.
+        effect_whitelist = ("name", "rect", "state", "value")
+        effect_refusals = frozenset({
+            "no_frame", "stale", "no_a11y_tree", "no_matching_node",
+            "ambiguous_identity", "invalid_expect",
+        })
+        for step in ("observe_a11y_effect_unchanged", "observe_a11y_effect_mismatch"):
+            rec = by_step.get(step)
+            check(rec is not None, f"{step}: required 0.0.16 step is missing")
+            if not rec:
+                continue
+            req = rec.get("request") or {}
+            effect_req = req.get("effect") or {}
+            check(isinstance(effect_req, dict), f"{step}: request has no effect object")
+            check(req.get("a11y") == effect_req.get("hwnd"),
+                  f"{step}: effect.hwnd must be the scanned window handle")
+            declared = effect_req.get("expect")
+            check(isinstance(declared, list)
+                  and all(field in effect_whitelist for field in declared)
+                  and declared == sorted(set(declared)),
+                  f"{step}: expect must be a sorted de-duplicated whitelist")
+            ev = rec.get("evidence", {})
+            row = ev.get("a11y_effect")
+            check(isinstance(row, dict), f"{step}: no a11y_effect row published")
+            if not isinstance(row, dict):
+                continue
+            obs = row.get("observed")
+            check(isinstance(obs, list)
+                  and all(field in effect_whitelist for field in obs)
+                  and obs == sorted(set(obs)),
+                  f"{step}: observed={obs!r} is not a sorted whitelist")
+            check(isinstance(declared, list) and row.get("expect") == sorted(set(declared)),
+                  f"{step}: published expect does not match the pre-declared one")
+            check(row.get("hwnd") == effect_req.get("hwnd"),
+                  f"{step}: published hwnd does not match the request")
+            verdict = row.get("verdict")
+            check(verdict in ("confirmed", "unchanged", "mismatch", "vanished", "refused"),
+                  f"{step}: unknown effect verdict {verdict!r}")
+            tree = ev.get("a11y_controls")
+            if isinstance(tree, list) and not tree:
+                check(verdict == "refused",
+                      f"{step}: a non-refused effect row was published on an empty a11y tree")
+            if verdict == "refused":
+                check(row.get("reason") in effect_refusals,
+                      f"{step}: unnamed effect refusal {row.get('reason')!r}")
+                check(row.get("before") is None and row.get("after") is None,
+                      f"{step}: a refusal published before/after rows")
+                check(obs == [], f"{step}: a refusal published observed={obs!r}")
+                notes.append(f"REFUSAL {step}: {row.get('reason')}, not counted as [v]")
+                continue
+            before, after = row.get("before"), row.get("after")
+            check(isinstance(before, dict), f"{step}: no before row")
+            for side, label in ((before, "before"), (after, "after")):
+                if not isinstance(side, dict):
+                    continue
+                state = side.get("state")
+                check(isinstance(state, int) and not isinstance(state, bool) and state >= 0,
+                      f"{step}: {label} state={state!r} is not a bit mask")
+                names = ([name for bit, name in a11y_state_bits if state & bit]
+                         if isinstance(state, int) and not isinstance(state, bool) else None)
+                check(side.get("state_names") == names,
+                      f"{step}: {label} state_names != recomputed {names!r}")
+                rect = side.get("rect")
+                check(isinstance(rect, list) and len(rect) == 4
+                      and all(isinstance(v, int) and not isinstance(v, bool) for v in rect)
+                      and rect[2] > 0 and rect[3] > 0,
+                      f"{step}: {label} rect={rect!r} is not a positive int rect")
+            if verdict == "vanished":
+                check(after is None and obs == [],
+                      f"{step}: vanished must publish after=null and observed=[]")
+            elif isinstance(before, dict) and isinstance(after, dict):
+                recomputed = sorted(
+                    field for field in effect_whitelist
+                    if before.get(field) != after.get(field)
+                )
+                check(obs == recomputed,
+                      f"{step}: observed={obs!r} != recomputed {recomputed!r}")
+                published_expect = row.get("expect")
+                expected_verdict = (
+                    "confirmed" if recomputed and recomputed == published_expect
+                    else "unchanged" if not recomputed and not published_expect
+                    else "mismatch"
+                )
+                check(verdict == expected_verdict,
+                      f"{step}: verdict={verdict!r} != recomputed {expected_verdict!r}")
+                if verdict == "confirmed":
+                    check(obs == published_expect and bool(obs),
+                          f"{step}: confirmed without a matching non-empty expect")
+                check(row.get("before_generation") == rec.get("generation", 0) - 1,
+                      f"{step}: before_generation is not the dispatch generation")
+                check(row.get("after_generation") == rec.get("generation"),
+                      f"{step}: after_generation is not the fresh generation")
+    
+    check_effect_steps()
+
     # 0.0.12: recompute handle-addressed focus. A performed title or handle
     # focus must publish a desktop-read target_hwnd; the handle steps must be
     # required on every cell, and the stale handle must be absent from the live

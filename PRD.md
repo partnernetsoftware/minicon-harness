@@ -28,17 +28,21 @@ start code or tests until the plan is complete** — 三思后行 (think three
 times before acting) and 分而治之 (divide and conquer). This replaces the
 earlier "implement next" pace for the current phase.
 
-**Current phase: PLAN 0.0.16 (W0 pass 8 complete, plan v2 6/6, NOT started).**
-`v0.0.15` is published and accepted; all four version sources read `0.0.15`.
-W0 pass 8 added three findings (expected-effect-first, TOCTOU identity
-re-validation, polling diff vs asymmetric event streams) and a real-desktop
-X-grade probe that **falsified the v1 assumption** that the WorkBuddy window
-has an editable `accValue`. The 0.0.16 plan was upserted to
-**expect-vs-observed**, with `unchanged` as a first-class verdict. No code,
-test, version bump or Release chain has started for 0.0.16. Every tree node is
-either `[v]` with three-OS evidence, `[study]`, `[_]`, `[no]` or `[decision]`;
-a research finding never becomes a capability by itself. The UIA probe and its
-downgrade decision are kept verbatim as the W0 diagnostic record
+**Current phase: SHIP 0.0.16 (W1-W3 complete; W4 three-OS CI + Release +
+owner-view acceptance in progress).** `v0.0.15` remains the last *published*
+Release; the four version sources now read `0.0.16` for the build being
+qualified. W0 pass 8 added three findings (expected-effect-first, TOCTOU
+identity re-validation, polling diff vs asymmetric event streams) and a
+real-desktop X-grade probe that **falsified the v1 assumption** that the
+WorkBuddy window has an editable `accValue`. The plan v2
+(**expect-vs-observed**, `unchanged` as a first-class verdict) passed 6/6
+**before** any code started; W1/W2 then added 133 unit tests, the
+four-configuration type gate, a real-desktop probe and two three-OS journey
+steps with an independent reader; W3 bumped the four version sources. Only
+three-OS CI plus owner-view acceptance can turn 0.0.16 into `[v]`. Every tree
+node is either `[v]` with three-OS evidence, `[study]`, `[_]`, `[no]` or
+`[decision]`; a research finding never becomes a capability by itself. The UIA
+probe and its downgrade decision are kept verbatim as the W0 diagnostic record
 (`plan/plan-0.0.15-uia-probe-and-routing.md`); the route switch is dated in
 `PRD_01_24`, not a rewrite of that record.
 
@@ -81,7 +85,7 @@ prd/
 plan/
 ├── plan-0.0.15-uia-probe-and-routing.md   W0 diagnostic record, UIA W2 stopped
 ├── plan-0.0.15-a11y-addressed-actuation.md 0.0.15 shipped, accepted `[v]`
-└── plan-0.0.16-a11y-effect-readback.md    0.0.16 plan v2 (W0 pass 8), NOT started
+└── plan-0.0.16-a11y-effect-readback.md    0.0.16 plan v2 + W1-W3 record, W4 pending
 ```
 
 ### T1 — perception (full tree: `PRD_01_19`)
@@ -170,7 +174,7 @@ T7 versions
 ├── V0.0.15            [v] W1 UIA diagnostic probe; [v] a11y-addressed
 │                      actuation shipped as a public signed Release
 ├── V0.0.16            [_] a11y effect readback, expect-vs-observed;
-│                      plan v2 6/6, NOT started (no code/bump/Release)
+│                      plan v2 6/6; W1-W3 done, W4 CI/Release/acceptance pending
 ├── line freeze        [decision] CU only <= 0.0.18; harness/omp after
 ├── candidate pool      [study] ordered by gate, never a version commitment
 └── standing [no]      [no] unchanged by any study pass
@@ -796,7 +800,7 @@ Windows journey run hit a Notepad dirty-marker race (`*Untitled - Notepad`
 during `act_type`) and was rerun green with no code or reader change.
 
 **Next version is planned only after this one is published and accepted.**
-**Next version planned after acceptance (0.0.16 v2, NOT started).**
+**0.0.16 W1-W3 implemented, W4 in progress (2026-11-07).**
 `plan/plan-0.0.16-a11y-effect-readback.md` is the 6/6-complete next-version
 plan, **upserted on 2026-11-07 after W0 pass 8 and a real-desktop X-grade
 probe**. Topic: an **expect-vs-observed** typed readback of the same a11y node
@@ -808,9 +812,12 @@ identity-stable nodes, zero before/after differences and only one non-empty
 act and makes `unchanged` / `mismatch` honest verdicts. It closes the L3 gap
 "a receipt proves a button was posted, not that anything happened", without
 an image arm, a model loop, a new verb, an event subscription, a grant or a G
-change. No code, test, version bump or Release has started for it; all four
-version sources still read `0.0.15`. The controller chose the topic (T8 D2)
-and the v2 correction (T8 D6) itself and reports the reasons, not a menu.
+change. W1/W2 added 133 unit tests, the four-configuration type gate, a
+real-desktop X-grade probe and two three-OS journey steps with an independent
+reader; W3 bumped all four version sources to `0.0.16`. W4 (three-OS CI,
+public signed Release and owner-view acceptance) is in progress and is not
+claimed until it has been checked from the owner's view. The controller chose
+the topic (D2), the v2 correction (D6) and the CI fixture (D7) itself.
 
 **Line freeze (owner direction 2026-11-07).** Effort stays on computer use
 through `v0.0.18`; 0.0.17 / 0.0.18 topics are chosen later by gate plus fresh

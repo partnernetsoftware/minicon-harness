@@ -195,6 +195,30 @@ textbox `accValue` on the real desktop, or a three-OS event surface with
 symmetric coverage; either would reopen the fixture choice, not the G
 boundary. The harness line reopens only on the owner's 0.0.18 condition.
 
+## Dated controller decision D7 (2026-11-07, W2 fixture)
+
+**Choice:** the three-OS journey verifies effect evidence on the existing
+0.0.15 side-effect-free hover — `expect: []` → `unchanged`,
+`expect: ["value"]` → `mismatch`. `confirmed` and `vanished` are verified by
+injected-frame unit tests instead of a required CI step that types into
+Notepad.
+
+**Reason:** 0.0.15 already hit a Notepad dirty-marker race (`*Untitled -
+Notepad`) that made a required `act_type` step report `unknown` on one CI run.
+A second typed act would put that race inside the 0.0.16 acceptance path. The
+reader still recomputes `observed`, `expect`, `state_names`, both generations
+and the verdict from the published rows, and rejects a non-refused row on an
+empty tree — **no assertion is weakened**. The plan's Windows `confirmed`
+fixture remains a documented option with a reopen trigger, not a claim.
+
+**Evidence:** local journey + independent reader (only the pre-existing
+maximised-window `act_move` refusal fails), real-desktop X-grade probe gen
+1→2 / 2→3, 133 unit tests and the four-configuration type gate.
+
+**Trigger to revisit:** a CI cell that reliably exposes an editable a11y
+textbox whose `accValue` changes on a typed act, with an independent reader
+assertion for `confirmed` that weakens no earlier step.
+
 ## Non-goals
 
 - `[no]` re-opening the G boundary in this phase.

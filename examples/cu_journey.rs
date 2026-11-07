@@ -199,6 +199,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         journey.run("act_control_a11y", "act:control", caps.act_control, false, request);
     }
 
+    // 0.0.16: two additive effect readbacks of the same semantic target.
+    // The preceding hover is a no-op (press=false), so a pre-declared empty
+    // `expect` must yield `unchanged` and a `value` expectation must yield
+    // `mismatch`; neither may invent a difference. These are read-only
+    // observations, required on every OS: a cell with no a11y tree publishes
+    // a named `no_a11y_tree` empty row instead of a guessed verdict.
+    {
+        let (name, role) = a11y_target
+            .clone()
+            .unwrap_or_else(|| ("no-such-a11y-node".to_owned(), "unknown".to_owned()));
+        for (step, expect) in [
+            ("observe_a11y_effect_unchanged", json!([])),
+            ("observe_a11y_effect_mismatch", json!(["value"])),
+        ] {
+            if let Some(hwnd) = a11y_hwnd {
+                journey.run(
+                    step,
+                    "observe",
+                    caps.observe,
+                    true,
+                    json!({
+                        "op": "observe", "a11y": hwnd,
+                        "effect": {
+                            "hwnd": hwnd, "name": name.clone(), "role": role.clone(),
+                            "expect": expect,
+                        },
+                    }),
+                );
+            } else {
+                journey.skip(step, "observe", "no live window handle to scan");
+            }
+        }
+    }
+
     if caps.capture {
         journey.run(
             "observe_capture",

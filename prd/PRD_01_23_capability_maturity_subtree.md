@@ -57,9 +57,12 @@ T7 Versions / candidates (state, not a promise)
 │   ├── W0 pass 7: real MSAA target measurement + route switch         [v]
 │   ├── W1/W2: `source`/`role`, resolver, reader, four-cfg gate        [v]
 │   └── W3/W4: four version sources + public signed Release            [v]
-├── V0.0.16  a11y effect readback — expect-vs-observed                   [_]
-│   ├── plan v2 6/6 complete 2026-11-07 (W0 pass 8 + X-grade probe)     [v] plan
-│   └── NOT STARTED; no code, test, bump or Release; versions stay 0.0.15
+├── V0.0.16  a11y effect readback — expect-vs-observed        [_] W4 pending
+│   ├── plan v2 6/6 complete 2026-11-07 (W0 pass 8 + X-grade probe)  [v] plan
+│   ├── W1/W2/W3 complete: 133 tests, four-cfg gate, X-grade probe,
+│   │   two three-OS journey steps + independent reader,
+│   │   four version sources -> 0.0.16                                [v] local
+│   └── W4 three-OS CI + public signed Release + owner-view acceptance [_] pending
 ├── Candidate pool (ordered by gate, not by version)                     [study]
 │   ├── C1 UIA mixed routing              gate: **closed by pass 5 probe** [no]
 │   ├── C2 AT-SPI / AX trees              gate: OS grants + 3-OS fixture [_]
