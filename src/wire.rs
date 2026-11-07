@@ -378,16 +378,16 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         },
                         "effect": {
                             "type": "object",
-                            "description": "For op=observe only: compare one a11y node from the previous frame with the fresh scan. `expect` must be declared before the act; evidence.a11y_effect publishes before/after, observed and confirmed/unchanged/mismatch/vanished or a named refusal. Read-only: no input, no pixels.",
+                            "description": "For op=observe: compare one a11y node across two frames; expect must be declared before the act. Verdicts: confirmed, unchanged, mismatch, vanished, or a named refusal.",
                             "properties": {
-                                "hwnd": { "type": "integer", "description": "Live window handle of the scanned tree." },
-                                "name": { "type": "string", "description": "Exact a11y node name." },
-                                "role": { "type": "string", "description": "Optional coarse role filter." },
-                                "child_id": { "type": "integer", "description": "Optional MSAA child id." },
+                                "hwnd": { "type": "integer", "description": "Live window handle." },
+                                "name": { "type": "string", "description": "Exact node name." },
+                                "role": { "type": "string", "description": "Optional role filter." },
+                                "child_id": { "type": "integer", "description": "Optional child id." },
                                 "expect": {
                                     "type": "array",
                                     "items": { "type": "string", "enum": ["name", "rect", "state", "value"] },
-                                    "description": "Sorted whitelist of predicted changes; [] predicts no change."
+                                    "description": "Sorted predicted-change whitelist; [] predicts no change."
                                 }
                             },
                             "required": ["hwnd", "name", "expect"]

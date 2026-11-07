@@ -2525,9 +2525,7 @@ fn parse_effect_request(value: &Value) -> Result<EffectRequest, String> {
         }
         None => {
             return Err(
-                "screen: refused: `effect` needs a pre-declared `expect` array; use [] to \
-                 predict no change"
-                    .to_owned(),
+                "screen: refused: `effect` needs `expect`; use [] for no change".to_owned(),
             )
         }
     };
