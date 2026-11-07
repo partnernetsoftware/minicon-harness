@@ -378,28 +378,16 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         },
                         "effect": {
                             "type": "object",
-                            "description": "For op=observe only: additive effect readback. Compare one a11y node from the previous observation (the `before` frame, read before it is overwritten) against the fresh scan and publish evidence.a11y_effect with before/after rows, expect, observed and a verdict. The expect array must be written BEFORE the act it verifies; a post-hoc expectation is not evidence. Read-only: posts no input, never clicks, never falls back to pixels.",
+                            "description": "For op=observe only: compare one a11y node from the previous frame with the fresh scan. `expect` must be declared before the act; evidence.a11y_effect publishes before/after, observed and confirmed/unchanged/mismatch/vanished or a named refusal. Read-only: no input, no pixels.",
                             "properties": {
-                                "hwnd": {
-                                    "type": "integer",
-                                    "description": "The live window handle whose a11y tree was observed; identity is never inferred from a coordinate."
-                                },
-                                "name": {
-                                    "type": "string",
-                                    "description": "Exact a11y node name to match in both frames."
-                                },
-                                "role": {
-                                    "type": "string",
-                                    "description": "Optional coarse a11y role filter (button, textbox, ...); an unknown role cannot match."
-                                },
-                                "child_id": {
-                                    "type": "integer",
-                                    "description": "Optional MSAA child id to disambiguate identically named nodes."
-                                },
+                                "hwnd": { "type": "integer", "description": "Live window handle of the scanned tree." },
+                                "name": { "type": "string", "description": "Exact a11y node name." },
+                                "role": { "type": "string", "description": "Optional coarse role filter." },
+                                "child_id": { "type": "integer", "description": "Optional MSAA child id." },
                                 "expect": {
                                     "type": "array",
                                     "items": { "type": "string", "enum": ["name", "rect", "state", "value"] },
-                                    "description": "Pre-declared, bounded whitelist of fields predicted to change. [] predicts no change. Duplicates are collapsed and the published set is sorted."
+                                    "description": "Sorted whitelist of predicted changes; [] predicts no change."
                                 }
                             },
                             "required": ["hwnd", "name", "expect"]

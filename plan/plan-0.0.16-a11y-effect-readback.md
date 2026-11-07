@@ -263,6 +263,11 @@ branch stays frozen until after that Release is accepted from the owner's view.
   Notepad; `confirmed` and `vanished` are covered by injected-frame unit
   tests. No reader assertion is weakened; this avoids re-introducing the
   0.0.15 Notepad dirty-marker race into a required step.
-- **W3**: four version sources → `0.0.16`; README/PRD truth updated. W4
-  (three-OS CI, public signed Release and owner-view acceptance) is not
-  claimed until it has actually run and been checked from the owner's view.
+- **W3**: four version sources → `0.0.16`; README/PRD truth updated. The
+  first pack measured 6,317,398 bytes, 25,942 over the 6 MiB Candidate
+  ceiling. **D8** (`PRD_01_24`) keeps that owner-decided ceiling unchanged:
+  four cells without an a11y provider short-circuit to `no_a11y_tree`, fat
+  LTO drops the comparison path there, and the new schema strings are
+  shortened. No ceiling was raised. W4 (three-OS CI, public signed Release
+  and owner-view acceptance) is not claimed until it has actually run and
+  been checked from the owner's view.

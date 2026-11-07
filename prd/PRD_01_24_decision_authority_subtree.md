@@ -219,6 +219,32 @@ maximised-window `act_move` refusal fails), real-desktop X-grade probe gen
 textbox whose `accValue` changes on a typed act, with an independent reader
 assertion for `confirmed` that weakens no earlier step.
 
+## Dated controller decision D8 (2026-11-07, APE size ceiling)
+
+**Choice:** keep the 6 MiB Candidate ceiling of `PRD_01_01` unchanged. The
+four APE cells with no platform a11y provider short-circuit `effect` to the
+named `no_a11y_tree` refusal; the pure comparison stays platform-independent
+and unit-tested on all three OSes, but is dead code in those four cells and
+fat LTO drops it. New schema/description strings were shortened, and the
+refusal row dropped fields that no reader recomputes.
+
+**Reason:** the 0.0.16 pack measured 6,317,398 bytes — 25,942 over the
+ceiling. `PRD_01_01` marks `[no] auto-raising the size ceiling` and requires
+an explicit, dated **owner** decision; raising it is not the controller's
+call. All six APE cells carry a copy of the Rust code, and four of them can
+never publish an a11y tree, so the comparison path is genuinely dead there.
+The zip overlay was already deflate level 9 and the release profile already
+`opt-level=z / fat LTO / strip / panic=abort`, so no honest size knob remained.
+
+**Evidence:** 133 unit tests + four-configuration type gate green, real-desktop
+X-grade probe, local release build with no warnings; three-OS journey
+refusals remain named and reader-admissible.
+
+**Trigger to revisit:** a non-Windows cell that gains an a11y provider, or a
+future version whose unavoidable growth cannot be recovered by dead-code
+elimination. Either reopens the ceiling question **to the owner**, never as an
+automatic bump.
+
 ## Non-goals
 
 - `[no]` re-opening the G boundary in this phase.

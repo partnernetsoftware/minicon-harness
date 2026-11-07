@@ -517,7 +517,6 @@ fn a11y_effect_node_json(node: &crate::screen::A11yControl) -> Value {
         "rect": [node.x, node.y, node.width, node.height],
         "depth": node.depth,
         "child_id": node.child_id,
-        "role_name": node.role_name,
     })
 }
 
@@ -549,16 +548,11 @@ fn a11y_effect_observed(
 fn effect_refusal(reason: &str) -> Value {
     json!({
         "reason": reason,
-        "hwnd": Value::Null,
-        "name": Value::Null,
-        "role_name": Value::Null,
         "before": Value::Null,
         "after": Value::Null,
         "expect": [],
         "observed": [],
         "verdict": "refused",
-        "before_generation": Value::Null,
-        "after_generation": Value::Null,
     })
 }
 
@@ -652,6 +646,33 @@ fn a11y_effect_evidence(
         "before_generation": frame.generation,
         "after_generation": dispatch_generation + 1,
     })
+}
+
+/// The 6 MiB Candidate ceiling is an owner decision (PRD 01.01), never a
+/// number to raise for a feature. Four APE cells have no platform a11y
+/// provider: their scan is always empty with a named reason, so the
+/// comparison path is dead code there and fat LTO drops it. The pure
+/// comparison stays platform-independent and is unit-tested on all three
+/// OSes; only the dispatch is specialised.
+#[cfg(windows)]
+fn effect_evidence_for_cell(
+    before_frame: Option<&CuFrame>,
+    dispatch_generation: u64,
+    after: &ScreenSnapshot,
+    request: &EffectRequest,
+) -> Value {
+    a11y_effect_evidence(before_frame, dispatch_generation, after, request)
+}
+
+#[cfg(not(windows))]
+fn effect_evidence_for_cell(
+    before_frame: Option<&CuFrame>,
+    dispatch_generation: u64,
+    after: &ScreenSnapshot,
+    request: &EffectRequest,
+) -> Value {
+    let _ = (before_frame, dispatch_generation, after, request);
+    effect_refusal("no_a11y_tree")
 }
 
 fn window_json(window: &WindowInfo) -> Value {
@@ -1355,7 +1376,7 @@ impl CuHost {
                 state.frame = Some(frame);
                 let generation = state.generation;
                 if let Some(effect) = &effect {
-                    evidence["a11y_effect"] = a11y_effect_evidence(
+                    evidence["a11y_effect"] = effect_evidence_for_cell(
                         before_frame.as_ref(),
                         dispatch_generation,
                         &snapshot,
