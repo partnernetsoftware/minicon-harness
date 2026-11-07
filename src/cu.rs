@@ -4930,15 +4930,31 @@ mod tests {
 
     #[test]
     fn an_empty_a11y_tree_is_a_named_refusal_not_a_coordinate_fallback() {
+        let caps = crate::screen::platform_capabilities();
         let empty = host_with_a11y_frame(Vec::new(), 1, 1, (0, 0, 800, 600));
         let result = empty.invoke_json(&json!({
             "op": "act", "why": "x", "action": "control",
             "control": "新建任务", "source": "a11y"
         }));
         assert_ne!(result.verdict, CuVerdict::Performed, "{}", result.text);
-        if result.evidence["reason"] == "no_a11y_tree" {
-            assert!(result.text.contains("no a11y nodes"), "{}", result.text);
+        if !caps.supports("act:control") {
+            // A cell whose matrix declares the verb unsupported names that
+            // boundary at admission, before any frame is consulted. The pure
+            // a11y resolver is separately tested on all four configurations.
+            assert!(
+                matches!(result.verdict, CuVerdict::Refused | CuVerdict::Unsupported),
+                "{}",
+                result.text
+            );
+            assert!(result.text.contains(crate::screen::platform_name()), "{}", result.text);
+            assert!(result.text.contains("act:control"), "{}", result.text);
+            let reason = crate::screen::resolve_a11y_control(&[], "新建任务", None)
+                .unwrap_err();
+            assert!(reason.contains("no a11y node matches"), "{reason}");
+            return;
         }
+        assert_eq!(result.evidence["reason"], "no_a11y_tree");
+        assert!(result.text.contains("no a11y nodes"), "{}", result.text);
         // A stale a11y frame is stale, exactly like a Win32 frame.
         let stale = host_with_a11y_frame(
             vec![synthetic_a11y_node("新建任务", 43, 0x100000, 500, 16, 32, 32)],
@@ -4955,15 +4971,26 @@ mod tests {
 
     #[test]
     fn an_a11y_target_never_guesses_ambiguous_or_inoperable_nodes() {
-        let host = host_with_a11y_frame(
-            vec![
-                synthetic_a11y_node("OK", 43, 0x100000, 10, 10, 40, 20),
-                synthetic_a11y_node("OK", 43, 0x100000, 60, 10, 40, 20),
-            ],
-            1,
-            1,
-            (0, 0, 800, 600),
-        );
+        let caps = crate::screen::platform_capabilities();
+        let ambiguous_rows = vec![
+            synthetic_a11y_node("OK", 43, 0x100000, 10, 10, 40, 20),
+            synthetic_a11y_node("OK", 43, 0x100000, 60, 10, 40, 20),
+        ];
+        let vetoed_rows =
+            vec![synthetic_a11y_node("关闭", 43, 0x8000, 10, 10, 40, 20)];
+        if !caps.supports("act:control") {
+            // Admission names the capability boundary; the backend-independent
+            // resolver still has to refuse ambiguity and an inoperable node on
+            // this cell. Both are pure functions, so no desktop is needed.
+            let reason = crate::screen::resolve_a11y_control(&ambiguous_rows, "OK", None)
+                .unwrap_err();
+            assert!(reason.contains("matches 2"), "{reason}");
+            let reason = crate::screen::resolve_a11y_control(&vetoed_rows, "关闭", None)
+                .unwrap_err();
+            assert!(reason.contains("invisible"), "{reason}");
+            return;
+        }
+        let host = host_with_a11y_frame(ambiguous_rows, 1, 1, (0, 0, 800, 600));
         let ambiguous = host.invoke_json(&json!({
             "op": "act", "why": "x", "action": "control", "control": "OK", "source": "a11y"
         }));
