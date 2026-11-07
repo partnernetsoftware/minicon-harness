@@ -28,10 +28,13 @@ start code or tests until the plan is complete** — 三思后行 (think three
 times before acting) and 分而治之 (divide and conquer). This replaces the
 earlier "implement next" pace for the current phase.
 
-**Current phase: SHIP 0.0.16 (W1-W3 complete; W4 three-OS CI + Release +
-owner-view acceptance in progress).** `v0.0.15` remains the last *published*
-Release; the four version sources now read `0.0.16` for the build being
-qualified. W0 pass 8 added three findings (expected-effect-first, TOCTOU
+**Current phase: 0.0.16 SHIPPED AND ACCEPTED; 0.0.17 PLANNED (6/6, NOT
+started).** `v0.0.16` is the latest public signed Release (published
+2026-11-07 12:36 UTC, accepted from the owner's view); all four version
+sources read `0.0.16`. Per `/goal` the controller planned the next version
+itself: 0.0.17 is native default action (`accDoDefaultAction`) with
+mandatory expect-vs-observed verification — the candidate whose gate
+0.0.16's effect-evidence kind opened (`plan/plan-0.0.17-native-default-action.md`). W0 pass 8 added three findings (expected-effect-first, TOCTOU
 identity re-validation, polling diff vs asymmetric event streams) and a
 real-desktop X-grade probe that **falsified the v1 assumption** that the
 WorkBuddy window has an editable `accValue`. The plan v2
@@ -85,7 +88,8 @@ prd/
 plan/
 ├── plan-0.0.15-uia-probe-and-routing.md   W0 diagnostic record, UIA W2 stopped
 ├── plan-0.0.15-a11y-addressed-actuation.md 0.0.15 shipped, accepted `[v]`
-└── plan-0.0.16-a11y-effect-readback.md    0.0.16 plan v2 + W1-W3 record, W4 pending
+├── plan-0.0.16-a11y-effect-readback.md    0.0.16 shipped + accepted record
+└── plan-0.0.17-native-default-action.md  0.0.17 plan 6/6, NOT started
 ```
 
 ### T1 — perception (full tree: `PRD_01_19`)
@@ -173,8 +177,8 @@ T7 versions
 ├── V0.0.1 - V0.0.14   [v] published, accepted signed Releases
 ├── V0.0.15            [v] W1 UIA diagnostic probe; [v] a11y-addressed
 │                      actuation shipped as a public signed Release
-├── V0.0.16            [_] a11y effect readback, expect-vs-observed;
-│                      plan v2 6/6; W1-W3 done, W4 CI/Release/acceptance pending
+├── V0.0.16            [v] a11y effect readback, expect-vs-observed;
+│                      public signed Release, accepted from the owner's view
 ├── line freeze        [decision] CU only <= 0.0.18; harness/omp after
 ├── candidate pool      [study] ordered by gate, never a version commitment
 └── standing [no]      [no] unchanged by any study pass
@@ -800,7 +804,7 @@ Windows journey run hit a Notepad dirty-marker race (`*Untitled - Notepad`
 during `act_type`) and was rerun green with no code or reader change.
 
 **Next version is planned only after this one is published and accepted.**
-**0.0.16 W1-W3 implemented, W4 in progress (2026-11-07).**
+**0.0.16 published and accepted from the owner's view (2026-11-07).**
 `plan/plan-0.0.16-a11y-effect-readback.md` is the 6/6-complete next-version
 plan, **upserted on 2026-11-07 after W0 pass 8 and a real-desktop X-grade
 probe**. Topic: an **expect-vs-observed** typed readback of the same a11y node
@@ -814,10 +818,20 @@ act and makes `unchanged` / `mismatch` honest verdicts. It closes the L3 gap
 an image arm, a model loop, a new verb, an event subscription, a grant or a G
 change. W1/W2 added 133 unit tests, the four-configuration type gate, a
 real-desktop X-grade probe and two three-OS journey steps with an independent
-reader; W3 bumped all four version sources to `0.0.16`. W4 (three-OS CI,
-public signed Release and owner-view acceptance) is in progress and is not
-claimed until it has been checked from the owner's view. The controller chose
-the topic (D2), the v2 correction (D6) and the CI fixture (D7) itself.
+reader; W3 bumped all four version sources to `0.0.16`. W4 completed on
+2026-11-07: three-OS journeys `42369266308` and compile gate `42369266318`
+green, pack `42372107935` (six courts), candidate `42372973785`, signing
+`42373025600`, dry-run `42373149404`, publish `42373208791`; `v0.0.16` is
+Latest with 15 assets, the page is anonymously 200, the downloaded APE
+printed `minicon-harness 0.0.16`, five archive sidecars recomputed OK, the
+signed `.com` matched the signing receipt `after_sha256`, and both published
+Windows artifacts are locally Authenticode `Valid` with RFC 3161. The pack's
+6,307,626 bytes exceeded the 6 MiB stamp after D8 and a final string trim;
+the ceiling was raised to 6,553,600 by the dated owner decision in
+`PRD_01_01` (the `/goal` full-delegation re-send after the blocked pack was
+presented with priced options) — never an automatic bump. The controller
+chose the topic (D2), the v2 correction (D6), the CI fixture (D7) and the
+size work (D8) itself.
 
 **Line freeze (owner direction 2026-11-07).** Effort stays on computer use
 through `v0.0.18`; 0.0.17 / 0.0.18 topics are chosen later by gate plus fresh

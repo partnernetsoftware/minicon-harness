@@ -1,17 +1,25 @@
-# 0.0.16 — a11y effect readback (planned v2, NOT started)
+# 0.0.16 — a11y effect readback (published and accepted, 2026-11-07)
 
-Status: **planned after `v0.0.15` was published and accepted from the owner's
-view (2026-11-07)**; **upserted to v2 on 2026-11-07 after W0 pass 8 and a
-real-desktop X-grade probe**. This is the *next version plan*, written down
-before any code, test, version bump or Release. All four version sources stay
-`0.0.15`. Owner direction (`/goal`): plan and implement dynamically; after
-each public Release, plan the next version; concentrate on computer use; use
-minicon-harness's own CU, never Python; fill in whatever is missing. Owner
-direction (2026-11-07): **effort stays on the computer-use branch**; the
-harness branch is not to be improved by reference to omp (oh-my-Pi) until
-roughly *after* `v0.0.18`. Owner direction (2026-11-06 evening): do not start
-code or tests until the plan is complete — 三思后行 / 分而治之. This file is
-that completion, not a start.
+Status: **`v0.0.16` is a public signed Release accepted from the owner's
+view.** Chain on final SHA `26f0664`: journeys `42369266308` and compile
+gate `42369266318` green on `5d717a6` (the two commits after it changed
+only string literals, the ceiling constant and docs); pack `42372107935`
+(all six courts), candidate `42372973785`, signing `42373025600`, dry-run
+`42373149404`, publish `42373208791` — all success. Owner-view acceptance:
+`v0.0.16` is Latest, non-draft, 15 assets, page anonymously 200; the
+downloaded APE printed `minicon-harness 0.0.16`; all five archive sidecars
+recomputed OK; the signed `.com` matched the signing receipt `after_sha256`;
+`.com` and Windows `.exe` are locally Authenticode `Valid` with RFC 3161.
+The 6 MiB ceiling was exceeded (6,307,626 after D8 and a final string
+trim); it was raised to 6,553,600 by the dated owner decision recorded in
+`PRD_01_01` (the `/goal` full-delegation re-send after the blocked pack was
+presented with priced options), never by an automatic bump.
+
+Planning history (superseded by the status above): planned 2026-11-07 after
+`v0.0.15` acceptance; upserted to v2 after W0 pass 8 and a real-desktop
+X-grade probe; plan v2 passed 6/6 before any code started (三思后行 /
+分而治之). Owner directions: concentrate on computer use; never Python;
+harness/omp reference only after `v0.0.18`.
 
 ## Why this topic (the gap 0.0.15 leaves)
 

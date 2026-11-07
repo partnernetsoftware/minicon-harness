@@ -57,12 +57,15 @@ T7 Versions / candidates (state, not a promise)
 │   ├── W0 pass 7: real MSAA target measurement + route switch         [v]
 │   ├── W1/W2: `source`/`role`, resolver, reader, four-cfg gate        [v]
 │   └── W3/W4: four version sources + public signed Release            [v]
-├── V0.0.16  a11y effect readback — expect-vs-observed        [_] W4 pending
+├── V0.0.16  a11y effect readback — expect-vs-observed                 [v]
 │   ├── plan v2 6/6 complete 2026-11-07 (W0 pass 8 + X-grade probe)  [v] plan
-│   ├── W1/W2/W3 complete: 133 tests, four-cfg gate, X-grade probe,
+│   ├── W1/W2/W3: 133 tests, four-cfg gate, X-grade probe,
 │   │   two three-OS journey steps + independent reader,
 │   │   four version sources -> 0.0.16                                [v] local
-│   └── W4 three-OS CI + public signed Release + owner-view acceptance [_] pending
+│   └── W4 2026-11-07: three-OS CI, pack (6 courts), candidate,
+│       signing, dry-run, publish 42373208791; Latest, 15 assets,
+│       anonymous 200, APE prints 0.0.16, sidecars OK, Authenticode
+│       Valid + RFC3161; ceiling raised by dated owner decision       [v] owner
 ├── Candidate pool (ordered by gate, not by version)                     [study]
 │   ├── C1 UIA mixed routing              gate: **closed by pass 5 probe** [no]
 │   ├── C2 AT-SPI / AX trees              gate: OS grants + 3-OS fixture [_]
@@ -72,7 +75,8 @@ T7 Versions / candidates (state, not a promise)
 │   ├── C6 C5/C6 safety + hand-off       gate: policy PRD first          [_]
 │   ├── C7 B8 batched actions            gate: admission/stale design    [_]
 │   ├── C8 resource-domain telemetry     gate: 4 triggers (T8), G closed  [_] deferred
-│   └── C9 harness-line improvement     gate: v0.0.18 published+accepted   [no] until then
+│   ├── C9 harness-line improvement     gate: v0.0.18 published+accepted   [no] until then
+│   └── C10 native default action        gate: OPENED by 0.0.16 effect kind  [_] 0.0.17 planned
 └── Standing [no] (unchanged by any study pass)                          [no]
     ├── plugin host, permission policy engine, streaming, MCP
     ├── a scripting surface over the desktop, a second model loop
