@@ -28,16 +28,38 @@ start code or tests until the plan is complete** — 三思后行 (think three
 times before acting) and 分而治之 (divide and conquer). This replaces the
 earlier "implement next" pace for the current phase.
 
-**Current phase: SHIP 0.0.15 (route switched by a dated controller decision
-on 2026-11-07).** The STUDY + STRUCTURE phase of 2026-11-06 is closed: W0
-pass 7 produced X-grade evidence that the target *is* addressable on the MSAA
-arm, the 0.0.15 plan was rewritten and passed 6/6 **before** any code started,
-and W1-W4 then ran. Last published Release before this cycle was `v0.0.14`.
-Every tree node is either `[v]` with three-OS evidence, `[study]`, `[_]`,
-`[no]` or `[decision]`; a research finding never becomes a capability by
-itself. The UIA probe and its downgrade decision are kept verbatim as the W0
-diagnostic record (`plan/plan-0.0.15-uia-probe-and-routing.md`); the route
-switch is dated in `PRD_01_24`, not a rewrite of that record.
+**Current phase: PLAN 0.0.16 (W0 pass 8 complete, plan v2 6/6, NOT started).**
+`v0.0.15` is published and accepted; all four version sources read `0.0.15`.
+W0 pass 8 added three findings (expected-effect-first, TOCTOU identity
+re-validation, polling diff vs asymmetric event streams) and a real-desktop
+X-grade probe that **falsified the v1 assumption** that the WorkBuddy window
+has an editable `accValue`. The 0.0.16 plan was upserted to
+**expect-vs-observed**, with `unchanged` as a first-class verdict. No code,
+test, version bump or Release chain has started for 0.0.16. Every tree node is
+either `[v]` with three-OS evidence, `[study]`, `[_]`, `[no]` or `[decision]`;
+a research finding never becomes a capability by itself. The UIA probe and its
+downgrade decision are kept verbatim as the W0 diagnostic record
+(`plan/plan-0.0.15-uia-probe-and-routing.md`); the route switch is dated in
+`PRD_01_24`, not a rewrite of that record.
+
+### Version roadmap and line freeze (owner direction 2026-11-07)
+
+```text
+<= v0.0.18   computer-use branch only
+  v0.0.16    a11y effect readback       [_] plan v2 6/6, NOT started
+  v0.0.17    CU, topic by gate + fresh X-grade evidence (not committed)
+  v0.0.18    CU, topic likewise         (still no harness-line work)
+>  v0.0.18   only after that Release is published AND accepted from the
+             owner's view MAY the harness branch be improved with
+             omp (oh-my-Pi) as a reference — deferred, not a commitment
+```
+
+The owner said the harness reference is expected "roughly after 0.0.18".
+Until then: no omp study, no harness code/test/dependency, and no widening of
+`exec`, `file` or the model loop. The CU branch keeps the whole version
+budget; 0.0.17 / 0.0.18 are deliberately **not** topic commitments because
+`PRD_01_17` upserts candidates with unlock conditions. This is a dated owner
+direction the controller follows, not an owner approval queue.
 
 ### Document index (subtree documents)
 
@@ -59,7 +81,7 @@ prd/
 plan/
 ├── plan-0.0.15-uia-probe-and-routing.md   W0 diagnostic record, UIA W2 stopped
 ├── plan-0.0.15-a11y-addressed-actuation.md 0.0.15 shipped, accepted `[v]`
-└── plan-0.0.16-a11y-effect-readback.md    next-version plan, NOT started
+└── plan-0.0.16-a11y-effect-readback.md    0.0.16 plan v2 (W0 pass 8), NOT started
 ```
 
 ### T1 — perception (full tree: `PRD_01_19`)
@@ -147,6 +169,9 @@ T7 versions
 ├── V0.0.1 - V0.0.14   [v] published, accepted signed Releases
 ├── V0.0.15            [v] W1 UIA diagnostic probe; [v] a11y-addressed
 │                      actuation shipped as a public signed Release
+├── V0.0.16            [_] a11y effect readback, expect-vs-observed;
+│                      plan v2 6/6, NOT started (no code/bump/Release)
+├── line freeze        [decision] CU only <= 0.0.18; harness/omp after
 ├── candidate pool      [study] ordered by gate, never a version commitment
 └── standing [no]      [no] unchanged by any study pass
 ```
@@ -214,6 +239,9 @@ where the owner actually spoke (e.g. the 0.0.11 a11y lift).
 | 2026-11-06 | 4 | decision authority under `/goal` | owner direction | a reversible default must not be escalated; owner keeps a veto, not an approval queue |
 | 2026-11-06 | 5 | W1 UIA probe verdict on the real desktop | X (this machine) | all COM slots S_OK + desktop root `0,0,1680,1050`, yet the target WorkBuddy provider gives 8 Pane nodes / 0 non-Pane controls; cold-start RECTs were zero then stable on re-run. A callable interface is neither a useful provider nor a stable first read |
 | 2026-11-06 | 6 | Electron lazy `AXMode`, AT-SPI2/Wayland tiers, macOS dual TCC, AT-SPI pidfd exhaustion | O/S/V | an empty a11y tree is a target-app launch precondition, not a CU verb; TCC binds to the responsible process + code signature; Wayland is semantic-only; a wedged portal stalls every tree walk for 15 s |
+| 2026-11-07 | 8 | expected-effect-first verification, CU TOCTOU, asymmetric a11y event coverage | O/S/V | a post-act frame invites rationalisation; the expectation must be written before the act, identity re-validated at dispatch, and three-OS event coverage is not symmetric enough to subscribe to |
+| 2026-11-07 | 8 | MSAA `EVENT_OBJECT_VALUECHANGE` / `STATECHANGE`, cgroup v2 boundary vs placement, MIG vs MPS, PSI-before-OOM, `CUDA_VISIBLE_DEVICES` | O/S/V | server events are optional provider behaviour, not a replacement for published rows; an env var is not an isolation boundary; all resource findings remain T3 study notes with G closed |
+| 2026-11-07 | 8 | real-desktop before/after a11y probe on the L3 client | X (this machine) | 43/43 identity-stable nodes, 0/0/0 state/value/rect diffs, only one non-empty `value` (a document URL), and a performed hover with no change — the v1 "changed means success" contract is falsified |
 
 Evidence grades: **O** official, **B** benchmark board, **P** paper,
 **V** vendor claim, **S** survey / secondary, **X** local measurement. Only
@@ -768,15 +796,28 @@ Windows journey run hit a Notepad dirty-marker race (`*Untitled - Notepad`
 during `act_type`) and was rerun green with no code or reader change.
 
 **Next version is planned only after this one is published and accepted.**
-**Next version planned after acceptance (0.0.16, NOT started).**
+**Next version planned after acceptance (0.0.16 v2, NOT started).**
 `plan/plan-0.0.16-a11y-effect-readback.md` is the 6/6-complete next-version
-plan. Topic: a typed before/after readback of the same a11y node across one
-act — the bounded first half of F3, using only `accValue`/`state` and the
-0.0.13 wait already shipped. It closes the L3 gap "a receipt proves a button
-was posted, not that anything happened", without an image arm, a model loop,
-a new verb, a grant or a G change. No code, test, version bump or Release has
-started for it; all four version sources still read `0.0.15`. The controller
-chose this topic itself (T8 D2) and reports the reason, not a menu.
+plan, **upserted on 2026-11-07 after W0 pass 8 and a real-desktop X-grade
+probe**. Topic: an **expect-vs-observed** typed readback of the same a11y node
+across one act — the bounded first half of F3, using only `accValue`/`state`
+and the 0.0.13 wait already shipped. The v1 "a non-empty `changed` means
+success" contract was falsified by measurement: the target window has 43
+identity-stable nodes, zero before/after differences and only one non-empty
+`value` (a document URL), so v2 requires `expect` to be written **before** the
+act and makes `unchanged` / `mismatch` honest verdicts. It closes the L3 gap
+"a receipt proves a button was posted, not that anything happened", without
+an image arm, a model loop, a new verb, an event subscription, a grant or a G
+change. No code, test, version bump or Release has started for it; all four
+version sources still read `0.0.15`. The controller chose the topic (T8 D2)
+and the v2 correction (T8 D6) itself and reports the reasons, not a menu.
+
+**Line freeze (owner direction 2026-11-07).** Effort stays on computer use
+through `v0.0.18`; 0.0.17 / 0.0.18 topics are chosen later by gate plus fresh
+evidence, never committed in advance. Only **after** `v0.0.18` is published
+and accepted from the owner's view may the harness branch be improved with
+omp (oh-my-Pi) as a reference — a deferred direction, not a promise. See
+"Version roadmap and line freeze" above and `PRD_01_23` C9.
 
 G direction (a) stays decided; native default-action dispatch
 (`accDoDefaultAction` / `AXUIElementPerformAction` / `atspi.DoAction`) remains

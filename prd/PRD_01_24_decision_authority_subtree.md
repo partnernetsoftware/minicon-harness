@@ -168,6 +168,32 @@ and independent reader rule. This decision does **not** satisfy that trigger.
 | 2026-11-06 | 5 | W1 UIA probe verdict on the real desktop | X (this machine) | every slot S_OK + usable desktop root RECT, yet the target provider gave 8 Pane nodes / 0 non-Pane controls; cold-start zero RECTs became stable on re-run. The downgrade rule stopped W2 without an owner choice | `plan-0.0.15`, `PRD_01_17` pass 5, T7 |
 | 2026-11-06 | 6 | lazy Chromium `AXMode`, Linux/macOS a11y grant tiers | O / S / V | the empty tree is a target-app launch precondition outside `screen`; this sharpens the W2 reopen trigger but starts no implementation | `PRD_01_17` pass 6, this file |
 | 2026-11-07 | 7 | semantic grounding, native default action, MSAA/UIA provider split, real-target a11y vs Win32 scan | O / P / S / X | a native press has no pointer readback; "no addressable controls" was UIA-specific; MSAA on the same hwnd yields 8 buttons. Study does not authorise a route, a dated decision does | `PRD_01_17` pass 7, `PRD_01_25`, this file |
+| 2026-11-07 | 8 | expected-effect-first verification, CU TOCTOU, asymmetric a11y event coverage, resource-boundary reading, real-desktop before/after probe | O / S / V / X | the target window has no editable `accValue`, so a "changed" success would invite fabrication; event subscription would tear the three-OS matrix. The v1 0.0.16 contract was **falsified by measurement**, not by preference | `PRD_01_17` pass 8, `plan-0.0.16` v2, this file |
+| 2026-11-07 | owner | line freeze: CU effort through 0.0.18; omp (oh-my-Pi) harness reference only after 0.0.18 acceptance | owner direction | "roughly after" is an unlock window, not a version commitment; 0.0.17/0.0.18 topics stay decided by gate + fresh evidence | `PRD.md` roadmap, `PRD_01_23` C9 |
+
+## Dated controller decision D6 (2026-11-07, W0 pass 8)
+
+**Choice:** keep 0.0.16's topic (F3 first half, a11y effect readback) but
+**upgrade its contract** from "publish a `changed` array" to "compare a
+pre-declared `expect` against a recomputed `observed`", with `unchanged` /
+`mismatch` as honest verdicts; keep event subscription and the harness branch
+`[no]`; start no code, test, version bump or Release.
+
+**Reason:** the X-grade probe measured 43 identity-stable nodes with zero
+before/after differences, a single non-empty `value` (a document URL), and a
+performed hover with no state change. Requiring a non-empty `changed` would
+make the target window permanently fail or reward a fabricated difference.
+Pass 8's expected-effect-first and TOCTOU findings independently require a
+pre-declared expectation and a generation-bound `before` frame. The v1
+assumption was written before the measurement; a measurement outranks a plan.
+
+**Evidence:** `PRD_01_17` pass 8 table + `plan-0.0.16` v2 "X-grade evidence";
+`src/cu.rs` generation/frame lifecycle read during planning.
+
+**Trigger to revisit:** a WorkBuddy provider that publishes an editable
+textbox `accValue` on the real desktop, or a three-OS event surface with
+symmetric coverage; either would reopen the fixture choice, not the G
+boundary. The harness line reopens only on the owner's 0.0.18 condition.
 
 ## Non-goals
 

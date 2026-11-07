@@ -35,6 +35,10 @@ T1 Observation / perception
 │   ├── P2.2 Windows MSAA / IAccessible read-only tree               [v] 0.0.11
 │   ├── P2.3 normalised node schema (state/value/schema tag)         [v] 0.0.14
 │   ├── P2.3a a11y node as an addressable act target                  [v] 0.0.15
+│   ├── P2.3b expect-vs-observed readback of one node across an act   [_] 0.0.16 plan v2
+│   │        (pass 8 X: 43/43 identity-stable rows, 0/0/0 diffs, only one
+│   │         non-empty `value` = document URL; `unchanged`/`mismatch` are
+│   │         first-class verdicts, no fabricated `changed`)
 │   ├── P2.4 UIA control-view walker + MSAA fallback                [no] W2 stopped
 │   │        (pass 4: vtable + GUIDs verified against installed SDK;
 │   │         pass 5: probe verified every COM slot on 6 windows, but the

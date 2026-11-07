@@ -150,6 +150,20 @@ crate, ABI bump, matrix cell or native signature. Tree:
 plan: [`plan/plan-0.0.15-a11y-addressed-actuation.md`](plan/plan-0.0.15-a11y-addressed-actuation.md).
 The UIA W2 stays stopped; the route switch is a dated controller decision
 (`PRD_01_24`). `v0.0.15` is the latest public signed Release.
+
+**Next version (0.0.16, planned v2, NOT started).**
+[`plan/plan-0.0.16-a11y-effect-readback.md`](plan/plan-0.0.16-a11y-effect-readback.md)
+is a 6/6-complete plan for the bounded first half of F3: an
+**expect-vs-observed** typed readback of one a11y node across an act. W0 pass 8
+plus a real-desktop X-grade probe falsified the v1 "a non-empty `changed` means
+success" contract (43 identity-stable nodes, zero before/after differences, no
+editable `accValue` on the WorkBuddy window), so `expect` must be written
+before the act and `unchanged` / `mismatch` are honest verdicts. No code, test,
+version bump or Release has started; all four version sources remain `0.0.15`.
+**Line freeze (owner direction 2026-11-07):** computer use owns versions
+through `v0.0.18`; the harness branch may be improved with omp (oh-my-Pi) as a
+reference only after `v0.0.18` is published and accepted from the owner's view.
+
 The PRD is now a multi-dimensional tree with per-branch subtree documents and
 a dated W0 learning ledger: see the *Document tree* section of
 [`PRD.md`](PRD.md) and

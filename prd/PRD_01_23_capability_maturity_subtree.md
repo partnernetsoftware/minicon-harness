@@ -57,8 +57,9 @@ T7 Versions / candidates (state, not a promise)
 │   ├── W0 pass 7: real MSAA target measurement + route switch         [v]
 │   ├── W1/W2: `source`/`role`, resolver, reader, four-cfg gate        [v]
 │   └── W3/W4: four version sources + public signed Release            [v]
-├── V0.0.16  a11y effect readback — planned after v0.0.15 acceptance     [_]
-│   └── plan 6/6 complete, NOT STARTED; no code, test, bump or Release
+├── V0.0.16  a11y effect readback — expect-vs-observed                   [_]
+│   ├── plan v2 6/6 complete 2026-11-07 (W0 pass 8 + X-grade probe)     [v] plan
+│   └── NOT STARTED; no code, test, bump or Release; versions stay 0.0.15
 ├── Candidate pool (ordered by gate, not by version)                     [study]
 │   ├── C1 UIA mixed routing              gate: **closed by pass 5 probe** [no]
 │   ├── C2 AT-SPI / AX trees              gate: OS grants + 3-OS fixture [_]
@@ -67,7 +68,8 @@ T7 Versions / candidates (state, not a promise)
 │   ├── C5 F3 app-level effect evidence   gate: side-effect-free fixture [_]
 │   ├── C6 C5/C6 safety + hand-off       gate: policy PRD first          [_]
 │   ├── C7 B8 batched actions            gate: admission/stale design    [_]
-│   └── C8 resource-domain telemetry     gate: 4 triggers (T8), G closed  [_] deferred
+│   ├── C8 resource-domain telemetry     gate: 4 triggers (T8), G closed  [_] deferred
+│   └── C9 harness-line improvement     gate: v0.0.18 published+accepted   [no] until then
 └── Standing [no] (unchanged by any study pass)                          [no]
     ├── plugin host, permission policy engine, streaming, MCP
     ├── a scripting surface over the desktop, a second model loop
@@ -114,6 +116,22 @@ passed its own 6/6 checklist **before** any code started, and W1-W4 ran. The
 switch is a dated controller decision (`PRD_01_24`). "三思后行" and
 "分而治之" still govern: T9 got its own subtree and an explicit unlock
 condition before implementation. Decision authority is T8.
+
+## Current phase (2026-11-07, after v0.0.15 acceptance)
+
+```text
+PLAN 0.0.16 v2 (6/6)  ->  dated T8 D6 decision  ->  ONLY THEN W1/W2
+```
+
+W0 pass 8 plus the real-desktop before/after X-grade probe corrected the
+0.0.16 contract to **expect-vs-observed** (pre-declared `expect`, recomputed
+`observed`, `unchanged` / `mismatch` as first-class verdicts, generation-bound
+`before` frame, snapshot diff instead of event subscription). No code, test,
+version bump or Release has started; all four version sources read `0.0.15`.
+The CU branch owns 0.0.16-0.0.18 — topics for 0.0.17 / 0.0.18 are **not**
+committed — and C9 (harness line / omp reference) is `[no]` until `v0.0.18`
+is published and accepted. The historical phase sections above are kept
+verbatim.
 
 ## Plan-completeness checklist for 0.0.15 — 6/6 passed 2026-11-06 (UIA probe)
 

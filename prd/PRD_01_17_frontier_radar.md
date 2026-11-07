@@ -433,6 +433,31 @@ started; it switches the 0.0.15 route to a11y-addressed actuation. The UIA
 W2 stays `[no]`. A study note is still not a decision: the switch is dated in
 `PRD_01_24`, and only three-OS CI plus owner-view acceptance produce `[v]`.
 
+## Findings, 2026-11-07 (eighth pass, expected-effect verification)
+
+| Source (grade) | What was learned | Consequence for this repo |
+|---|---|---|
+| `vibeengines.com/ai-system-design/computer-use-agent-system-design` (S, 2026) | "the next observation is the test"; **the decision must emit its predicted effect as part of the action**, otherwise post-hoc self-verification rationalises success. A mismatch is a countable event, not a judgement call | 0.0.16 becomes expect-vs-observed: `expect` is written before the act, `confirmed`/`mismatch` are recomputable |
+| OpenVINO GSoC 2026 CU write-up (`engineering.zooz.com`, V/S) | grounding cascade UIA tree → OCR → VLM; verification ground truth = control read-back, controls-diff, focused-control read-back; a perceptual hash only detects a no-op. "A model will happily tell you a click succeeded when it didn't" | a11y read-back is the primary evidence; no image arm is needed for F3's first half |
+| AIDEFEND Labs computer-use TOCTOU case (S, 2026-08) | a Continue button was swapped for Send at the same coordinates during inference; the fix is pre-dispatch re-validation bound to element identity, with before / action-time / post-action evidence | `before` frame is bound to its generation; any intervening observation is a named `stale` refusal |
+| Microsoft Event Constants (`technet.microsoft.com`, O) / MSAA server guides (O) | `EVENT_OBJECT_VALUECHANGE`, `EVENT_OBJECT_STATECHANGE` exist and are **[important] server-side events**, not guaranteed properties of a provider | event subscription is not a substitute for published snapshot rows |
+| `xa11y.dev/reference/events` (S/O, 2026) | event coverage is asymmetric: Linux all state bits, Windows only IsEnabled/ToggleState/ExpandCollapse/window visual state, macOS only Checked/Busy/Minimized; menu events unreliable on Linux, activation events absent on Windows; `TextChanged` carries no delta | subscribing would tear the 12/10/8/0 matrix; 0.0.16 diffs two published snapshots |
+| Slurm/cgroup v2 chapter, cgroupd PSI runner, MIG notes (S/V) | cgroup v2 is a **boundary, not placement**; MIG is hardware partitioning, MPS is not memory isolation; `CUDA_VISIBLE_DEVICES` alone is not an isolation boundary; PSI thresholds act before OOM; resource leakage beats epilogue cleanup | T3 study note only; G stays closed, direction (a). No resource verb, no harness work |
+| local X-grade probe, `cu_orchestrate` on hwnd 33689578 (X) | two `observe(a11y)` frames: 43/43 rows, identity set equal, state/value/rect diffs 0/0/0; **only 1 non-empty `value`**, a `document` URL; `act:control` hover on `最小化` performed with 0/0/0 diffs | the v1 "typed act changes `accValue`" assumption is false on this window. `unchanged` must be a first-class verdict, not a hidden failure; the Windows CI Notepad textbox is the `confirmed` fixture |
+
+**What changed in the plan, not in shipped code:** `plan-0.0.16` v2 replaces
+"detect that something changed" with "compare a pre-declared `expect` to a
+recomputed `observed`", names `unchanged` as the honest result of a no-op,
+pins the `before` frame to the generation read *before* `state.frame` is
+overwritten (verified in `src/cu.rs`: each `observe` bumps generation, `act`
+does not), and keeps event subscription `[no]`. The correction is dated in
+`PRD_01_24`; the version sources remain `0.0.15`.
+
+**Owner direction recorded this pass (2026-11-07):** effort stays on the
+computer-use branch; the harness branch is not to be improved by reference to
+omp (oh-my-Pi) until roughly after `v0.0.18` is published and accepted. This
+is a line freeze with a dated unlock condition, not a candidate to implement.
+
 ## Candidate table (upserted, not promised)
 
 | Finding | Repo axis | Candidate | Unlock condition | This cycle |
@@ -448,7 +473,8 @@ W2 stays `[no]`. A study note is still not a decision: the switch is dated in
 | Guest-side acceptance of isolation | F / delivery | extend owner-view acceptance to resource cells | only if G is ever lifted | deferred |
 | Addressable a11y handles beat pixel grounding | A2 / A4 / T9 | `act:control` resolves the normalised MSAA node by identity (`source`/`role`) | **opened by W0 pass 7 X-grade measurement**; plan 6/6 complete | **shipped in 0.0.15** |
 | Native default action (`accDoDefaultAction` / AXPress / `atspi.DoAction`) | T9 S7 | press by identity without a pointer | three-OS probes + a new effect-evidence kind + a policy PRD | `[study]` — an invoke has no pointer readback |
-| "Verify after every step" is the dominant long-horizon failure | F3 / L3 / T9 | typed before/after readback of the same a11y node across one act | none beyond a 6/6 plan; uses shipped `accValue`/`state` + 0.0.13 wait | **planned for 0.0.16, not started** |
+| "Verify after every step" is the dominant long-horizon failure | F3 / L3 / T9 | **expect-vs-observed** typed readback of the same a11y node across one act; `unchanged` is a valid verdict | 6/6 plan v2 + X-grade fixture check (pass 8: this window has no editable `accValue`); uses shipped `accValue`/`state` + 0.0.13 wait | **planned for 0.0.16 v2, not started** |
+| omp (oh-my-Pi) harness reference | harness branch | improve the harness line after the CU branch is mature | **only after `v0.0.18` is published and accepted** (owner direction 2026-11-07) | `[no]` until then: no study, code, test or dependency |
 
 ## G-boundary decision — taken by the controller (2026-11-06 22:15)
 

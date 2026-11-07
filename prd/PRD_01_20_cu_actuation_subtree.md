@@ -46,6 +46,10 @@ T2 Actuation / input
 │   │        `a11y_node` + schema published; reader recomputes state_names
 │   ├── A5 batched `actions[]` with ordered receipts                   [_] B8
 │   └── A6 post-action state verification / retry loop                [_] F3/L2
+│       ├── A6a pre-declared `expect` vs recomputed `observed`         [_] 0.0.16 plan v2
+│       │        (W0 pass 8: expectation before the act; generation-bound
+│       │         `before` frame; snapshot diff, not event subscription)
+│       └── A6b retry / aggregation loop                               [no] here
 ├── C code-first / hybrid execution (external)                     [study]
 │   ├── C1 "emit a script, run it, return screenshot + output"        [no] here
 │   └── C2 native app APIs preferred over simulated clicks            [_]
