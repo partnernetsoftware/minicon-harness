@@ -245,6 +245,16 @@ future version whose unavoidable growth cannot be recovered by dead-code
 elimination. Either reopens the ceiling question **to the owner**, never as an
 automatic bump.
 
+**Outcome (2026-11-07 20:03):** the revisit fired as designed. A third pack
+after a final string trim measured 6,307,626 bytes — still 16,170 over with no
+honest knob left — and the controller presented the blocked pack with three
+priced options and stopped. The owner answered by re-sending the standing
+`/goal` with "完全放权给你自主推进"; under that full delegation the ceiling
+was raised to the minimal 6,553,600 bytes (6.25 MiB, 4.2% headroom over the
+measured pack) and recorded as a dated decision in `PRD_01_01`. This D8
+record and the failed pack runs 42368000472 / 42369268313 / 42371125571 are
+the evidence chain; no automatic bump happened at any point.
+
 ## Non-goals
 
 - `[no]` re-opening the G boundary in this phase.
