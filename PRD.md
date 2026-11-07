@@ -58,7 +58,8 @@ prd/
 └── prd-cu-openai.md                        external reference, NOT a contract
 plan/
 ├── plan-0.0.15-uia-probe-and-routing.md   W0 diagnostic record, UIA W2 stopped
-└── plan-0.0.15-a11y-addressed-actuation.md 0.0.15 shipped route, plan 6/6
+├── plan-0.0.15-a11y-addressed-actuation.md 0.0.15 shipped, accepted `[v]`
+└── plan-0.0.16-a11y-effect-readback.md    next-version plan, NOT started
 ```
 
 ### T1 — perception (full tree: `PRD_01_19`)
@@ -747,17 +748,36 @@ normalised schema and `state_names` recomputed by the independent reader.
 No new capability row, verb, grant, crate, ABI bump, matrix cell or native
 signature. `press` still defaults to false, so resolution cannot click.
 
-**Acceptance:** W1/W2 unit tests, the four-backend type gate, a real-desktop
-semantic hover on `最小化` (button, rect `400,40 48x64`, centre `424,72`,
-readback `pointer at 424,72` inside the node), three-OS CI journeys with an
-independent reader recomputing centre, containment and the state bit mask,
-then W3/W4 version sources and a public signed Release accepted from the
-owner's view. The `act_move` step on this particular desktop is a **named
-maximised-window refusal** (the window manager kept `520x600`), not a 0.0.15
-regression: it is the pre-existing "a system that keeps its own geometry
-produces a failure that names both rectangles" invariant.
+**Acceptance (W4, owner view, 2026-11-07).** W1/W2: 126 unit tests (3
+ignored), four-backend type gate, a real-desktop semantic hover on `最小化`
+(button, rect `400,40 48x64`, centre `424,72`, readback inside the node),
+three-OS CI compile gate `42329026455` and journeys `42329357278` all
+success, with the independent reader recomputing centre, containment and
+`state_names`. Pack `42329042056`, candidate `42329975979`, signing
+`42330027308`, dry-run `42330153097`, publish `42330205680` — all success.
+`v0.0.15` is Latest, non-draft, 15 assets; the release page and six archives
+were anonymously 200, all sidecars recomputed OK, the signed `.com` matched
+the signing receipt `after_sha256`, the downloaded APE printed
+`minicon-harness 0.0.15`, and the downloaded `.com` and Windows `.exe` were
+locally Authenticode `Valid` with RFC 3161 timestamps. Build/signing receipts
+bind `4782d0f` / `0.0.15`. The `act_move` step on this particular desktop is
+a **named maximised-window refusal** (the window manager kept `520x600`), not
+a 0.0.15 regression: it is the pre-existing "a system that keeps its own
+geometry produces a failure that names both rectangles" invariant. A first
+Windows journey run hit a Notepad dirty-marker race (`*Untitled - Notepad`
+during `act_type`) and was rerun green with no code or reader change.
 
 **Next version is planned only after this one is published and accepted.**
+**Next version planned after acceptance (0.0.16, NOT started).**
+`plan/plan-0.0.16-a11y-effect-readback.md` is the 6/6-complete next-version
+plan. Topic: a typed before/after readback of the same a11y node across one
+act — the bounded first half of F3, using only `accValue`/`state` and the
+0.0.13 wait already shipped. It closes the L3 gap "a receipt proves a button
+was posted, not that anything happened", without an image arm, a model loop,
+a new verb, a grant or a G change. No code, test, version bump or Release has
+started for it; all four version sources still read `0.0.15`. The controller
+chose this topic itself (T8 D2) and reports the reason, not a menu.
+
 G direction (a) stays decided; native default-action dispatch
 (`accDoDefaultAction` / `AXUIElementPerformAction` / `atspi.DoAction`) remains
 `[study]` because an invoke has no pointer readback.

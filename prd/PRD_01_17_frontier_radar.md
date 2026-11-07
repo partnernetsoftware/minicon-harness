@@ -448,6 +448,7 @@ W2 stays `[no]`. A study note is still not a decision: the switch is dated in
 | Guest-side acceptance of isolation | F / delivery | extend owner-view acceptance to resource cells | only if G is ever lifted | deferred |
 | Addressable a11y handles beat pixel grounding | A2 / A4 / T9 | `act:control` resolves the normalised MSAA node by identity (`source`/`role`) | **opened by W0 pass 7 X-grade measurement**; plan 6/6 complete | **shipped in 0.0.15** |
 | Native default action (`accDoDefaultAction` / AXPress / `atspi.DoAction`) | T9 S7 | press by identity without a pointer | three-OS probes + a new effect-evidence kind + a policy PRD | `[study]` — an invoke has no pointer readback |
+| "Verify after every step" is the dominant long-horizon failure | F3 / L3 / T9 | typed before/after readback of the same a11y node across one act | none beyond a 6/6 plan; uses shipped `accValue`/`state` + 0.0.13 wait | **planned for 0.0.16, not started** |
 
 ## G-boundary decision — taken by the controller (2026-11-06 22:15)
 

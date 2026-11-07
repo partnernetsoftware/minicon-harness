@@ -1,7 +1,17 @@
 # 0.0.15 — a11y-addressed actuation (semantic control targets)
 
-Status: **planned, 6/6 complete on 2026-11-07; W1 starts only after this file
-exists.** This file does not overwrite `plan-0.0.15-uia-probe-and-routing.md`:
+Status: `[v]` **W1-W4 delivered and accepted from the owner's view.**
+`v0.0.15` is the Latest public signed Release, published at
+2026-11-07T02:38:36Z from `4782d0f`. Chain: compile gate `42329026455`,
+three-OS journeys `42329357278`, pack `42329042056`, candidate `42329975979`,
+signing `42330027308`, dry-run `42330153097`, publish `42330205680` — all
+success. Owner-view acceptance: release page anonymous 200, 15 assets,
+six archive sidecars recomputed OK, signed `.com` bytes matched the signing
+receipt `after_sha256`, the downloaded APE printed `minicon-harness 0.0.15`,
+and the downloaded `.com` and Windows `.exe` were locally Authenticode
+`Valid` with RFC 3161 timestamps.
+
+This file does not overwrite `plan-0.0.15-uia-probe-and-routing.md`:
 that document stays the verbatim W0 diagnostic record of the UIA probe and of
 the downgrade decision. This plan is the **controller's route switch** for the
 same version cycle, taken under T8 D2.1 (version topic) and D2.3 (lifting one

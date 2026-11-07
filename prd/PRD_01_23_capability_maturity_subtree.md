@@ -57,6 +57,8 @@ T7 Versions / candidates (state, not a promise)
 │   ├── W0 pass 7: real MSAA target measurement + route switch         [v]
 │   ├── W1/W2: `source`/`role`, resolver, reader, four-cfg gate        [v]
 │   └── W3/W4: four version sources + public signed Release            [v]
+├── V0.0.16  a11y effect readback — planned after v0.0.15 acceptance     [_]
+│   └── plan 6/6 complete, NOT STARTED; no code, test, bump or Release
 ├── Candidate pool (ordered by gate, not by version)                     [study]
 │   ├── C1 UIA mixed routing              gate: **closed by pass 5 probe** [no]
 │   ├── C2 AT-SPI / AX trees              gate: OS grants + 3-OS fixture [_]
