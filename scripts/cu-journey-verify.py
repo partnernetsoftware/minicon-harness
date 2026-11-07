@@ -657,10 +657,6 @@ def main() -> int:
                   and all(field in effect_whitelist for field in obs)
                   and obs == sorted(set(obs)),
                   f"{step}: observed={obs!r} is not a sorted whitelist")
-            check(isinstance(declared, list) and row.get("expect") == sorted(set(declared)),
-                  f"{step}: published expect does not match the pre-declared one")
-            check(row.get("hwnd") == effect_req.get("hwnd"),
-                  f"{step}: published hwnd does not match the request")
             verdict = row.get("verdict")
             check(verdict in ("confirmed", "unchanged", "mismatch", "vanished", "refused"),
                   f"{step}: unknown effect verdict {verdict!r}")
@@ -669,6 +665,8 @@ def main() -> int:
                 check(verdict == "refused",
                       f"{step}: a non-refused effect row was published on an empty a11y tree")
             if verdict == "refused":
+                # A refusal publishes no evidence rows at all, so expect/hwnd
+                # agreement is checked only on a row that claims a verdict.
                 check(row.get("reason") in effect_refusals,
                       f"{step}: unnamed effect refusal {row.get('reason')!r}")
                 check(row.get("before") is None and row.get("after") is None,
@@ -676,6 +674,10 @@ def main() -> int:
                 check(obs == [], f"{step}: a refusal published observed={obs!r}")
                 notes.append(f"REFUSAL {step}: {row.get('reason')}, not counted as [v]")
                 continue
+            check(isinstance(declared, list) and row.get("expect") == sorted(set(declared)),
+                  f"{step}: published expect does not match the pre-declared one")
+            check(row.get("hwnd") == effect_req.get("hwnd"),
+                  f"{step}: published hwnd does not match the request")
             before, after = row.get("before"), row.get("after")
             check(isinstance(before, dict), f"{step}: no before row")
             for side, label in ((before, "before"), (after, "after")):
