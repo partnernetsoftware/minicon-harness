@@ -186,6 +186,19 @@ nodes) is observable in the tree, not in the target node's own state. A
 real-desktop X-grade loop verified `对话内搜索` → S_OK → tree 43→48 →
 `confirmed observed:["tree"]` → Esc restore. `v0.0.17` is the latest public
 signed Release, accepted from the owner's view (2026-11-08).
+
+**A11y text write (0.0.18, public signed Release).**
+[`plan/plan-0.0.18-a11y-text-write.md`](plan/plan-0.0.18-a11y-text-write.md):
+`act:control` gains `set_value` (a11y arm only, exclusive with
+`press`/`invoke`) — the resolved node's value is written via MSAA
+`put_accValue` **by identity**, with readonly/protected refusals before any
+native call and no pointer involvement. The W1 probe proved the write is
+**asynchronous on Chromium**, so verification is the 0.0.16 effect readback
+with `expect:["value"]` on a later observation, never the HRESULT alone; the
+real-desktop loop confirmed both the honest subset `mismatch` and the
+full-set `confirmed`. `v0.0.18` is the latest public signed Release,
+accepted from the owner's view (2026-11-08); with it the CU-only line freeze
+is satisfied and the harness line (omp reference) becomes eligible.
 **Line freeze (owner direction 2026-11-07):** computer use owns versions
 through `v0.0.18`; the harness branch may be improved with omp (oh-my-Pi) as a
 reference only after `v0.0.18` is published and accepted from the owner's view.

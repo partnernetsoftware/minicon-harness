@@ -24,7 +24,21 @@ Delivery record (W1-W3, 2026-11-08; W4 pending):
   `confirmed`. 138 unit tests, four-cfg gate green.
 - **W3**: four version sources → `0.0.18`. W4 not claimed until it runs.
 
-Status: **planned after `v0.0.17` was published and accepted from the owner's
+Status (final): **`v0.0.18` is a public signed Release accepted from the
+owner's view (2026-11-08).** Chain on final SHA `7194368`: journeys
+`42447175713` (three OS), compile gate `42447433757`, pack `42447436924`
+(six courts), candidate, signing `42448008318`, dry-run then publish
+`42448162413` — all success. Owner-view acceptance: `v0.0.18` is Latest, 15
+assets, page anonymously 200; the downloaded APE printed
+`minicon-harness 0.0.18`; all five archive sidecars recomputed OK; the signed
+`.com` matched the signing receipt `after_sha256`; `.com` and `.exe` are
+Authenticode `Valid` with RFC 3161. Two W4 fixes: the reader's optional-wait
+accounting now collects the effect waits in journey order (by_step lost the
+sequence), and a Notepad-style dirty title marker is no longer classified as
+a foreground change (it is the target confirming the input landed; a genuine
+change still reports unknown) — the third CI flake of that exact race.
+
+Status (planning history): planned after `v0.0.17` was published and accepted from the owner's
 view (2026-11-08)**. All four version sources stay `0.0.17`. Owner directions
 in force: `/goal` full delegation; concentrate on computer use; never Python
 for CU; **harness/omp reference only after `v0.0.18`** — this is the last CU

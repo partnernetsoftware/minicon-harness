@@ -28,8 +28,12 @@ start code or tests until the plan is complete** — 三思后行 (think three
 times before acting) and 分而治之 (divide and conquer). This replaces the
 earlier "implement next" pace for the current phase.
 
-**Current phase: SHIP 0.0.18 (W1-W3 complete; W4 three-OS CI + Release +
-owner-view acceptance in progress).** `v0.0.17` is the latest public signed Release (published
+**Current phase: 0.0.18 SHIPPED AND ACCEPTED; the harness line is now
+eligible to reopen.** `v0.0.18` is the latest public signed Release
+(published 2026-11-08 04:47 UTC, accepted from the owner's view). Per the
+owner's line-freeze direction this was the last CU-only version; whether
+0.0.19 starts the omp-referenced harness work or continues CU is the
+controller's next dated decision, informed by the candidate pool. `v0.0.17` is the latest public signed Release (published
 2026-11-08 03:28 UTC, accepted from the owner's view). Per `/goal` the
 controller planned the next version itself: 0.0.18 is a11y text write
 (`put_accValue` by identity with `expect:["value"]` verification) — the last
@@ -95,7 +99,7 @@ plan/
 ├── plan-0.0.15-a11y-addressed-actuation.md 0.0.15 shipped, accepted `[v]`
 ├── plan-0.0.16-a11y-effect-readback.md    0.0.16 shipped + accepted record
 ├── plan-0.0.17-native-default-action.md  0.0.17 shipped + accepted record
-└── plan-0.0.18-a11y-text-write.md        0.0.18 W1-W3 record, W4 pending
+└── plan-0.0.18-a11y-text-write.md        0.0.18 shipped + accepted record
 ```
 
 ### T1 — perception (full tree: `PRD_01_19`)
@@ -187,8 +191,9 @@ T7 versions
 │                      public signed Release, accepted from the owner's view
 ├── V0.0.17            [v] native default action + tree dimension;
 │                      public signed Release, accepted from the owner's view
-├── V0.0.18            [_] a11y text write (set_value); W1-W3 done, W4 pending
-├── line freeze        [decision] CU only <= 0.0.18; harness/omp after
+├── V0.0.18            [v] a11y text write (set_value); public signed
+│                      Release, accepted from the owner's view
+├── line freeze        [decision] satisfied; harness/omp line eligible
 ├── candidate pool      [study] ordered by gate, never a version commitment
 └── standing [no]      [no] unchanged by any study pass
 ```

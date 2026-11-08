@@ -75,9 +75,9 @@ T7 Versions / candidates (state, not a promise)
 │   ├── C6 C5/C6 safety + hand-off       gate: policy PRD first          [_]
 │   ├── C7 B8 batched actions            gate: admission/stale design    [_]
 │   ├── C8 resource-domain telemetry     gate: 4 triggers (T8), G closed  [_] deferred
-│   ├── C9 harness-line improvement     gate: v0.0.18 published+accepted   [no] until then
+│   ├── C9 harness-line improvement     gate: OPENED (v0.0.18 accepted)     [_] eligible
 │   ├── C10 native default action        shipped 0.0.17 with tree dimension  [v]
-│   └── C11 a11y text write              gate: open (probe-first)          [_] 0.0.18 planned
+│   └── C11 a11y text write              shipped 0.0.18 (probe-first)       [v]
 └── Standing [no] (unchanged by any study pass)                          [no]
     ├── plugin host, permission policy engine, streaming, MCP
     ├── a scripting surface over the desktop, a second model loop

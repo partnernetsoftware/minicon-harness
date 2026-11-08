@@ -255,6 +255,28 @@ measured pack) and recorded as a dated decision in `PRD_01_01`. This D8
 record and the failed pack runs 42368000472 / 42369268313 / 42371125571 are
 the evidence chain; no automatic bump happened at any point.
 
+## Dated controller decision D9 (2026-11-08, post-0.0.18 line choice)
+
+**Choice:** with `v0.0.18` published and accepted, the owner's line-freeze
+condition is satisfied and the harness/omp reference is eligible. The
+controller defers starting harness work to 0.0.19's planning cycle and will
+decide then, on the evidence: first a W0 study pass over omp's harness
+approach (previously forbidden, now permitted), weighed against the CU
+candidate pool (subset-expectation matching, F3 second half, incremental
+events). No harness study, code or dependency starts before that dated
+decision.
+
+**Reason:** the owner said the omp reference is expected "roughly after
+0.0.18" — an eligibility window, not a mandate. The CU branch still has
+ungated, L3-critical candidates, and choosing blind between the two lines
+without a W0 pass would be the same mistake as committing 0.0.17/0.0.18
+topics in advance.
+
+**Evidence:** `v0.0.18` acceptance record in `plan-0.0.18`; candidate pool in
+`PRD_01_17` / `PRD_01_23`.
+
+**Trigger to revisit:** the 0.0.19 planning cycle itself.
+
 ## Non-goals
 
 - `[no]` re-opening the G boundary in this phase.
