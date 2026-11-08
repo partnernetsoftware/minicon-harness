@@ -1484,14 +1484,31 @@ pub fn foreground_title() -> Option<String> {
 
 /// Shared by atomic `act:key` and the held-key state machine so the 0.0.6
 /// foreground assertion keeps exactly one shape.
+/// Strip a Notepad-style dirty marker from a title so `*Untitled` and
+/// `Untitled` compare as the same foreground window.
+fn strip_dirty(title: &str) -> String {
+    title.trim_matches('*').to_owned()
+}
+
 pub(crate) fn foreground_evidence(before: Option<String>, after: Option<String>) -> Result<String, String> {
     match (&before, &after) {
         (Some(title), None) => Err(format!(
             "screen: failed: the foreground window {title:?} disappeared during input; nothing \
              further was delivered"
         )),
+        // A Notepad-style dirty marker (`*` prefix/suffix) is the target
+        // *confirming* the input landed, not the foreground changing. Only a
+        // title that differs beyond the marker is a real change (which the
+        // caller still reports as `unknown`, never `performed`).
+        (Some(first), Some(second))
+            if first != second && strip_dirty(first) != strip_dirty(second) =>
+        {
+            Ok(format!(
+                "foreground={second:?} (was {first:?}, changed during input)"
+            ))
+        }
         (Some(first), Some(second)) if first != second => Ok(format!(
-            "foreground={second:?} (was {first:?}, changed during input)"
+            "foreground={second:?} (was {first:?}; dirty marker only, the target              stayed in the foreground)"
         )),
         (Some(title), Some(_)) => Ok(format!("foreground={title:?}")),
         (None, Some(title)) => Ok(format!("foreground={title:?} (no foreground before input)")),
@@ -4440,6 +4457,24 @@ mod tests {
         assert_eq!((width, height), (2, 1));
         assert_eq!(&pixels[4..8], &[10, 20, 30, 255]);
         assert_eq!(pixels[3], 255);
+    }
+
+    #[test]
+    fn a_dirty_marker_is_not_a_foreground_change() {
+        let dirty = foreground_evidence(
+            Some("Untitled - Notepad".into()),
+            Some("*Untitled - Notepad".into()),
+        )
+        .unwrap();
+        assert!(!dirty.contains("changed during input"), "{dirty}");
+        assert!(dirty.contains("dirty marker only"), "{dirty}");
+        // A real change is still a change.
+        let real = foreground_evidence(
+            Some("Untitled - Notepad".into()),
+            Some("Save As".into()),
+        )
+        .unwrap();
+        assert!(real.contains("changed during input"), "{real}");
     }
 
     #[test]
