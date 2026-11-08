@@ -1,3 +1,5 @@
 /target
 /loader/dist
 /loader/payload-build
+
+scripts/__pycache__/
