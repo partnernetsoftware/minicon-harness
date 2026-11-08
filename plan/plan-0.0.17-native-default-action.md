@@ -27,7 +27,20 @@ Delivery record (W1-W3, 2026-11-08; W4 pending):
 - **W3**: four version sources → `0.0.17`. W4 (three-OS CI, signed Release,
   owner-view acceptance) is not claimed until it has run.
 
-Status: **planned after `v0.0.16` was published and accepted from the owner's
+Status (final): **`v0.0.17` is a public signed Release accepted from the
+owner's view (2026-11-08).** Chain on final SHA `40b2821`: journeys
+`42441863435`, compile gate `42441694860`, pack `42441866716` (six courts),
+candidate `42442605507`, signing `42442649240`, dry-run then publish
+`42442828900` — all success. Owner-view acceptance: `v0.0.17` is Latest,
+15 assets, page anonymously 200; the downloaded APE printed
+`minicon-harness 0.0.17`; all five archive sidecars recomputed OK (macos
+needed one retry); the signed `.com` matched the signing receipt
+`after_sha256`; `.com` and Windows `.exe` are locally Authenticode `Valid`
+with RFC 3161. Two CI fixes during W4: a lost `#[cfg(windows)]` above the
+native module (E0428 on linux/macos), and the four-cfg gate reading
+UTF-8 source with the Windows runner's cp1252 default codec.
+
+Status (planning history): planned after `v0.0.16` was published and accepted from the owner's
 view (2026-11-07)**. This is the *next version plan*, written before any code,
 test, version bump or Release; all four version sources stay `0.0.16`. Owner
 directions in force: `/goal` full delegation; concentrate on computer use;

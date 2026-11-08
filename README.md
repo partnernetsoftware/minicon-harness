@@ -168,11 +168,24 @@ capability row, `cu-abi` bump or matrix cell is added. W1/W2: 133 unit tests,
 the four-configuration type gate, a real-desktop probe (`unchanged` gen 1→2,
 `mismatch` gen 2→3) and two three-OS journey steps whose independent reader
 recomputes `state_names`, `observed` and the verdict. All four version sources
-read `0.0.16`. `v0.0.16` is the latest public signed Release, accepted from
-the owner's view (2026-11-07); the pack's size exceeded the old 6 MiB stamp
-after honest trims and the ceiling was raised to 6.25 MiB by the dated owner
-decision in
+read `0.0.16`. `v0.0.16` is a public signed Release accepted from the owner's view
+(2026-11-07); the pack's size exceeded the old 6 MiB stamp after honest trims
+and the ceiling was raised to 6.25 MiB by the dated owner decision in
 [`prd/PRD_01_01_com_delivery.md`](prd/PRD_01_01_com_delivery.md).
+
+**Native default action (0.0.17, public signed Release).**
+[`plan/plan-0.0.17-native-default-action.md`](plan/plan-0.0.17-native-default-action.md):
+`act:control` gains `invoke:true` (a11y arm only, mutually exclusive with
+`press`) — the resolved node's MSAA `accDoDefaultAction` is dispatched **by
+identity** to the object located in the live tree, with no pointer and no
+window activation; evidence publishes the raw `hresult` and no actuation
+receipt. The 0.0.16 effect whitelist gains the **`tree`** dimension: a
+recomputable identity-set diff of the two frames' trees, because the W1
+probe showed an Electron invoke's real effect (a panel opening, 43 → 48
+nodes) is observable in the tree, not in the target node's own state. A
+real-desktop X-grade loop verified `对话内搜索` → S_OK → tree 43→48 →
+`confirmed observed:["tree"]` → Esc restore. `v0.0.17` is the latest public
+signed Release, accepted from the owner's view (2026-11-08).
 **Line freeze (owner direction 2026-11-07):** computer use owns versions
 through `v0.0.18`; the harness branch may be improved with omp (oh-my-Pi) as a
 reference only after `v0.0.18` is published and accepted from the owner's view.
