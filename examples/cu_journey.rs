@@ -233,6 +233,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // 0.0.17: invoke the resolved node's native default action by identity,
+    // then verify with the 0.0.16 effect readback expecting the `tree`
+    // dimension. The Windows CI cell's Notepad window has no named toggle,
+    // so the invoke there resolves nothing and is a named refusal; on the
+    // real L3 desktop this is the verified search-toggle loop. Non-Windows
+    // cells publish a named capability/tree boundary.
+    if let Some((name, role)) = a11y_target.clone() {
+        if let Some(hwnd) = a11y_hwnd {
+            // Re-observe so the invoke's before frame is fresh.
+            journey.run(
+                "observe_a11y_pre_invoke",
+                "observe",
+                caps.observe,
+                true,
+                json!({ "op": "observe", "a11y": hwnd }),
+            );
+            journey.run(
+                "act_control_invoke",
+                "act:control",
+                caps.act_control,
+                false,
+                json!({
+                    "op": "act", "why": "CU journey: native default action by identity",
+                    "action": "control", "control": name, "source": "a11y",
+                    "role": role, "invoke": true,
+                }),
+            );
+            journey.run(
+                "observe_a11y_effect_invoke",
+                "observe",
+                caps.observe,
+                true,
+                json!({
+                    "op": "observe", "a11y": hwnd, "wait_ms": 300,
+                    "effect": {
+                        "hwnd": hwnd, "name": name, "role": role,
+                        "expect": ["tree"],
+                    },
+                }),
+            );
+        } else {
+            journey.skip("observe_a11y_pre_invoke", "observe", "no live window handle to scan");
+            journey.skip("act_control_invoke", "act:control", "no live window handle to scan");
+            journey.skip("observe_a11y_effect_invoke", "observe", "no live window handle to scan");
+        }
+    } else {
+        journey.skip("observe_a11y_pre_invoke", "observe", "no addressable a11y node");
+        journey.skip("act_control_invoke", "act:control", "no addressable a11y node");
+        journey.skip("observe_a11y_effect_invoke", "observe", "no addressable a11y node");
+    }
+
     if caps.capture {
         journey.run(
             "observe_capture",

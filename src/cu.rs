@@ -140,6 +140,8 @@ const P_PRESS: CuParam = CuParam { name: "press", ty: CuType::Bool, required: fa
 // byte-for-byte unchanged.
 const P_SOURCE: CuParam = CuParam { name: "source", ty: CuType::String, required: false };
 const P_ROLE: CuParam = CuParam { name: "role", ty: CuType::String, required: false };
+/// 0.0.17: invoke the resolved node's native default action by identity.
+const P_INVOKE: CuParam = CuParam { name: "invoke", ty: CuType::Bool, required: false };
 const P_SCALE: CuParam = CuParam { name: "scale", ty: CuType::Int, required: false };
 const P_WAIT_MS: CuParam = CuParam { name: "wait_ms", ty: CuType::Int, required: false };
 /// 0.0.16: one predicted effect, declared before the act it verifies.
@@ -240,7 +242,7 @@ pub const CAPABILITIES: &[CuCapability] = &[
         name: "act:control",
         kind: CuKind::Act,
         summary: "Resolve one control by name from the last observe and place the pointer at its centre; readback must land inside the control's rectangle. `source` defaults to `controls` (Win32); `source:\"a11y\"` resolves a named MSAA node from the same generation's normalised a11y tree, with an optional `role` filter. press=false by default (no click).",
-        params: &[P_WHY, P_CONTROL, P_PRESS, P_BUTTON, P_DOUBLE, P_SOURCE, P_ROLE],
+        params: &[P_WHY, P_CONTROL, P_PRESS, P_BUTTON, P_DOUBLE, P_SOURCE, P_ROLE, P_INVOKE],
     },
 ];
 
@@ -490,7 +492,7 @@ fn a11y_control_json(control: &crate::screen::A11yControl) -> Value {
 
 /// 0.0.16: the only four fields an effect may predict or report. Sorted so
 /// the host and the independent reader derive the same ordered whitelist.
-const EFFECT_FIELDS: [&str; 4] = ["name", "rect", "state", "value"];
+const EFFECT_FIELDS: [&str; 5] = ["name", "rect", "state", "tree", "value"];
 
 fn normalise_expect(expect: &[String]) -> Result<Vec<String>, &'static str> {
     let mut rows: Vec<String> = Vec::new();
@@ -518,6 +520,24 @@ fn a11y_effect_node_json(node: &crate::screen::A11yControl) -> Value {
         "depth": node.depth,
         "child_id": node.child_id,
     })
+}
+
+/// 0.0.17: the `tree` dimension. An invoke's real effect often is not on the
+/// node itself but on the surrounding tree (panels appear/disappear). The
+/// observed fact is an identity-set difference, computed from published rows
+/// with the same identity key the node matcher uses.
+fn a11y_tree_changed(
+    before: &[crate::screen::A11yControl],
+    after: &[crate::screen::A11yControl],
+) -> bool {
+    fn key(node: &crate::screen::A11yControl) -> (String, &str, i32, u32) {
+        (node.name.clone(), node.role_name, node.child_id, node.depth)
+    }
+    let before_keys: std::collections::BTreeSet<(String, &str, i32, u32)> =
+        before.iter().map(key).collect();
+    let after_keys: std::collections::BTreeSet<(String, &str, i32, u32)> =
+        after.iter().map(key).collect();
+    before_keys != after_keys
 }
 
 fn a11y_effect_observed(
@@ -619,10 +639,27 @@ fn a11y_effect_evidence(
         0 => None,
         _ => return effect_refusal("ambiguous_identity"),
     };
+    let tree_changed = a11y_tree_changed(&frame.snapshot.a11y_controls, &after.a11y_controls);
     let (after_json, observed, verdict) = match after_node {
-        None => (Value::Null, Vec::new(), "vanished"),
+        None => {
+            let mut observed = Vec::new();
+            if expect.contains(&"tree".to_owned()) && tree_changed {
+                observed.push("tree".to_owned());
+            }
+            let verdict = if !observed.is_empty() && observed == expect {
+                "confirmed"
+            } else {
+                "vanished"
+            };
+            (Value::Null, observed, verdict)
+        }
         Some(node) => {
-            let observed = a11y_effect_observed(before_node, node);
+            let mut observed = a11y_effect_observed(before_node, node);
+            if tree_changed {
+                observed.push("tree".to_owned());
+                observed.sort();
+                observed.dedup();
+            }
             let verdict = if !observed.is_empty() && observed == expect {
                 "confirmed"
             } else if observed.is_empty() && expect.is_empty() {
@@ -633,6 +670,7 @@ fn a11y_effect_evidence(
             (a11y_effect_node_json(node), observed, verdict)
         }
     };
+    let _ = &expect;
     json!({
         "reason": Value::Null,
         "hwnd": request.hwnd,
@@ -645,6 +683,11 @@ fn a11y_effect_evidence(
         "verdict": verdict,
         "before_generation": frame.generation,
         "after_generation": dispatch_generation + 1,
+        "tree": {
+            "before_nodes": frame.snapshot.a11y_controls.len(),
+            "after_nodes": after.a11y_controls.len(),
+            "changed": tree_changed,
+        },
     })
 }
 
@@ -777,6 +820,10 @@ pub enum CuAction {
         double: bool,
         source: ControlSource,
         role: Option<String>,
+        /// 0.0.17: call the resolved a11y node's MSAA default action by
+        /// identity instead of moving the pointer. Mutually exclusive with
+        /// `press`; a11y arm only.
+        invoke: bool,
     },
 }
 
@@ -1300,9 +1347,9 @@ impl CuHost {
                 )
             }
             CuCall::Act { why, action } => match action {
-                CuAction::Control { control, press, button, double, source, role } => {
+                CuAction::Control { control, press, button, double, source, role, invoke } => {
                     self.act_control(
-                        &capability, why, control, press, button, double, source, role,
+                        &capability, why, control, press, button, double, source, role, invoke,
                     )
                 }
                 CuAction::Key { keys, hold, release } if hold || release => {
@@ -1675,6 +1722,7 @@ impl CuHost {
     /// current generation disclosed -- never by a hwnd carried across calls,
     /// never by a coordinate the caller computed from an older frame. Every
     /// refusal happens before a device context or a pointer move exists.
+    #[allow(clippy::too_many_arguments)]
     fn act_control(
         &self,
         capability: &str,
@@ -1685,6 +1733,7 @@ impl CuHost {
         double: bool,
         source: ControlSource,
         role: Option<String>,
+        invoke: bool,
     ) -> CuResult {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         let generation = state.generation;
@@ -1838,6 +1887,97 @@ impl CuHost {
                 )
             }
         };
+        // 0.0.17: the native default action. Identity is already resolved
+        // above; the invoke addresses that node, never a coordinate. There is
+        // no pointer readback — the caller verifies via the 0.0.16 effect
+        // readback on the next observe (node fields and/or the tree diff).
+        if invoke {
+            // Identity is already resolved. The handle comes from the frame's
+            // a11y_source ("handle:<n> ..."), the child_id from the published
+            // node row — neither is guessed.
+            let handle = frame
+                .snapshot
+                .a11y_source
+                .as_deref()
+                .and_then(|source| {
+                    source
+                        .strip_prefix("handle:")
+                        .and_then(|rest| rest.split_whitespace().next())
+                        .and_then(|digits| digits.parse::<u64>().ok())
+                })
+                .unwrap_or_default();
+            let node_row = resolved.a11y_node.clone().unwrap_or(Value::Null);
+            let identity = crate::screen::A11yIdentity {
+                name: node_row["name"].as_str().unwrap_or_default().to_owned(),
+                role_name: node_row["role_name"].as_str().unwrap_or_default().to_owned(),
+                child_id: node_row["child_id"].as_i64().unwrap_or(0) as i32,
+                depth: node_row["depth"].as_i64().unwrap_or(0) as u32,
+            };
+            let label = resolved.label.clone();
+            let node_role = resolved.role.clone();
+            let (nx, ny, nw, nh) = (resolved.x, resolved.y, resolved.width, resolved.height);
+            drop(state);
+            let invoked = crate::screen::a11y_invoke_default_action(handle, identity);
+            let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            let generation = state.generation;
+            let (verdict, detail, hresult): (CuVerdict, &str, String) = match invoked {
+                Ok(Ok(())) => {
+                    (CuVerdict::Performed, "accDoDefaultAction S_OK", "0x00000000".to_owned())
+                }
+                Ok(Err(reason)) => {
+                    (CuVerdict::NotPerformed, "accDoDefaultAction failed", reason)
+                }
+                Err(reason) => {
+                    (CuVerdict::Unknown, "invoke could not be dispatched", reason)
+                }
+            };
+            let readback = format!(
+                "invoke; control={label:?} role={node_role} rect={nx},{ny} {nw}x{nh} {detail}"
+            );
+            let text = format!(
+                "why: {why}\nscreen: act=control invoke=true control={label:?}\nreadback: {readback}\ncu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} generation={generation} verdict={} capability={capability}",
+                verdict.tag()
+            );
+            self.record(
+                &mut state,
+                CuReceipt {
+                    generation,
+                    capability: capability.to_owned(),
+                    verdict,
+                    facts_as_of_ms: now_ms(),
+                    readback: readback.clone(),
+                },
+            );
+            let mut evidence = json!({
+                "action": "control",
+                "control": label,
+                "role": node_role,
+                "rect": [nx, ny, nw, nh],
+                "invoke": true,
+                "hresult": hresult,
+                "readback": readback,
+                "verdict": verdict.tag(),
+                "generation": generation,
+                "actuation": Value::Null,
+                "source": source.tag(),
+                "a11y_node": resolved.a11y_node.clone().unwrap_or(Value::Null),
+                "a11y_node_schema": "role-name-state-value-bounds-depth",
+                // The verification contract: the effect of an invoke is not a
+                // pointer; declare what the next observe(effect) must compare.
+                "effect_hint": "compare node fields and/or a11y tree diff",
+            });
+            if handle != 0 {
+                evidence["target_hwnd"] = json!(handle);
+            }
+            return CuResult {
+                verdict,
+                capability: capability.to_owned(),
+                generation,
+                facts_as_of_ms: now_ms(),
+                evidence,
+                text,
+            };
+        }
         let (vx, vy, vw, vh) = frame.snapshot.desktop;
         if x < vx || y < vy || x >= vx + vw || y >= vy + vh {
             return self.result_with_state(
@@ -2881,7 +3021,33 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                                 .to_owned(),
                         );
                     }
+                    let invoke = match arguments.get("invoke") {
+                        None | Some(Value::Bool(false)) => false,
+                        Some(Value::Bool(true)) => true,
+                        Some(_) => {
+                            return Err(
+                                "screen: refused: `invoke` must be a boolean".to_owned(),
+                            )
+                        }
+                    };
+                    if invoke {
+                        if source != ControlSource::A11y {
+                            return Err(
+                                "screen: refused: `invoke` applies only to source=\"a11y\"; \
+                                 the operation was not performed"
+                                    .to_owned(),
+                            );
+                        }
+                        if arguments.get("press").and_then(Value::as_bool) == Some(true) {
+                            return Err(
+                                "screen: refused: `invoke` and `press` are mutually \
+                                 exclusive; the operation was not performed"
+                                    .to_owned(),
+                            );
+                        }
+                    }
                     CuAction::Control {
+                        invoke,
                         control: arguments
                             .get("control")
                             .and_then(Value::as_str)
@@ -5532,6 +5698,117 @@ mod tests {
             assert_eq!(row["before"], Value::Null, "{reason}: {row}");
             assert_eq!(row["after"], Value::Null, "{reason}: {row}");
         }
+    }
+
+    // ---- 0.0.17: native default action + tree dimension ----
+
+    #[test]
+    fn invoke_is_admitted_only_on_the_a11y_arm_and_never_with_press() {
+        // invoke on the default (controls) arm is refused at admission.
+        let refused = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "OK", "invoke": true
+        }));
+        assert!(refused
+            .err()
+            .is_some_and(|reason| reason.contains("invoke` applies only to source=\"a11y\"")));
+        // invoke + press together is refused; nothing was performed.
+        let both = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "OK", "source": "a11y", "invoke": true, "press": true
+        }));
+        assert!(both
+            .err()
+            .is_some_and(|reason| reason.contains("mutually exclusive")));
+        // a non-boolean invoke is refused.
+        assert!(parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "OK", "source": "a11y", "invoke": "yes"
+        }))
+        .is_err());
+        // the admitted shape carries invoke=true through to the action.
+        let ok = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "OK", "source": "a11y", "invoke": true
+        }))
+        .unwrap();
+        assert!(matches!(
+            ok.call,
+            CuCall::Act {
+                action: CuAction::Control { invoke: true, .. },
+                ..
+            }
+        ));
+        // and the capability discloses the parameter.
+        let control = CAPABILITIES.iter().find(|cap| cap.name == "act:control").unwrap();
+        assert!(control.params.iter().any(|param| param.name == "invoke"));
+    }
+
+    #[test]
+    fn a_tree_only_change_confirms_the_tree_expectation() {
+        let before_node = effect_node("对话内搜索", "", 0x100000, (10, 10, 40, 20));
+        let before = effect_frame(
+            5,
+            effect_snapshot(vec![
+                before_node.clone(),
+                effect_node("Other", "", 0, (1, 1, 5, 5)),
+            ]),
+        );
+        // the panel opened: same target node, extra tree nodes appeared.
+        let after = effect_snapshot(vec![
+            before_node.clone(),
+            effect_node("Other", "", 0, (1, 1, 5, 5)),
+            effect_node("搜索对话内容", "", 0x100040, (5, 5, 30, 10)),
+            effect_node("关闭搜索（Esc）", "", 0x100000, (5, 20, 30, 10)),
+        ]);
+        // expecting the tree dimension confirms.
+        let row = a11y_effect_evidence(
+            Some(&before), 5, &after,
+            &effect_request("对话内搜索", &["tree"]),
+        );
+        assert_eq!(row["verdict"], json!("confirmed"));
+        assert_eq!(row["observed"], json!(["tree"]));
+        assert_eq!(row["tree"]["changed"], json!(true));
+        assert_eq!(row["tree"]["before_nodes"], json!(2));
+        assert_eq!(row["tree"]["after_nodes"], json!(4));
+        // expecting nothing reports mismatch (the tree DID change).
+        let row = a11y_effect_evidence(
+            Some(&before), 5, &after,
+            &effect_request("对话内搜索", &[]),
+        );
+        assert_eq!(row["verdict"], json!("mismatch"));
+        // an identical tree with expect=[] is unchanged.
+        let same = effect_snapshot(vec![
+            before_node.clone(),
+            effect_node("Other", "", 0, (1, 1, 5, 5)),
+        ]);
+        let row = a11y_effect_evidence(
+            Some(&before), 5, &same,
+            &effect_request("对话内搜索", &[]),
+        );
+        assert_eq!(row["verdict"], json!("unchanged"));
+        assert_eq!(row["tree"]["changed"], json!(false));
+    }
+
+    #[test]
+    fn vanished_with_tree_change_can_confirm_a_tree_expectation() {
+        let before_node = effect_node("关闭搜索（Esc）", "", 0, (5, 5, 30, 10));
+        let before = effect_frame(
+            2,
+            effect_snapshot(vec![
+                before_node.clone(),
+                effect_node("Panel", "", 0, (0, 0, 50, 50)),
+            ]),
+        );
+        // the panel closed: the target vanished AND the tree shrank.
+        let after = effect_snapshot(vec![effect_node("Panel", "", 0, (0, 0, 50, 50))]);
+        let row = a11y_effect_evidence(
+            Some(&before), 2, &after,
+            &effect_request("关闭搜索（Esc）", &["tree"]),
+        );
+        assert_eq!(row["verdict"], json!("confirmed"));
+        assert_eq!(row["observed"], json!(["tree"]));
+        assert_eq!(row["after"], Value::Null);
     }
 
     #[test]

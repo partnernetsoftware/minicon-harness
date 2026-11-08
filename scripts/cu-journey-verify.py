@@ -627,7 +627,7 @@ def main() -> int:
         """Local scope: no 0.0.16 name may shadow an earlier reader name."""
         # The reader recomputes state_names, the observed whitelist and the
         # verdict from the two published rows; it never trusts the request.
-        effect_whitelist = ("name", "rect", "state", "value")
+        effect_whitelist = ("name", "rect", "state", "tree", "value")
         effect_refusals = frozenset({
             "no_frame", "stale", "no_a11y_tree", "no_matching_node",
             "ambiguous_identity", "invalid_expect",
@@ -701,8 +701,11 @@ def main() -> int:
             elif isinstance(before, dict) and isinstance(after, dict):
                 recomputed = sorted(
                     field for field in effect_whitelist
-                    if before.get(field) != after.get(field)
+                    if field != "tree" and before.get(field) != after.get(field)
                 )
+                tree_row = row.get("tree") or {}
+                if tree_row.get("changed") is True and "tree" not in recomputed:
+                    recomputed = sorted(recomputed + ["tree"])
                 check(obs == recomputed,
                       f"{step}: observed={obs!r} != recomputed {recomputed!r}")
                 published_expect = row.get("expect")
@@ -812,6 +815,19 @@ def main() -> int:
         and record.get("verdict") == "performed"
     ]
     wait_rows = []
+    # 0.0.17: the invoke-effect observation performs an optional wait that
+    # precedes observe_wait_after_act. When present it must be part of the
+    # same cumulative budget arithmetic; when skipped nothing changes.
+    early = by_step.get("observe_a11y_effect_invoke")
+    if early and early.get("verdict") == "performed" and early.get("evidence", {}).get("wait"):
+        wait_rows.append((
+            "observe_a11y_effect_invoke",
+            early.get("request", {}).get("wait_ms"),
+            early["evidence"]["wait"].get("elapsed_ms"),
+            early["evidence"]["wait"].get("cumulative_ms"),
+            early["evidence"]["wait"].get("wait_calls"),
+            early,
+        ))
     for step in WAIT_PERFORMED_STEPS:
         record = by_step.get(step)
         check(record is not None and record.get("verdict") == "performed",

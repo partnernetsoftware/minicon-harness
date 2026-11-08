@@ -2173,7 +2173,26 @@ pub mod png {
 // platform backends
 // ---------------------------------------------------------------------------
 
-#[cfg(windows)]
+/// The identity of one published a11y row, for locating the live object of
+/// an invoke. Mirrors the reader's key: name, role_name, child_id, depth.
+#[derive(Clone, Debug)]
+pub struct A11yIdentity {
+    pub name: String,
+    pub role_name: String,
+    pub child_id: i32,
+    pub depth: u32,
+}
+
+/// 0.0.17: invoke a resolved a11y node's MSAA default action by identity.
+/// No pointer, no window activation. `Err` is a dispatch failure (named),
+/// `Ok(Err(..))` is a failed invoke, `Ok(Ok(()))` is S_OK.
+pub fn a11y_invoke_default_action(
+    handle: u64,
+    identity: A11yIdentity,
+) -> Result<Result<(), String>, String> {
+    native::a11y_invoke_default_action_inner(handle, identity)
+}
+
 mod native {
     //! Hand-written `user32`/`gdi32` bindings. No crate, no COM, no service:
     //! the harness process talks to the desktop and exits.
@@ -2859,11 +2878,20 @@ mod native {
         msaa::scan(handle)
     }
 
+    pub(super) fn a11y_invoke_default_action_inner(
+        handle: u64,
+        identity: crate::screen::A11yIdentity,
+    ) -> Result<Result<(), String>, String> {
+        msaa::invoke_default_action(handle, identity)
+    }
+
+
     mod msaa {
         use super::super::{
             a11y_role_name, A11yControl, SCREEN_TOOL_MAX_A11Y_CONTROLS,
             SCREEN_TOOL_MAX_A11Y_DEPTH,
         };
+        use crate::screen::A11yIdentity;
         use std::ffi::c_void;
 
         #[repr(C)]
@@ -3117,6 +3145,171 @@ mod native {
                 }
             }
             1
+        }
+
+        /// 0.0.17: invoke by identity. Walks the same tree `scan` publishes,
+        /// locates the unique object whose published identity matches, and
+        /// invokes *there* - Electron exposes named buttons as deep
+        /// VT_DISPATCH children, so addressing a child_id on the window
+        /// object would invoke the wrong target (verified by the W1 probe).
+        pub(super) fn invoke_default_action(
+            handle: u64,
+            identity: A11yIdentity,
+        ) -> Result<Result<(), String>, String> {
+            let window = handle as usize as *mut c_void;
+            unsafe {
+                let initialized = CoInitializeEx(std::ptr::null_mut(), 2);
+                if initialized < 0 {
+                    return Err(format!(
+                        "screen: unknown: COM could not be initialised for an invoke \
+                         (HRESULT {initialized:#010x})"
+                    ));
+                }
+                let outcome = invoke_by_identity(window, &identity);
+                CoUninitialize();
+                outcome
+            }
+        }
+
+        unsafe fn invoke_by_identity(
+            window: *mut c_void,
+            identity: &A11yIdentity,
+        ) -> Result<Result<(), String>, String> {
+            let mut children: Vec<*mut c_void> = Vec::new();
+            super::EnumChildWindows(
+                window,
+                collect_child,
+                &mut children as *mut _ as isize,
+            );
+            if children.is_empty() {
+                children.push(window);
+            }
+            let mut matches = 0usize;
+            for host in children {
+                let mut object: *mut c_void = std::ptr::null_mut();
+                let hr = AccessibleObjectFromWindow(
+                    host,
+                    OBJID_CLIENT,
+                    &IID_IACCESSIBLE,
+                    &mut object,
+                );
+                if hr != 0 || object.is_null() {
+                    continue;
+                }
+                let mut found: Option<(*mut c_void, Variant)> = None;
+                walk_for_identity(
+                    object,
+                    Variant::i4(0),
+                    0,
+                    identity,
+                    &mut matches,
+                    &mut found,
+                );
+                if let Some((target, child)) = found {
+                    let result = do_default_action(target, child);
+                    if target != object {
+                        release(target);
+                    }
+                    release(object);
+                    if result == 0 {
+                        return Ok(Ok(()));
+                    }
+                    return Ok(Err(format!(
+                        "accDoDefaultAction returned HRESULT {result:#010x}"
+                    )));
+                }
+                release(object);
+            }
+            if matches == 0 {
+                Ok(Err("no accessible object matches the resolved identity".to_owned()))
+            } else {
+                Ok(Err("the resolved identity is ambiguous in the live tree".to_owned()))
+            }
+        }
+
+        /// Bounded read-mostly walk; the only live effect is the invoke the
+        /// caller performs on the found object after this returns.
+        unsafe fn walk_for_identity(
+            object: *mut c_void,
+            child: Variant,
+            depth: usize,
+            identity: &A11yIdentity,
+            matches: &mut usize,
+            found: &mut Option<(*mut c_void, Variant)>,
+        ) {
+            if found.is_some() {
+                return;
+            }
+            let node_role = role(object, child);
+            if node_role != -1
+                && child.i4_value() == identity.child_id
+                && name(object, child) == identity.name
+                && a11y_role_name(node_role) == identity.role_name
+            {
+                *matches += 1;
+                if *matches == 1 {
+                    *found = Some((object, child));
+                }
+                return;
+            }
+            if depth >= SCREEN_TOOL_MAX_A11Y_DEPTH {
+                return;
+            }
+            type CF = unsafe extern "system" fn(*mut c_void, *mut i32) -> i32;
+            let child_count: CF = std::mem::transmute(slot(object, 8));
+            let mut count = 0i32;
+            let _ = child_count(object, &mut count);
+            let count = count.min(SCREEN_TOOL_MAX_A11Y_CONTROLS as i32);
+            if count <= 0 {
+                return;
+            }
+            let mut buffer = vec![Variant::empty(); count as usize];
+            let mut obtained = 0i32;
+            if AccessibleChildren(
+                object,
+                0,
+                count,
+                buffer.as_mut_ptr(),
+                &mut obtained,
+            ) != 0
+            {
+                return;
+            }
+            for item in &buffer[..obtained.max(0) as usize] {
+                if item.vt == VT_DISPATCH {
+                    let pointer = item.dispatch();
+                    if !pointer.is_null() {
+                        walk_for_identity(
+                            pointer,
+                            Variant::i4(0),
+                            depth + 1,
+                            identity,
+                            matches,
+                            found,
+                        );
+                        if found.is_some() {
+                            return;
+                        }
+                        release(pointer);
+                    }
+                } else {
+                    walk_for_identity(
+                        object,
+                        *item,
+                        depth + 1,
+                        identity,
+                        matches,
+                        found,
+                    );
+                }
+            }
+        }
+
+        /// `IAccessible::accDoDefaultAction` (vtable slot 25).
+        unsafe fn do_default_action(object: *mut c_void, child: Variant) -> i32 {
+            type F = unsafe extern "system" fn(*mut c_void, Variant) -> i32;
+            let function: F = std::mem::transmute(slot(object, 25));
+            function(object, child)
         }
 
         pub(super) fn scan(handle: u64) -> Result<(Vec<A11yControl>, bool), String> {

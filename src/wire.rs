@@ -470,6 +470,10 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         "role": {
                             "type": "string",
                             "description": "For action=control with source=\"a11y\" only: an optional coarse a11y role filter (button, textbox, label, ...). An unknown role is refused, not ignored; `role` with source=\"controls\" is refused."
+                        },
+                        "invoke": {
+                            "type": "boolean",
+                            "description": "For action=control with source=\"a11y\" only: call the resolved node's native default action (accDoDefaultAction) by identity. No pointer, no window activation, mutually exclusive with press (default false). Verify with the next observe effect and expect [\"tree\"] or field names."
                         }
                     },
                     "required": ["op"]
