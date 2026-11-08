@@ -458,6 +458,21 @@ computer-use branch; the harness branch is not to be improved by reference to
 omp (oh-my-Pi) until roughly after `v0.0.18` is published and accepted. This
 is a line freeze with a dated unlock condition, not a candidate to implement.
 
+## W0 pass 11 (2026-11-08, H-line study)
+
+Queries: MCP spec 2025-11-25 lifecycle/tools/transport; omp architecture
+(quidproquo analyses + repo). Findings: (a) the adapter surface is exactly
+initialize/initialized + static tools/list + tools/call, JSON-RPC 2.0
+newline frames over stdio — hand-writable, no crate; (b) application
+refusals map to `result.isError` (not JSON-RPC errors), preserving the
+core's typed refusal text verbatim; (c) measured worst legal observe
+envelope 11.5 KiB ⇒ 1 MiB frame cap with 40× headroom; (d) omp study
+conclusion — adopt the companion positioning, not the 80k-line inline mass;
+its MCP start-gate machinery is the cost of heavy servers our thin resident
+adapter does not pay; (e) new risk E7: clients may send extra initialize
+fields and ping early — ignore unknown params, answer ping anytime. All
+went to `plan/v0.0.19.md` (W0 record + 6/6 + D11).
+
 ## Candidate table (upserted, not promised)
 
 | Finding | Repo axis | Candidate | Unlock condition | This cycle |
