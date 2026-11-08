@@ -2190,9 +2190,18 @@ pub fn a11y_invoke_default_action(
     handle: u64,
     identity: A11yIdentity,
 ) -> Result<Result<(), String>, String> {
-    native::a11y_invoke_default_action_inner(handle, identity)
+    #[cfg(windows)]
+    {
+        native::a11y_invoke_default_action_inner(handle, identity)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (handle, identity);
+        Err("screen: unknown: a11y invoke is not implemented on this cell".to_owned())
+    }
 }
 
+#[cfg(windows)]
 mod native {
     //! Hand-written `user32`/`gdi32` bindings. No crate, no COM, no service:
     //! the harness process talks to the desktop and exits.
