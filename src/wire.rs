@@ -474,6 +474,10 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         "invoke": {
                             "type": "boolean",
                             "description": "For action=control with source=\"a11y\" only: call the resolved node's native default action (accDoDefaultAction) by identity. No pointer, no window activation, mutually exclusive with press (default false). Verify with the next observe effect and expect [\"tree\"] or field names."
+                        },
+                        "set_value": {
+                            "type": "string",
+                            "description": "For action=control with source=\"a11y\" only: write this text into the resolved node's value (put_accValue) by identity. Exclusive with press/invoke; readonly and protected fields are refused. The write is asynchronous on Chromium: verify with the next observe effect and expect [\"value\"], never the HRESULT alone."
                         }
                     },
                     "required": ["op"]

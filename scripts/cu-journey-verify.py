@@ -723,7 +723,41 @@ def main() -> int:
                       f"{step}: before_generation is not the dispatch generation")
                 check(row.get("after_generation") == rec.get("generation"),
                       f"{step}: after_generation is not the fresh generation")
-    
+
+        # 0.0.18: the semantic text write. A performed write must publish
+        # set_value + hresult evidence and no pointer actuation.
+        wr = by_step.get("act_control_set_value")
+        check(wr is not None, "act_control_set_value: required 0.0.18 step is missing")
+        if wr and wr.get("verdict") == "skipped":
+            # A named skip (target is not a textbox, or no live handle) is the
+            # designed behaviour on cells whose first interactive node is a
+            # button; the write itself is verified on the real L3 desktop.
+            check(isinstance(wr.get("text"), str) and wr.get("text") != "",
+                  "act_control_set_value: skipped without a named reason")
+            notes.append(f"SKIP act_control_set_value: {wr.get('text')}, not counted as [v]")
+        if wr and wr.get("verdict") != "skipped":
+            wr_req = wr.get("request") or {}
+            check(isinstance(wr_req.get("set_value"), str) and wr_req["set_value"] != "",
+                  "act_control_set_value: request carried no set_value text")
+            check(wr_req.get("source") == "a11y",
+                  "act_control_set_value: write must use source=a11y")
+            wr_ev = wr.get("evidence", {})
+            if wr.get("verdict") == "performed":
+                check(wr_ev.get("set_value") == wr_req.get("set_value"),
+                      "act_control_set_value: evidence set_value != request")
+                check(isinstance(wr_ev.get("hresult"), str) and wr_ev["hresult"] != "",
+                      "act_control_set_value: performed without hresult evidence")
+                check(wr_ev.get("actuation") is None,
+                      "act_control_set_value: a write published a pointer actuation receipt")
+            else:
+                text = wr.get("text", "")
+                named = ("readonly" in text or "protected" in text
+                         or "no a11y nodes" in text or "no a11y node matches" in text
+                         or "act:control" in text or platform in text
+                         or "not a textbox" in text)
+                check(named, f"act_control_set_value: refusal has no named reason: {text[:120]!r}")
+                notes.append("REFUSAL act_control_set_value: named boundary, not counted as [v]")
+
     check_effect_steps()
 
     # 0.0.12: recompute handle-addressed focus. A performed title or handle
@@ -818,16 +852,17 @@ def main() -> int:
     # 0.0.17: the invoke-effect observation performs an optional wait that
     # precedes observe_wait_after_act. When present it must be part of the
     # same cumulative budget arithmetic; when skipped nothing changes.
-    early = by_step.get("observe_a11y_effect_invoke")
-    if early and early.get("verdict") == "performed" and early.get("evidence", {}).get("wait"):
-        wait_rows.append((
-            "observe_a11y_effect_invoke",
-            early.get("request", {}).get("wait_ms"),
-            early["evidence"]["wait"].get("elapsed_ms"),
-            early["evidence"]["wait"].get("cumulative_ms"),
-            early["evidence"]["wait"].get("wait_calls"),
-            early,
-        ))
+    for early_name in ("observe_a11y_effect_set_value", "observe_a11y_effect_invoke"):
+        early = by_step.get(early_name)
+        if early and early.get("verdict") == "performed" and early.get("evidence", {}).get("wait"):
+            wait_rows.append((
+                early_name,
+                early.get("request", {}).get("wait_ms"),
+                early["evidence"]["wait"].get("elapsed_ms"),
+                early["evidence"]["wait"].get("cumulative_ms"),
+                early["evidence"]["wait"].get("wait_calls"),
+                early,
+            ))
     for step in WAIT_PERFORMED_STEPS:
         record = by_step.get(step)
         check(record is not None and record.get("verdict") == "performed",

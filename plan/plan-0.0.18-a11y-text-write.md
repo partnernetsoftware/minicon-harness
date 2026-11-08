@@ -1,5 +1,29 @@
 # 0.0.18 — a11y text write with expect-vs-observed verification (planned, NOT started)
 
+Delivery record (W1-W3, 2026-11-08; W4 pending):
+
+- **W1 probe** (`examples/cu_probe_write.rs`): on the real WorkBuddy client,
+  the search panel's `搜索对话内容` textbox accepted `put_accValue` (slot 27,
+  S_OK). Two decisive findings: (a) the write is **asynchronous on Chromium**
+  — an immediate same-COM-session readback still showed the old value, while
+  a fresh `observe(a11y)` through the shipped wire read `value="cu-0018"`;
+  (b) the write's collateral effects (rect reflow, tree diff) belong in the
+  caller's `expect` set. `SysAllocStringLen`/`SysFreeString` live in
+  oleaut32, not ole32.
+- **W2**: `act:control` gains `set_value` (a11y arm only, exclusive with
+  `press` and `invoke`); readonly (0x40) and protected (0x10) state vetoes
+  fire before any native call; the write is dispatched by identity through
+  the 0.0.17 walker; evidence publishes `set_value`, `hresult`, the resolved
+  node, no pointer actuation, and an explicit `effect_hint` naming the
+  `expect:["value"]` verification contract. Journey steps
+  `act_control_set_value` / `observe_a11y_effect_set_value` with reader
+  recomputation (a named `skipped` is admissible when the cell's first
+  interactive node is not a textbox). Real-desktop X-grade loops:
+  `expect:["value"]` → `mismatch observed:["rect","tree","value"]` (honest —
+  the reflow is real) and the full-set `expect:["rect","tree","value"]` →
+  `confirmed`. 138 unit tests, four-cfg gate green.
+- **W3**: four version sources → `0.0.18`. W4 not claimed until it runs.
+
 Status: **planned after `v0.0.17` was published and accepted from the owner's
 view (2026-11-08)**. All four version sources stay `0.0.17`. Owner directions
 in force: `/goal` full delegation; concentrate on computer use; never Python

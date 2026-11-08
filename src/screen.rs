@@ -2201,6 +2201,27 @@ pub fn a11y_invoke_default_action(
     }
 }
 
+/// 0.0.18: write text into one resolved a11y node by identity via
+/// `IAccessible::put_accValue` (vtable slot 27). Same dispatch shape as the
+/// 0.0.17 invoke. The W1 probe showed Chromium applies the write
+/// asynchronously: the caller verifies with the 0.0.16 effect readback on a
+/// later observe (with `wait_ms`), never by trusting the HRESULT alone.
+pub fn a11y_put_acc_value(
+    handle: u64,
+    identity: A11yIdentity,
+    text: &str,
+) -> Result<Result<(), String>, String> {
+    #[cfg(windows)]
+    {
+        native::a11y_put_acc_value_inner(handle, identity, text)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (handle, identity, text);
+        Err("screen: unknown: a11y text write is not implemented on this cell".to_owned())
+    }
+}
+
 #[cfg(windows)]
 mod native {
     //! Hand-written `user32`/`gdi32` bindings. No crate, no COM, no service:
@@ -2894,6 +2915,14 @@ mod native {
         msaa::invoke_default_action(handle, identity)
     }
 
+    pub(super) fn a11y_put_acc_value_inner(
+        handle: u64,
+        identity: crate::screen::A11yIdentity,
+        text: &str,
+    ) -> Result<Result<(), String>, String> {
+        msaa::put_acc_value(handle, identity, text)
+    }
+
 
     mod msaa {
         use super::super::{
@@ -3312,6 +3341,106 @@ mod native {
                     );
                 }
             }
+        }
+
+        /// 0.0.18: `IAccessible::put_accValue` (vtable slot 27) dispatched to
+        /// the object located by identity, exactly like the invoke.
+        pub(super) fn put_acc_value(
+            handle: u64,
+            identity: A11yIdentity,
+            text: &str,
+        ) -> Result<Result<(), String>, String> {
+            let window = handle as usize as *mut c_void;
+            unsafe {
+                let initialized = CoInitializeEx(std::ptr::null_mut(), 2);
+                if initialized < 0 {
+                    return Err(format!(
+                        "screen: unknown: COM could not be initialised for a write \\
+                         (HRESULT {initialized:#010x})"
+                    ));
+                }
+                let outcome = write_by_identity(window, &identity, text);
+                CoUninitialize();
+                outcome
+            }
+        }
+
+        unsafe fn write_by_identity(
+            window: *mut c_void,
+            identity: &A11yIdentity,
+            text: &str,
+        ) -> Result<Result<(), String>, String> {
+            let mut children: Vec<*mut c_void> = Vec::new();
+            super::EnumChildWindows(
+                window,
+                collect_child,
+                &mut children as *mut _ as isize,
+            );
+            if children.is_empty() {
+                children.push(window);
+            }
+            let mut matches = 0usize;
+            for host in children {
+                let mut object: *mut c_void = std::ptr::null_mut();
+                let hr = AccessibleObjectFromWindow(
+                    host,
+                    OBJID_CLIENT,
+                    &IID_IACCESSIBLE,
+                    &mut object,
+                );
+                if hr != 0 || object.is_null() {
+                    continue;
+                }
+                let mut found: Option<(*mut c_void, Variant)> = None;
+                walk_for_identity(
+                    object,
+                    Variant::i4(0),
+                    0,
+                    identity,
+                    &mut matches,
+                    &mut found,
+                );
+                if let Some((target, child)) = found {
+                    let result = put_acc_value_call(target, child, text);
+                    if target != object {
+                        release(target);
+                    }
+                    release(object);
+                    if result == 0 {
+                        return Ok(Ok(()));
+                    }
+                    return Ok(Err(format!(
+                        "put_accValue returned HRESULT {result:#010x}"
+                    )));
+                }
+                release(object);
+            }
+            if matches == 0 {
+                Ok(Err("no accessible object matches the resolved identity".to_owned()))
+            } else {
+                Ok(Err("the resolved identity is ambiguous in the live tree".to_owned()))
+            }
+        }
+
+        /// `IAccessible::put_accValue` (vtable slot 27). The BSTR is
+        /// allocated and freed here; the callee never owns it.
+        unsafe fn put_acc_value_call(object: *mut c_void, child: Variant, text: &str) -> i32 {
+            #[link(name = "oleaut32")]
+            extern "system" {
+                fn SysAllocStringLen(source: *const u16, length: u32) -> *mut u16;
+                fn SysFreeString(bstr: *mut u16);
+            }
+            type F = unsafe extern "system" fn(*mut c_void, Variant, *mut u16) -> i32;
+            let function: F = std::mem::transmute(slot(object, 27));
+            let mut wide: Vec<u16> = text.encode_utf16().collect();
+            wide.push(0);
+            let bstr = SysAllocStringLen(wide.as_ptr(), (wide.len() - 1) as u32);
+            if bstr.is_null() {
+                return -2147024882;
+            }
+            let hr = function(object, child, bstr);
+            SysFreeString(bstr);
+            hr
         }
 
         /// `IAccessible::accDoDefaultAction` (vtable slot 25).

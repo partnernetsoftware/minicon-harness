@@ -284,6 +284,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         journey.skip("observe_a11y_effect_invoke", "observe", "no addressable a11y node");
     }
 
+    // 0.0.18: semantic text write. Only meaningful when the a11y target is an
+    // editable textbox; on other targets this is a named refusal the reader
+    // admits. Verification uses the 0.0.16 effect readback with
+    // expect:["value"] — the write is asynchronous on Chromium, so the
+    // observation waits first.
+    {
+        let (name, role) = a11y_target
+            .clone()
+            .unwrap_or_else(|| ("no-such-a11y-node".to_owned(), "unknown".to_owned()));
+        if role == "textbox" {
+            if let Some(hwnd) = a11y_hwnd {
+                journey.run(
+                    "act_control_set_value",
+                    "act:control",
+                    caps.act_control,
+                    false,
+                    json!({
+                        "op": "act", "why": "CU journey: semantic text write",
+                        "action": "control", "control": name, "source": "a11y",
+                        "role": role, "set_value": "cu-journey",
+                    }),
+                );
+                journey.run(
+                    "observe_a11y_effect_set_value",
+                    "observe",
+                    caps.observe,
+                    true,
+                    json!({
+                        "op": "observe", "a11y": hwnd, "wait_ms": 400,
+                        "effect": {
+                            "hwnd": hwnd, "name": name, "role": role,
+                            "expect": ["value"],
+                        },
+                    }),
+                );
+            } else {
+                journey.skip("act_control_set_value", "act:control", "no live window handle");
+                journey.skip("observe_a11y_effect_set_value", "observe", "no live window handle");
+            }
+        } else {
+            journey.skip("act_control_set_value", "act:control", "target is not a textbox");
+            journey.skip("observe_a11y_effect_set_value", "observe", "target is not a textbox");
+        }
+    }
+
     if caps.capture {
         journey.run(
             "observe_capture",

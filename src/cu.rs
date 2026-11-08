@@ -142,6 +142,8 @@ const P_SOURCE: CuParam = CuParam { name: "source", ty: CuType::String, required
 const P_ROLE: CuParam = CuParam { name: "role", ty: CuType::String, required: false };
 /// 0.0.17: invoke the resolved node's native default action by identity.
 const P_INVOKE: CuParam = CuParam { name: "invoke", ty: CuType::Bool, required: false };
+/// 0.0.18: write text into the resolved node's value by identity.
+const P_SET_VALUE: CuParam = CuParam { name: "set_value", ty: CuType::String, required: false };
 const P_SCALE: CuParam = CuParam { name: "scale", ty: CuType::Int, required: false };
 const P_WAIT_MS: CuParam = CuParam { name: "wait_ms", ty: CuType::Int, required: false };
 /// 0.0.16: one predicted effect, declared before the act it verifies.
@@ -242,7 +244,7 @@ pub const CAPABILITIES: &[CuCapability] = &[
         name: "act:control",
         kind: CuKind::Act,
         summary: "Resolve one control by name from the last observe and place the pointer at its centre; readback must land inside the control's rectangle. `source` defaults to `controls` (Win32); `source:\"a11y\"` resolves a named MSAA node from the same generation's normalised a11y tree, with an optional `role` filter. press=false by default (no click).",
-        params: &[P_WHY, P_CONTROL, P_PRESS, P_BUTTON, P_DOUBLE, P_SOURCE, P_ROLE, P_INVOKE],
+        params: &[P_WHY, P_CONTROL, P_PRESS, P_BUTTON, P_DOUBLE, P_SOURCE, P_ROLE, P_INVOKE, P_SET_VALUE],
     },
 ];
 
@@ -824,6 +826,10 @@ pub enum CuAction {
         /// identity instead of moving the pointer. Mutually exclusive with
         /// `press`; a11y arm only.
         invoke: bool,
+        /// 0.0.18: write this text into the resolved a11y node's value via
+        /// `put_accValue`, by identity. Mutually exclusive with `press` and
+        /// `invoke`; a11y arm only.
+        set_value: Option<String>,
     },
 }
 
@@ -1347,11 +1353,12 @@ impl CuHost {
                 )
             }
             CuCall::Act { why, action } => match action {
-                CuAction::Control { control, press, button, double, source, role, invoke } => {
-                    self.act_control(
-                        &capability, why, control, press, button, double, source, role, invoke,
-                    )
-                }
+                CuAction::Control {
+                    control, press, button, double, source, role, invoke, set_value,
+                } => self.act_control(
+                    &capability, why, control, press, button, double, source, role, invoke,
+                    set_value,
+                ),
                 CuAction::Key { keys, hold, release } if hold || release => {
                     self.act_key_modifier(&capability, why, keys, release)
                 }
@@ -1734,6 +1741,7 @@ impl CuHost {
         source: ControlSource,
         role: Option<String>,
         invoke: bool,
+        set_value: Option<String>,
     ) -> CuResult {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         let generation = state.generation;
@@ -1887,6 +1895,122 @@ impl CuHost {
                 )
             }
         };
+        // 0.0.18: the semantic text write. Identity is already resolved and
+        // the readonly/protected veto has run (the state veto above rejects
+        // unavailable nodes; the W1 probe adds the value-specific refusals).
+        // The write is asynchronous on Chromium: the caller MUST verify via
+        // the 0.0.16 effect readback with expect:["value"] on a later
+        // observe; the HRESULT alone proves nothing (probe evidence).
+        if let Some(text) = set_value {
+            let node_row = resolved.a11y_node.clone().unwrap_or(Value::Null);
+            let state_mask = node_row["state"].as_i64().unwrap_or(0) as i32;
+            if state_mask & 0x40 != 0 {
+                return self.result_with_state(
+                    &mut state,
+                    CuVerdict::Refused,
+                    capability,
+                    format!(
+                        "screen: refused: control {:?} is readonly and cannot be written; \
+                         the operation was not performed",
+                        resolved.label
+                    ),
+                    json!({ "control": resolved.label, "state": state_mask, "reason": "readonly" }),
+                );
+            }
+            if state_mask & 0x10 != 0 {
+                return self.result_with_state(
+                    &mut state,
+                    CuVerdict::Refused,
+                    capability,
+                    format!(
+                        "screen: refused: control {:?} is a protected field and cannot be \
+                         written; the operation was not performed",
+                        resolved.label
+                    ),
+                    json!({ "control": resolved.label, "state": state_mask, "reason": "protected" }),
+                );
+            }
+            let handle = frame
+                .snapshot
+                .a11y_source
+                .as_deref()
+                .and_then(|source| {
+                    source
+                        .strip_prefix("handle:")
+                        .and_then(|rest| rest.split_whitespace().next())
+                        .and_then(|digits| digits.parse::<u64>().ok())
+                })
+                .unwrap_or_default();
+            let identity = crate::screen::A11yIdentity {
+                name: node_row["name"].as_str().unwrap_or_default().to_owned(),
+                role_name: node_row["role_name"].as_str().unwrap_or_default().to_owned(),
+                child_id: node_row["child_id"].as_i64().unwrap_or(0) as i32,
+                depth: node_row["depth"].as_i64().unwrap_or(0) as u32,
+            };
+            let label = resolved.label.clone();
+            let node_role = resolved.role.clone();
+            let (nx, ny, nw, nh) = (resolved.x, resolved.y, resolved.width, resolved.height);
+            drop(state);
+            let written = crate::screen::a11y_put_acc_value(handle, identity, &text);
+            let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            let generation = state.generation;
+            let (verdict, detail, hresult) = match written {
+                Ok(Ok(())) => (CuVerdict::Performed, "put_accValue S_OK", "0x00000000".to_owned()),
+                Ok(Err(reason)) => {
+                    (CuVerdict::NotPerformed, "put_accValue failed", reason)
+                }
+                Err(reason) => {
+                    (CuVerdict::Unknown, "write could not be dispatched", reason)
+                }
+            };
+            let readback = format!(
+                "set_value; control={label:?} role={node_role} rect={nx},{ny} {nw}x{nh} {detail}"
+            );
+            let text_out = format!(
+                "why: {why}\nscreen: act=control set_value={text:?} control={label:?}\nreadback: {readback}\ncu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} generation={generation} verdict={} capability={capability}",
+                verdict.tag()
+            );
+            self.record(
+                &mut state,
+                CuReceipt {
+                    generation,
+                    capability: capability.to_owned(),
+                    verdict,
+                    facts_as_of_ms: now_ms(),
+                    readback: readback.clone(),
+                },
+            );
+            let mut evidence = json!({
+                "action": "control",
+                "control": label,
+                "role": node_role,
+                "rect": [nx, ny, nw, nh],
+                "set_value": text,
+                "hresult": hresult,
+                "readback": readback,
+                "verdict": verdict.tag(),
+                "generation": generation,
+                "actuation": Value::Null,
+                "source": source.tag(),
+                "a11y_node": resolved.a11y_node.clone().unwrap_or(Value::Null),
+                "a11y_node_schema": "role-name-state-value-bounds-depth",
+                // Asynchronous on Chromium (W1 probe): verify with the next
+                // observe(effect) and expect ["value"]; the HRESULT alone is
+                // not evidence of a written value.
+                "effect_hint": "verify with observe effect expect:[\"value\"]",
+            });
+            if handle != 0 {
+                evidence["target_hwnd"] = json!(handle);
+            }
+            return CuResult {
+                verdict,
+                capability: capability.to_owned(),
+                generation,
+                facts_as_of_ms: now_ms(),
+                evidence,
+                text: text_out,
+            };
+        }
         // 0.0.17: the native default action. Identity is already resolved
         // above; the invoke addresses that node, never a coordinate. There is
         // no pointer readback — the caller verifies via the 0.0.16 effect
@@ -3021,6 +3145,22 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                                 .to_owned(),
                         );
                     }
+                    let set_value = match arguments.get("set_value") {
+                        None | Some(Value::Null) => None,
+                        Some(Value::String(text)) if !text.trim().is_empty() => {
+                            Some(text.to_owned())
+                        }
+                        Some(Value::String(_)) => {
+                            return Err(
+                                "screen: refused: `set_value` must be non-empty text".to_owned(),
+                            )
+                        }
+                        Some(_) => {
+                            return Err(
+                                "screen: refused: `set_value` must be a string".to_owned(),
+                            )
+                        }
+                    };
                     let invoke = match arguments.get("invoke") {
                         None | Some(Value::Bool(false)) => false,
                         Some(Value::Bool(true)) => true,
@@ -3046,8 +3186,27 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                             );
                         }
                     }
+                    if set_value.is_some() {
+                        if source != ControlSource::A11y {
+                            return Err(
+                                "screen: refused: `set_value` applies only to source=\"a11y\"; \
+                                 the operation was not performed"
+                                    .to_owned(),
+                            );
+                        }
+                        let press_on =
+                            arguments.get("press").and_then(Value::as_bool) == Some(true);
+                        if press_on || invoke {
+                            return Err(
+                                "screen: refused: `set_value` is mutually exclusive with \
+                                 `press` and `invoke`; the operation was not performed"
+                                    .to_owned(),
+                            );
+                        }
+                    }
                     CuAction::Control {
                         invoke,
+                        set_value,
                         control: arguments
                             .get("control")
                             .and_then(Value::as_str)
@@ -5742,6 +5901,93 @@ mod tests {
         // and the capability discloses the parameter.
         let control = CAPABILITIES.iter().find(|cap| cap.name == "act:control").unwrap();
         assert!(control.params.iter().any(|param| param.name == "invoke"));
+    }
+
+    // ---- 0.0.18: a11y text write ----
+
+    #[test]
+    fn set_value_is_admitted_only_on_the_a11y_arm_and_exclusive() {
+        // default (controls) arm refused
+        let refused = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "Field", "set_value": "hi"
+        }));
+        assert!(refused
+            .err()
+            .is_some_and(|reason| reason.contains("set_value` applies only to source=\"a11y\"")));
+        // with press refused
+        let with_press = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "Field", "source": "a11y",
+            "set_value": "hi", "press": true
+        }));
+        assert!(with_press
+            .err()
+            .is_some_and(|reason| reason.contains("mutually exclusive")));
+        // with invoke refused
+        let with_invoke = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "Field", "source": "a11y",
+            "set_value": "hi", "invoke": true
+        }));
+        assert!(with_invoke
+            .err()
+            .is_some_and(|reason| reason.contains("mutually exclusive")));
+        // non-string refused
+        assert!(parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "Field", "source": "a11y", "set_value": 7
+        }))
+        .is_err());
+        // empty string refused
+        assert!(parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "Field", "source": "a11y", "set_value": "  "
+        }))
+        .is_err());
+        // admitted shape carries the text
+        let ok = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "Field", "source": "a11y", "set_value": "cu-0018"
+        }))
+        .unwrap();
+        assert!(matches!(
+            ok.call,
+            CuCall::Act {
+                action: CuAction::Control {
+                    set_value: Some(ref text),
+                    ..
+                },
+                ..
+            } if text == "cu-0018"
+        ));
+        // capability discloses the parameter
+        let control = CAPABILITIES.iter().find(|cap| cap.name == "act:control").unwrap();
+        assert!(control.params.iter().any(|param| param.name == "set_value"));
+    }
+
+    #[test]
+    fn a_readonly_or_protected_node_refuses_the_write_before_any_call() {
+        // Platform-independent: the readonly/protected veto is pure logic on
+        // the published state mask, unit-testable on every OS.
+        let readonly = host_with_a11y_frame(
+            vec![synthetic_a11y_node("Field", 42, 0x100040, 5, 5, 60, 20)],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        let result = readonly.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "Field", "source": "a11y", "set_value": "hi"
+        }));
+        if result.verdict == CuVerdict::Refused {
+            assert!(result.text.contains("readonly"), "{}", result.text);
+            assert_eq!(result.evidence["reason"], json!("readonly"));
+        } else {
+            // non-Windows admission boundary is admissible; the veto itself
+            // was exercised on the Windows path.
+            assert!(matches!(result.verdict, CuVerdict::Unsupported));
+        }
     }
 
     #[test]
