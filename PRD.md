@@ -28,9 +28,13 @@ start code or tests until the plan is complete** — 三思后行 (think three
 times before acting) and 分而治之 (divide and conquer). This replaces the
 earlier "implement next" pace for the current phase.
 
-**Current phase: 0.0.17 SHIPPED AND ACCEPTED; 0.0.18 planning next.**
-`v0.0.17` is the latest public signed Release (published 2026-11-08
-03:28 UTC, accepted from the owner's view). `v0.0.16` is the latest public signed Release (published
+**Current phase: 0.0.17 SHIPPED AND ACCEPTED; 0.0.18 PLANNED (6/6, NOT
+started).** `v0.0.17` is the latest public signed Release (published
+2026-11-08 03:28 UTC, accepted from the owner's view). Per `/goal` the
+controller planned the next version itself: 0.0.18 is a11y text write
+(`put_accValue` by identity with `expect:["value"]` verification) — the last
+CU version before the harness line reopens
+(`plan/plan-0.0.18-a11y-text-write.md`). `v0.0.16` is the latest public signed Release (published
 2026-11-07 12:36 UTC, accepted from the owner's view); all four version
 sources read `0.0.16`. Per `/goal` the controller planned the next version
 itself: 0.0.17 is native default action (`accDoDefaultAction`) with
@@ -90,7 +94,8 @@ plan/
 ├── plan-0.0.15-uia-probe-and-routing.md   W0 diagnostic record, UIA W2 stopped
 ├── plan-0.0.15-a11y-addressed-actuation.md 0.0.15 shipped, accepted `[v]`
 ├── plan-0.0.16-a11y-effect-readback.md    0.0.16 shipped + accepted record
-└── plan-0.0.17-native-default-action.md  0.0.17 shipped + accepted record
+├── plan-0.0.17-native-default-action.md  0.0.17 shipped + accepted record
+└── plan-0.0.18-a11y-text-write.md        0.0.18 plan 6/6, NOT started
 ```
 
 ### T1 — perception (full tree: `PRD_01_19`)
