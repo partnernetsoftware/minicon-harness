@@ -852,17 +852,23 @@ def main() -> int:
     # 0.0.17: the invoke-effect observation performs an optional wait that
     # precedes observe_wait_after_act. When present it must be part of the
     # same cumulative budget arithmetic; when skipped nothing changes.
-    for early_name in ("observe_a11y_effect_set_value", "observe_a11y_effect_invoke"):
-        early = by_step.get(early_name)
-        if early and early.get("verdict") == "performed" and early.get("evidence", {}).get("wait"):
-            wait_rows.append((
-                early_name,
-                early.get("request", {}).get("wait_ms"),
-                early["evidence"]["wait"].get("elapsed_ms"),
-                early["evidence"]["wait"].get("cumulative_ms"),
-                early["evidence"]["wait"].get("wait_calls"),
-                early,
-            ))
+    # Collect the optional 0.0.17/0.0.18 effect waits IN JOURNEY ORDER: the
+    # cumulative budget is sequential, and by_step loses the run order.
+    early_records = [
+        record for record in records
+        if record["step"] in ("observe_a11y_effect_set_value", "observe_a11y_effect_invoke")
+        and record.get("verdict") == "performed"
+        and record.get("evidence", {}).get("wait")
+    ]
+    for early in early_records:
+        wait_rows.append((
+            early["step"],
+            early.get("request", {}).get("wait_ms"),
+            early["evidence"]["wait"].get("elapsed_ms"),
+            early["evidence"]["wait"].get("cumulative_ms"),
+            early["evidence"]["wait"].get("wait_calls"),
+            early,
+        ))
     for step in WAIT_PERFORMED_STEPS:
         record = by_step.get(step)
         check(record is not None and record.get("verdict") == "performed",
