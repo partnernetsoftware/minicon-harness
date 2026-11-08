@@ -16,7 +16,7 @@ BEGIN
             VALUE "InternalName", "minicon-harness"
             VALUE "OriginalFilename", "minicon-harness.com"
             VALUE "ProductName", "MiniCon Harness"
-            VALUE "ProductVersion", "0.0.18"
+            VALUE "ProductVersion", "0.0.19"
         END
     END
     BLOCK "VarFileInfo"
