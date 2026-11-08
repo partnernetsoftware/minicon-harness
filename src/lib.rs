@@ -16,6 +16,7 @@
 
 pub mod cu;
 pub mod journal;
+pub mod mcp;
 pub mod screen;
 pub mod tools;
 pub mod wire;
