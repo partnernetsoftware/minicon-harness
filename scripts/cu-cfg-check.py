@@ -66,13 +66,13 @@ CONFIGS = {
 
 
 def main() -> int:
-    screen = SRC.read_text()
-    cu = CU.read_text()
+    screen = SRC.read_text(encoding="utf-8")
+    cu = CU.read_text(encoding="utf-8")
     # A backend that forgot the keyboard surface must fail here, not only in
     # a cfg configuration where the code is compiled but never called.
     sources = {"screen.rs": screen}
     for extra in EXTRA:
-        sources[extra.name] = extra.read_text()
+        sources[extra.name] = extra.read_text(encoding="utf-8")
     # 0.0.9 adds `environment()` / `grants()`, 0.0.10 adds
     # `display_scales()` and 0.0.12 adds `window_by_handle()` to all four
     # backends in the same commit; a backend that forgot any of them must fail
@@ -106,10 +106,10 @@ def main() -> int:
                 text = text.replace(old, new)
             d = root / name
             d.mkdir()
-            (d / "screen.rs").write_text(text)
-            (d / "cu.rs").write_text(cu)
+            (d / "screen.rs").write_text(text, encoding="utf-8")
+            (d / "cu.rs").write_text(cu, encoding="utf-8")
             for extra in EXTRA:
-                (d / extra.name).write_text(extra.read_text())
+                (d / extra.name).write_text(extra.read_text(encoding="utf-8"), encoding="utf-8")
             (d / "lib.rs").write_text("pub mod screen;\npub mod cu;\n")
             proc = subprocess.run(
                 [
