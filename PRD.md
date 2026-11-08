@@ -28,8 +28,9 @@ start code or tests until the plan is complete** — 三思后行 (think three
 times before acting) and 分而治之 (divide and conquer). This replaces the
 earlier "implement next" pace for the current phase.
 
-**Current phase: SHIP 0.0.19 (W2 adapter + equivalence tests complete;
-W3 packaging + W4 three-OS CI/Release/acceptance in progress).** The harness line reopened by the
+**Current phase: 0.0.19 published (core Release accepted; H-line adapter
+asset is a named gap — packaging + two-tier qualification are the next work
+item before the H-line may be `[v]`).** The harness line reopened by the
 owner's 2026-11-08 [decision] (H-line + M-line, roadmap block below);
 `v0.0.18` remains the latest accepted Release. `v0.0.18` is the latest public signed Release (published
 2026-11-08 04:47 UTC, accepted from the owner's view); `v0.0.17` (native
