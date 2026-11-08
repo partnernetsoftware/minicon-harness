@@ -277,6 +277,29 @@ topics in advance.
 
 **Trigger to revisit:** the 0.0.19 planning cycle itself.
 
+## Dated controller decision D10 (2026-11-08, H-line open questions)
+
+**Choice:** answered the five open questions of `plan/v0.0.19.md` — stdio
+only (HTTP deferred with a named unlock), one resident core instance (the
+generation/frame contract is stateful; exec-per-call would break
+act/observe/effect sequencing silently), `cu-abi` wire names verbatim
+through MCP (one authoritative contract; equivalence mechanically
+checkable), packaging as a second Release artifact unless W0 shows a
+subcommand costs < ~50 KiB, qualification in two tiers (scripted raw
+JSON-RPC on all three OSes + one real MCP client at least on Windows). The
+acceptance invariant is the E1-E6 equivalence table; those rows are the W1
+test list.
+
+**Reason:** each answer is the cheapest option that keeps every existing
+core guarantee observable through the adapter; the alternatives each break
+a shipped contract or open a `[no]` surface.
+
+**Evidence:** the shipped 0.0.12-0.0.18 contracts the answers preserve;
+`plan/v0.0.19.md` controller supplement.
+
+**Trigger to revisit:** W0 pass 11 evidence contradicting any answer
+(upsert the plan and re-check 6/6 before W2), or an owner veto.
+
 ## Non-goals
 
 - `[no]` re-opening the G boundary in this phase.

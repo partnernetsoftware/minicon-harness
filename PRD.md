@@ -28,48 +28,68 @@ start code or tests until the plan is complete** — 三思后行 (think three
 times before acting) and 分而治之 (divide and conquer). This replaces the
 earlier "implement next" pace for the current phase.
 
-**Current phase: 0.0.18 SHIPPED AND ACCEPTED; the harness line is now
-eligible to reopen.** `v0.0.18` is the latest public signed Release
-(published 2026-11-08 04:47 UTC, accepted from the owner's view). Per the
-owner's line-freeze direction this was the last CU-only version; whether
-0.0.19 starts the omp-referenced harness work or continues CU is the
-controller's next dated decision, informed by the candidate pool. `v0.0.17` is the latest public signed Release (published
-2026-11-08 03:28 UTC, accepted from the owner's view). Per `/goal` the
-controller planned the next version itself: 0.0.18 is a11y text write
-(`put_accValue` by identity with `expect:["value"]` verification) — the last
-CU version before the harness line reopens
-(`plan/plan-0.0.18-a11y-text-write.md`). `v0.0.16` is the latest public signed Release (published
-2026-11-07 12:36 UTC, accepted from the owner's view); all four version
-sources read `0.0.16`. Per `/goal` the controller planned the next version
-itself: 0.0.17 is native default action (`accDoDefaultAction`) with
-mandatory expect-vs-observed verification — the candidate whose gate
-0.0.16's effect-evidence kind opened (`plan/plan-0.0.17-native-default-action.md`). W0 pass 8 added three findings (expected-effect-first, TOCTOU
-identity re-validation, polling diff vs asymmetric event streams) and a
-real-desktop X-grade probe that **falsified the v1 assumption** that the
-WorkBuddy window has an editable `accValue`. The plan v2
-(**expect-vs-observed**, `unchanged` as a first-class verdict) passed 6/6
-**before** any code started; W1/W2 then added 133 unit tests, the
-four-configuration type gate, a real-desktop probe and two three-OS journey
-steps with an independent reader; W3 bumped the four version sources. Only
-three-OS CI plus owner-view acceptance can turn 0.0.16 into `[v]`. Every tree
-node is either `[v]` with three-OS evidence, `[study]`, `[_]`, `[no]` or
-`[decision]`; a research finding never becomes a capability by itself. The UIA
-probe and its downgrade decision are kept verbatim as the W0 diagnostic record
+**Current phase: 0.0.18 SHIPPED AND ACCEPTED; harness line reopened by the
+owner's 2026-11-08 [decision] (H-line + M-line, see the roadmap block
+below); 0.0.19 = H-line MCP adapter, direction recorded, plan being
+completed.** `v0.0.18` is the latest public signed Release (published
+2026-11-08 04:47 UTC, accepted from the owner's view); `v0.0.17` (native
+default action) and `v0.0.16` (expect-vs-observed effect readback) are the
+preceding accepted Releases. Planning history for 0.0.16-0.0.18 lives in
+their plan files. Every tree node is either `[v]` with three-OS evidence,
+`[study]`, `[_]`, `[no]` or `[decision]`; a research finding never becomes a
+capability by itself. The UIA probe and its downgrade decision are kept
+verbatim as the W0 diagnostic record
 (`plan/plan-0.0.15-uia-probe-and-routing.md`); the route switch is dated in
 `PRD_01_24`, not a rewrite of that record.
 
 ### Version roadmap and line freeze (owner direction 2026-11-07)
+
+**[decision] 2026-11-08 (owner, recorded by controller): the harness line
+reopens IN THIS REPO, omp-style.** The owner's product direction: minicon-harness
+is to become the **companion of other harnesses**, along two sub-lines inside
+this one repository (no separate project — the omp/oh-my-Pi precedent: a
+small extension layer over a minimal core, same repo):
+
+- **H-line (hands, outward capability supply):** expose `file` / `exec` /
+  `screen` as an **MCP server** so external harnesses (Claude Code, DSH,
+  OpenCode, Hermes, Orca …) can mount minicon-harness as their computer-use /
+  local-execution backend. The worker core stays a bounded one-file binary
+  with exactly three tools; the MCP wrapper is an *adapter beside* the core,
+  never a plugin host inside it.
+- **M-line (mouth, gateway):** an omp-style **gateway sidecar** in this repo —
+  a second binary/subcommand that routes OpenAI-compatible calls to external
+  harness backends (CLI / MCP / ACP) with loopback-only listening. It is a
+  protocol converter and router: no tool execution of its own, no policy
+  engine, no plugin runtime. Management UI is NOT built here (agenterm owns
+  the family entry/management surface; the gateway exposes an inspect API
+  only).
+
+Reason: market scan 2026-11-08 — Windows desktop CU is the open gap (DSH
+native CU is macOS-only, Hermes leans on cua-driver, Claude Code has no
+local CU), and "one command centre for many harnesses" is validated demand
+(Harness by Autonomous, PH #2). Ordering decision below is the controller's;
+the owner keeps a veto.
 
 ```text
 <= v0.0.18   computer-use branch only
   v0.0.16    a11y effect readback       [_] plan v2 6/6, NOT started
   v0.0.17    CU, topic by gate + fresh X-grade evidence (not committed)
   v0.0.18    CU, topic likewise         (still no harness-line work)
+  v0.0.19    H-line first: MCP adapter for file/exec/screen
+             (controller ordering: hands before mouth — the MCP adapter is
+             the gateway's first consumer; M-line W0 study may start once
+             the H-line plan passes 6/6, code after that)
+  >= v0.0.20 M-line: gateway sidecar skeleton (loopback-only, read-only
+             inspect API), omp as the reference; CU line continues by its
+             own candidate pool between versions
 >  v0.0.18   only after that Release is published AND accepted from the
              owner's view MAY the harness branch be improved with
              omp (oh-my-Pi) as a reference — deferred, not a commitment
+             **satisfied 2026-11-08**: v0.0.18 published and accepted; see
+             the [decision] block above for the reopening shape
 ```
 
+The historical freeze wording is kept verbatim below the satisfied marker.
 The owner said the harness reference is expected "roughly after 0.0.18".
 Until then: no omp study, no harness code/test/dependency, and no widening of
 `exec`, `file` or the model loop. The CU branch keeps the whole version
@@ -99,7 +119,11 @@ plan/
 ├── plan-0.0.15-a11y-addressed-actuation.md 0.0.15 shipped, accepted `[v]`
 ├── plan-0.0.16-a11y-effect-readback.md    0.0.16 shipped + accepted record
 ├── plan-0.0.17-native-default-action.md  0.0.17 shipped + accepted record
-└── plan-0.0.18-a11y-text-write.md        0.0.18 shipped + accepted record
+├── plan-0.0.18-a11y-text-write.md        0.0.18 shipped + accepted record
+└── v0.0.19.md                            H-line direction + controller
+                                          supplement (open questions
+                                          answered, 6/6 pending W0)
+plan/v0.0.19.md   H-line direction record (open)
 ```
 
 ### T1 — perception (full tree: `PRD_01_19`)
@@ -328,6 +352,11 @@ minicon-harness — one-file bounded agent worker
         (the four 0.0.1 delivery rows below are recorded in the 0.0.1
         frontier and `plan/plan-0.0.1-com-release.md`)
 └── [no] plugin host, permission policy, streaming, MCP, a scripting surface
+    **inside the worker core** (unchanged; [decision] 2026-11-08: an MCP
+    *adapter beside the core* and a gateway *sidecar* are the H-line and
+    M-line reopenings recorded above — they widen no tool, add no plugin
+    host to the core, and inherit every core [no] unless a dated
+    decision says otherwise)
     over the desktop, a second model loop
     (sessions enter 0.0.2 as plain journals; the takeover/owner-lock
     protocol stays out; `screen` exposes eight bounded operations, not an
