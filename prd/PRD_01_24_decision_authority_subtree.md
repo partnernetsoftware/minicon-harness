@@ -300,6 +300,55 @@ a shipped contract or open a `[no]` surface.
 **Trigger to revisit:** W0 pass 11 evidence contradicting any answer
 (upsert the plan and re-check 6/6 before W2), or an owner veto.
 
+## Dated controller decision D12 (2026-11-09, 0.0.20 topic)
+
+**Choice:** 0.0.20 is the M-line gateway sidecar skeleton. The H-line adapter
+packaging gap closes as a W0 precondition in the same release cycle, not as
+the version theme. The gate remains a data plane + registry: it does not
+execute workflows.
+
+**Reason:** the `PRD.md` roadmap already assigns `>= v0.0.20` to the M-line;
+the owner direction of 2026-11-09 supplies the pool tuple
+(provider-and-account, model, modelArgs, http-proxy) and the agent/workflow
+binding. The adapter is the gate's first consumer, so its packaging belongs in
+the same cycle ("hands before mouth"). A product review dated 2026-11-09
+proposed the H-line closeout for this slot; the recorded roadmap and the owner
+direction outrank it, and the review now carries a correction.
+
+**Evidence:** `PRD.md` roadmap and status table; `plan/v0.0.19.md` W4 named
+gap; `plan/v0.0.20.md` scope and 6/6 checklist;
+`plan/product-review-2026-11-09.md` correction.
+
+**Trigger to revisit:** W0 falsifies the scope or the artifact budget, or an
+owner veto.
+
+## Dated controller decision D13 (2026-11-09, 0.0.20 W2 start)
+
+**Choice:** the 0.0.20 plan is **6/6 plan-complete** and **W2 may start**.
+Decided now: G3 (`--config` required, no implicit default), G4 (one virtual
+model namespace `gate/<agent>` and `gate/lane/<id>`; the slash form must be
+proven through the repo's own client in W2), G5 (`events.mirror` opt-in; a
+missing parent directory is a load-time refusal), G6 (a `"client"` credential
+requires `allowedHosts`), G8 (a node-level `egress` override replaces the
+lane's `egressOrder`). G1 stays as a **W3 entry criterion** (ureq `Transport`
+tunnel spike; fallback decided: a minimal request/response path over the
+tunnel, `openai-chat` only). G2 and G7 stay as **W4 entry criteria**. A
+handoff brief for the implementing agent is `plan/v0.0.20-handoff.md`.
+
+**Reason:** the contract (`PRD_01_27`) is written and reviewed; the plan
+carries the acceptance rows (M1-M16), the test tiers, the refusal catalog and
+the packaging shape. The only unmeasured questions each sit inside the W that
+needs them and already have a decided fallback, so paper completeness holds --
+the same shape as 0.0.19's D11. Waiting for a separate W0 pass would measure
+G1 before the resolver/config work it depends on exists.
+
+**Evidence:** `prd/PRD_01_27_llm_gate.md`; `plan/v0.0.20.md` sections 4, 7,
+12, 13; D11 precedent; the staged 0.0.19 adapter that makes M13 concrete.
+
+**Trigger to revisit:** W2 evidence contradicts `PRD_01_27` (stop and upsert
+the plan, never the reverse silently); the G1 spike fails both the `Transport`
+seam and the fallback; an owner veto.
+
 ## Non-goals
 
 - `[no]` re-opening the G boundary in this phase.

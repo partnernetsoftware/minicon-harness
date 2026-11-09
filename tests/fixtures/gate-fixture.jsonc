@@ -1,0 +1,61 @@
+{
+  "listen": { "bind": "127.0.0.1:8787",
+              "auth": { "secret": { "env": "GATE_TOKEN" } } },
+  "defaults": {
+    "timeout": { "headerMs": 300000, "chunkMs": 900000 }
+  },
+  "events": { "ring": 10000, "mirror": "tests/fixtures/gate-events.jsonl" },
+
+  "endpoints": {
+    "oa": { "provider": "openai",   "protocol": "openai-chat",
+            "baseURL": "https://api.openai.com/v1" },
+    "ds": { "provider": "deepseek", "protocol": "openai-chat",
+            "baseURL": "https://api.deepseek.com/v1" }
+  },
+  "credentials": {
+    "oa-personal": { "endpoint": "oa", "label": "personal",
+                     "secret": { "env": "OPENAI_API_KEY" },
+                     "scope": { "modelArgs": { "store": false } } },
+    "oa-work":     { "endpoint": "oa", "label": "work",
+                     "secret": { "file": "C:/secrets/oa-work.key" } },
+    "ds-work":     { "endpoint": "ds", "label": "work",
+                     "secret": { "file": "C:/secrets/ds.key" } },
+    "relay-anon":  { "endpoint": "oa", "label": "relay",
+                     "client": true,
+                     "allowedHosts": ["relay.internal.example"] }
+  },
+  "egress": {
+    "proxy8891": { "proxy": { "url": "http://127.0.0.1:8891",
+                              "noProxy": ["localhost", "127.0.0.1", "::1"] } },
+    "direct":    { "proxy": "direct" }
+  },
+  "lanes": {
+    "oa-sol":  { "endpoint": "oa", "model": "gpt-6.1-sol",
+                 "credentialOrder": ["oa-personal", "oa-work"],
+                 "egressOrder": ["proxy8891", "direct"],
+                 "modelArgs": { "reasoningEffort": "high" },
+                 "limits": { "concurrency": 2 } },
+    "ds-fast":  { "endpoint": "ds", "model": "deepseek-chat",
+                  "credentialOrder": ["ds-work"],
+                  "egressOrder": ["direct"],
+                  "modelArgs": { "temperature": 0.2 } }
+  },
+  "agents": {
+    "planner": { "lanes": ["oa-sol", "ds-fast"],
+                 "modelArgs": { "reasoningEffort": "medium" },
+                 "budget": { "maxAttempts": 3, "maxOutputTokens": 32000 } },
+    "worker":  { "lanes": ["ds-fast"] }
+  },
+  "workflows": {
+    "refactor": {
+      "entry": "plan",
+      "nodes": {
+        "plan":   { "agent": "planner" },
+        "apply":  { "agent": "worker" },
+        "review": { "agent": "planner", "egress": "direct" }
+      },
+      "edges": [ { "from": "plan",  "to": "apply" },
+                 { "from": "apply", "to": "review" } ]
+    }
+  }
+}

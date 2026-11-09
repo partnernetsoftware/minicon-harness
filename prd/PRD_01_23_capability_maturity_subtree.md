@@ -66,6 +66,15 @@ T7 Versions / candidates (state, not a promise)
 │       signing, dry-run, publish 42373208791; Latest, 15 assets,
 │       anonymous 200, APE prints 0.0.16, sidecars OK, Authenticode
 │       Valid + RFC3161; ceiling raised by dated owner decision       [v] owner
+├── V0.0.17  native default action + tree dimension                     [v]
+│   └── real-desktop invoke -> tree 43->48 -> confirmed observed:["tree"]
+├── V0.0.18  a11y text write (set_value, by identity)                   [v]
+│   └── async Chromium write verified by the 0.0.16 effect readback
+├── V0.0.19  H-line MCP adapter for file/exec/screen                    [_]
+│   ├── adapter + E1-E7 equivalence tests, 145 unit tests, four-cfg   [v] code
+│   ├── core Release published + accepted                             [v] core
+│   └── adapter binary NOT in the Release archives -> named gap       [_] open
+├── V0.0.20  M-line LLM gate skeleton (0.0.20 plan, 6/6 target)         [_]
 ├── Candidate pool (ordered by gate, not by version)                     [study]
 │   ├── C1 UIA mixed routing              gate: **closed by pass 5 probe** [no]
 │   ├── C2 AT-SPI / AX trees              gate: OS grants + 3-OS fixture [_]

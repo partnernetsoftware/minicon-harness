@@ -15,6 +15,7 @@
 //! stated as a constant next to the code that enforces it.
 
 pub mod cu;
+pub mod gate;
 pub mod journal;
 pub mod mcp;
 pub mod screen;
