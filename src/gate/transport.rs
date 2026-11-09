@@ -43,7 +43,6 @@ pub struct Target<'a> {
 }
 
 /// What one attempt produced.
-#[derive(Debug)]
 pub enum Outcome {
     /// The upstream answered; the status and body pass through verbatim.
     Answered {
@@ -59,11 +58,21 @@ pub enum Outcome {
         /// One sentence, never containing a secret.
         reason: String,
     },
-    /// The proxy, not the upstream, answered — a broken pipe, never an
+    /// The proxy, not the upstream, answered 閳?a broken pipe, never an
     /// upstream refusal.
     ProxyRejected {
         /// The proxy's CONNECT status.
         status: u16,
+    },
+    /// A `text/event-stream` answer. The reader is the upstream's body, relayed
+    /// as it arrives; the gate neither re-frames it nor fabricates a terminator.
+    Streaming {
+        /// Upstream status.
+        status: u16,
+        /// Response headers as received, lower-cased names.
+        headers: Vec<(String, String)>,
+        /// The live body.
+        body: Box<dyn std::io::Read + Send>,
     },
 }
 
@@ -72,6 +81,7 @@ impl Outcome {
     pub fn disposition(&self) -> Disposition {
         match self {
             Outcome::Answered { status, .. } => map::classify_status(*status),
+            Outcome::Streaming { status, .. } => map::classify_status(*status),
             Outcome::Failed { .. } => map::CONNECT_FAILURE,
             Outcome::ProxyRejected { status } if *status == 407 => map::PROXY_407,
             Outcome::ProxyRejected { .. } => map::CONNECT_FAILURE,
@@ -84,6 +94,7 @@ impl Outcome {
             Outcome::Answered { status, .. } => Some(*status),
             Outcome::Failed { .. } => None,
             Outcome::ProxyRejected { status } => Some(*status),
+            Outcome::Streaming { status, .. } => Some(*status),
         }
     }
 }
@@ -214,6 +225,19 @@ pub fn post_chat(target: &Target<'_>) -> Outcome {
                 if let Some(value) = response.header(&name) {
                     received.push((name.to_ascii_lowercase(), value.to_owned()));
                 }
+            }
+            // `stream: true` is a pass-through, never a re-frame: the bytes are
+            // handed back exactly as they arrive, the caller relays them, and
+            // the final usage chunk is recorded rather than rewritten.
+            let streaming = received
+                .iter()
+                .any(|(name, value)| name == "content-type" && value.contains("text/event-stream"));
+            if streaming {
+                return Outcome::Streaming {
+                    status,
+                    headers: received,
+                    body: Box::new(response.into_reader()),
+                };
             }
             let mut bytes = Vec::new();
             match response.into_reader().take((MAX_RESPONSE_BYTES + 1) as u64).read_to_end(&mut bytes) {
@@ -411,7 +435,7 @@ mod tests {
                 assert!(!reason.contains("secret-value"), "the secret must not appear: {reason}");
                 assert!(!reason.contains("127.0.0.1:1@"), "no userinfo in a reason");
             }
-            other => panic!("expected a failure, got {other:?}"),
+            _other => panic!("expected a failure"),
         }
     }
 

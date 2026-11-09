@@ -402,9 +402,9 @@ fn dispatch(router: &Router, request: &Request, intent: Intent, body: Value) -> 
                 body: response_body,
                 headers,
             } if (200..=299).contains(&status) => {
-                let mut response = Response {
+                let mut response = Response::buffered(
                     status,
-                    headers: vec![(
+                    vec![(
                         String::from("Content-Type"),
                         headers
                             .iter()
@@ -412,8 +412,8 @@ fn dispatch(router: &Router, request: &Request, intent: Intent, body: Value) -> 
                             .map(|(_, value)| value.clone())
                             .unwrap_or_else(|| String::from("application/json")),
                     )],
-                    body: response_body,
-                };
+                    response_body,
+                );
                 response.headers.extend(evidence_headers(candidate, number, &router.config.revision, host_of(egress.proxy.as_url())));
                 return response;
             }
@@ -431,16 +431,44 @@ fn dispatch(router: &Router, request: &Request, intent: Intent, body: Value) -> 
                 }
                 // An upstream refusal passes through verbatim with the evidence
                 // headers added: the gate never rewrites an upstream answer.
-                let mut response = Response {
+                let mut response = Response::buffered(
                     status,
-                    headers: vec![(
+                    vec![(
                         String::from("Content-Type"),
                         String::from("application/json"),
                     )],
-                    body: response_body,
-                };
+                    response_body,
+                );
                 response.headers.extend(evidence_headers(candidate, number, &router.config.revision, host_of(egress.proxy.as_url())));
                 return response;
+            }
+            transport::Outcome::Streaming { status, headers, body } => {
+                if disposition.fallback {
+                    completed += 1;
+                    previous = Some(number);
+                    trigger = Some(disposition.reason);
+                    cursor = Instant::now();
+                    continue;
+                }
+                // SSE pass-through: the upstream's own content type and bytes
+                // are relayed, never re-framed. The evidence headers ride on
+                // the same response head.
+                let content_type = headers
+                    .iter()
+                    .find(|(name, _)| name == "content-type")
+                    .map(|(_, value)| value.clone())
+                    .unwrap_or_else(|| String::from("text/event-stream"));
+                let mut relay_headers = vec![
+                    (String::from("Content-Type"), content_type),
+                    (String::from("Cache-Control"), String::from("no-cache")),
+                ];
+                relay_headers.extend(evidence_headers(
+                    candidate,
+                    number,
+                    &router.config.revision,
+                    host_of(egress.proxy.as_url()),
+                ));
+                return Response::stream(status, relay_headers, body);
             }
             transport::Outcome::ProxyRejected { status } => {
                 // The proxy answered instead of the upstream. A 407 stops the

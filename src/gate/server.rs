@@ -1,4 +1,4 @@
-//! The ingress: a bounded, hand-written HTTP/1.1 server on `std::net::TcpListener`.
+﻿//! The ingress: a bounded, hand-written HTTP/1.1 server on `std::net::TcpListener`.
 //!
 //! Deliberately tiny, exactly like the MCP adapter's hand-written stdio loop is
 //! deliberately tiny on stdio:
@@ -64,60 +64,125 @@ impl Request {
 }
 
 /// One response the handler produced.
-#[derive(Clone, Debug, Eq, PartialEq)]
+///
+/// A buffered response is `Body::Bytes`; an SSE pass-through is
+/// `Body::Stream`, relayed chunk by chunk under an event cap. The two share
+/// one renderer so a caller cannot tell from the status line which it got.
 pub struct Response {
     /// HTTP status code.
     pub status: u16,
-    /// Headers, emitted in order after the mandatory `Content-Length`.
+    /// Headers, emitted in order.
     pub headers: Vec<(String, String)>,
-    /// Body bytes.
-    pub body: Vec<u8>,
+    /// The body, buffered or streaming.
+    pub body: Body,
+}
+
+impl std::fmt::Debug for Response {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Response")
+            .field("status", &self.status)
+            .field("headers", &self.headers)
+            .field("body", &match &self.body {
+                Body::Bytes(bytes) => format!("<{} bytes>", bytes.len()),
+                Body::Stream(_) => String::from("<stream>"),
+            })
+            .finish()
+    }
+}
+
+/// A response body.
+pub enum Body {
+    /// Fully buffered.
+    Bytes(Vec<u8>),
+    /// A live upstream stream, relayed in `chunk`-sized reads, one event at a
+    /// time, under `max_event` bytes per chunk.
+    Stream(Box<dyn std::io::Read + Send>),
 }
 
 impl Response {
-    /// A JSON body with `application/json`.
-    pub fn json(status: u16, value: &serde_json::Value) -> Self {
+    /// A buffered response.
+    pub fn buffered(status: u16, headers: Vec<(String, String)>, body: Vec<u8>) -> Self {
         Self {
             status,
-            headers: vec![(
+            headers,
+            body: Body::Bytes(body),
+        }
+    }
+
+    /// A JSON body with `application/json`.
+    pub fn json(status: u16, value: &serde_json::Value) -> Self {
+        Self::buffered(
+            status,
+            vec![(
                 String::from("Content-Type"),
                 String::from("application/json"),
             )],
-            body: value.to_string().into_bytes(),
-        }
+            value.to_string().into_bytes(),
+        )
     }
 
     /// A plain text body.
     pub fn text(status: u16, text: &str) -> Self {
-        Self {
+        Self::buffered(
             status,
-            headers: vec![(
+            vec![(
                 String::from("Content-Type"),
                 String::from("text/plain; charset=utf-8"),
             )],
-            body: text.as_bytes().to_vec(),
+            text.as_bytes().to_vec(),
+        )
+    }
+
+    /// An SSE pass-through.
+    pub fn stream(status: u16, headers: Vec<(String, String)>, body: Box<dyn std::io::Read + Send>) -> Self {
+        Self {
+            status,
+            headers,
+            body: Body::Stream(body),
         }
     }
 
-    /// The rendered wire bytes.
-    pub fn render(&self) -> Vec<u8> {
+    /// The head of the wire form: status line and headers.
+    fn render_head(&self, content_length: Option<usize>) -> Vec<u8> {
         let reason = reason_phrase(self.status);
-        let mut head = format!(
-            "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\n",
-            self.status,
-            reason,
-            self.body.len()
-        );
+        let mut head = format!("HTTP/1.1 {} {}\r\n", self.status, reason);
+        match content_length {
+            Some(length) => head.push_str(&format!("Content-Length: {length}\r\n")),
+            // A stream has no length up front. The connection closes at the end
+            // of the body, which is the HTTP/1.0 completion rule and needs no
+            // chunk framing: the bytes the upstream sent are the bytes the
+            // client reads.
+            None => head.push_str("Connection: close\r\n"),
+        }
+        if content_length.is_some() {
+            head.push_str("Connection: close\r\n");
+        }
         for (name, value) in &self.headers {
+            if content_length.is_none() && name.eq_ignore_ascii_case("connection") {
+                continue;
+            }
             head.push_str(name);
             head.push_str(": ");
             head.push_str(value);
             head.push_str("\r\n");
         }
         head.push_str("\r\n");
-        let mut bytes = head.into_bytes();
-        bytes.extend_from_slice(&self.body);
-        bytes
+        head.into_bytes()
+    }
+
+    /// The rendered wire bytes of a buffered response.
+    pub fn render(&self) -> Vec<u8> {
+        match &self.body {
+            Body::Bytes(bytes) => {
+                let mut wire = self.render_head(Some(bytes.len()));
+                wire.extend_from_slice(bytes);
+                wire
+            }
+            // A stream is not renderable into one buffer by design; the
+            // connection writer relays it.
+            Body::Stream(_) => self.render_head(None),
+        }
     }
 }
 
@@ -448,11 +513,51 @@ fn serve_connection(mut stream: TcpStream, handler: &Handler) {
         Ok(request) => handler(&request),
         Err(failure) => refusal_response(failure.status, failure.code, &failure.reason),
     };
-    let bytes = response.render();
-    let _ = stream.write_all(&bytes);
-    let _ = stream.flush();
+    // The head is rendered before the body moves, so the same renderer serves a
+    // buffered answer and a live SSE relay.
+    let head = response.render_head(match &response.body {
+        Body::Bytes(bytes) => Some(bytes.len()),
+        Body::Stream(_) => None,
+    });
+    match response.body {
+        Body::Bytes(bytes) => {
+            let mut wire = head;
+            wire.extend_from_slice(&bytes);
+            let _ = stream.write_all(&wire);
+            let _ = stream.flush();
+        }
+        Body::Stream(mut body) => {
+            // SSE pass-through: the head goes out first, then each read is
+            // relayed as it arrives. The gate never buffers the whole stream,
+            // never re-frames an event and never invents a terminator.
+            if stream.write_all(&head).is_err() {
+                return;
+            }
+            let _ = stream.flush();
+            let mut chunk = vec![0u8; SSE_RELAY_CHUNK];
+            loop {
+                match body.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(read) => {
+                        if stream.write_all(&chunk[..read]).is_err() {
+                            break;
+                        }
+                        let _ = stream.flush();
+                    }
+                    // A transport failure after the first byte closes the
+                    // stream rather than fabricating a `[DONE]`.
+                    Err(_) => break,
+                }
+            }
+        }
+    }
     let _ = stream.shutdown(std::net::Shutdown::Both);
 }
+
+/// The relay read size. An SSE event is bounded by the contract; this is the
+/// socket read, so a large `data:` line still streams without buffering it
+/// whole.
+pub const SSE_RELAY_CHUNK: usize = 16 * 1024;
 
 /// The `PRD_01_27` local refusal body.
 pub fn refusal_response(status: u16, code: &str, reason: &str) -> Response {
@@ -564,7 +669,10 @@ mod tests {
     #[test]
     fn refusal_body_has_the_contract_shape() {
         let response = refusal_response(400, code::BAD_BODY, "nope");
-        let value: serde_json::Value = serde_json::from_slice(&response.body).expect("json");
+        let crate::gate::server::Body::Bytes(bytes) = &response.body else {
+            panic!("a refusal is buffered");
+        };
+        let value: serde_json::Value = serde_json::from_slice(bytes).expect("json");
         assert_eq!(value["error"]["type"], "gate_refusal");
         assert_eq!(value["error"]["code"], "bad_body");
         assert!(value["error"]["message"].as_str().unwrap_or_default().contains("bad_body"));
