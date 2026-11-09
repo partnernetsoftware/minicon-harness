@@ -89,22 +89,15 @@ pub fn run(config_path: &std::path::Path, allow_non_loopback: bool) -> Result<()
     Ok(())
 }
 
-/// Blocks until the process is interrupted (Ctrl+C) or asked to terminate.
+/// Blocks until the process is terminated.
+///
+/// Without a signal crate the only portable way to stay alive is to sleep: the
+/// gate is a sidecar, so its lifetime is the supervisor's (a terminal's Ctrl+C,
+/// the parent's kill, or the container runtime's SIGTERM). Reading stdin would
+/// look attractive but is wrong -- a redirect or an empty stdin returns EOF at
+/// once and the gate would exit the moment it started, silently.
 fn wait_for_interrupt() {
-    #[cfg(unix)]
-    {
-        use std::io::Read as _;
-        // A SIGINT on a terminal closes stdin's read; either way this returns.
-        let mut sink = std::io::empty();
-        let _ = std::io::stdin().read(&mut std::io::sink());
-        let _ = sink.read(&mut []);
-    }
-    #[cfg(not(unix))]
-    {
-        // Windows has no signal handler without a crate; a bounded poll keeps
-        // the binary honest without one, and the parent's kill ends it.
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }

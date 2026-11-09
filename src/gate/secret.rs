@@ -41,7 +41,6 @@ impl std::fmt::Debug for Secret {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::gate::config::{CommandLine, SecretRef};
     use crate::gate::refusal::code;
 

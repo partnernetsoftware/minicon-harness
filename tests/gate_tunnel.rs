@@ -21,8 +21,6 @@ static SERIAL: Mutex<()> = Mutex::new(());
 struct ProxyStub {
     port: u16,
     connects: Arc<AtomicUsize>,
-    /// Status the proxy answers `CONNECT` with.
-    connect_status: u16,
     /// Last `CONNECT` line the proxy saw.
     last_connect: Arc<std::sync::Mutex<String>>,
 }
@@ -82,7 +80,6 @@ impl ProxyStub {
         Self {
             port,
             connects,
-            connect_status,
             last_connect,
         }
     }

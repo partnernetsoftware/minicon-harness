@@ -204,7 +204,6 @@ fn a_non_stream_answer_still_carries_a_content_length() {
     let (router, dir) = router_over(port);
     let server = config::bind(Arc::clone(&router), 1, false).expect("bind");
     let (status, headers, body) = exchange(server.local.port(), r#"{"model":"gate/a","messages":[]}"#);
-    let (_, _, events) = exchange(server.local.port(), r#"{"model":"gate/a","messages":[]}"#);
     assert_eq!(status, 200);
     assert!(
         headers.iter().any(|(name, _)| name == "content-length"),
