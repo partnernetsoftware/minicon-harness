@@ -44,7 +44,7 @@ only: the gate validates, resolves and routes, and never executes a step.
 Protocol converter and router only -- no tool execution, no policy engine, no
 plugin runtime, no management UI. Contract:
 [`prd/PRD_01_27_llm_gate.md`](prd/PRD_01_27_llm_gate.md) (`[_]`). Status:
-**0.0.20 plan** (`plan/v0.0.20.md`); 6/6 target, no code yet.
+**published and accepted as a signed Release** (`v0.0.20`, `plan/v0.0.20.md`); the H-line adapter now ships beside it.
 
 ### What is deliberately not built here
 
@@ -87,16 +87,29 @@ only current status.
 | 0.0.16 | a11y effect readback (expect vs observed) | yes | yes | `[v]` |
 | 0.0.17 | native default action + tree dimension | yes | yes | `[v]` |
 | 0.0.18 | a11y text write (`set_value`) | yes | yes | `[v]` |
-| 0.0.19 | MCP adapter (H-line) | yes | core yes | `[_]` -- H-line not claimed |
-| 0.0.20 | LLM gate skeleton (M-line) | planned | -- | `[_]` plan 6/6, W2 authorised (D13) |
+| 0.0.19 | MCP adapter (H-line) | yes | core yes | `[v]` -- closed by 0.0.20's artifacts |
+| 0.0.20 | LLM gate skeleton (M-line) | yes | yes | `[v]` -- gate + both sidecars in every archive |
 
-Current phase: **0.0.19 published; the core Release is accepted; the H-line
-adapter is not.** `minicon-harness-mcp` compiles and its E1-E7 equivalence
-tests pass, but the packaging chain does not yet include the second binary, so
-the H-line is not `[v]`. **0.0.20 is the M-line gate skeleton**, per the
-recorded roadmap; its plan is `plan/v0.0.20.md` (6/6 confirmed, W2 authorised
-by D13), and the H-line packaging gap closes there as a W0 precondition, not
-as the version theme.
+Current phase: **0.0.20 published as a signed Release and accepted.** The
+M-line gate skeleton shipped with the H-line packaging gap closed in the same
+release: every archive now carries `minicon-harness`, `minicon-harness-mcp` and
+`minicon-gate` on linux, macos and windows.
+
+Evidence, all from run records rather than from a local machine:
+
+| Run | What it proves |
+|---|---|
+| `42575589000` Gate loopback tier | linux 27 s, macos 48 s, windows 1 m 57 s -- the spike, the loopback and tunnel tiers, the SSE tier, the definition planes, the independent reader against the real binary, the full suite |
+| `42577015780` minicon-harness.com | six courts green; the native archives contain both sidecars |
+| `42578207057` Trusted Signing Court | Authenticode `Valid` on the APE and both Windows cells, Microsoft RFC 3161 timestamp, `release_eligible: true` |
+| `42578498598` Release | verify, published-bytes execution, publish, Defender verdict and post-publish all green |
+
+The contract is `prd/PRD_01_27_llm_gate.md` and the plan is
+`plan/v0.0.20.md`; both carry W2-W4 records including every deviation. The
+three contract questions flagged in the records -- `credentials[].endpoint`
+versus `scope`, "the tunnel is established by the gate" versus `ureq` writing
+the CONNECT, and the payoff example's `--base-url` -- were resolved in favour
+of running code and are stated in the W4 record rather than re-litigated here.
 
 ## Roadmap (outcomes, not commitments)
 
@@ -203,141 +216,141 @@ product's scope on paper.
 One line per dimension; each subtree document owns the detail and the
 dated records behind it.
 
-### T1 — perception (full tree: `PRD_01_19`)
+### T1 鈥?perception (full tree: `PRD_01_19`)
 
 ```text
 T1 perception
-├── P1 pixel arm            [v] bounded PNG + scale disclosure; [no] image arm
-├── P2 structured controls  [v] Win32 controls, MSAA tree, normalised schema
-│                           [v] a11y node is an act target (0.0.15)
-│                           [no] UIA routing (pass 5 downgrade);
-│                           [_] AT-SPI/AX, incremental events
-├── P3 hybrid routing       [study] API -> tree -> pixels; [no] code-first here
-├── P4 target identity      [v] hwnd focus, target_hwnd, stale refusal
-├── P5 timing / freshness   [v] bounded wait + ceilings; [no] polling loop
-└── P6 grounding            [study] resolution budget, bidirectional scaling
+鈹溾攢鈹€ P1 pixel arm            [v] bounded PNG + scale disclosure; [no] image arm
+鈹溾攢鈹€ P2 structured controls  [v] Win32 controls, MSAA tree, normalised schema
+鈹?                          [v] a11y node is an act target (0.0.15)
+鈹?                          [no] UIA routing (pass 5 downgrade);
+鈹?                          [_] AT-SPI/AX, incremental events
+鈹溾攢鈹€ P3 hybrid routing       [study] API -> tree -> pixels; [no] code-first here
+鈹溾攢鈹€ P4 target identity      [v] hwnd focus, target_hwnd, stale refusal
+鈹溾攢鈹€ P5 timing / freshness   [v] bounded wait + ceilings; [no] polling loop
+鈹斺攢鈹€ P6 grounding            [study] resolution budget, bidirectional scaling
 ```
 
-### T2 — actuation (full tree: `PRD_01_20`)
+### T2 鈥?actuation (full tree: `PRD_01_20`)
 
 ```text
 T2 actuation
-├── K keyboard    [v] type / key / held modifiers; [no] layout or IME claim
-├── M mouse       [v] click receipt / drag path / two-axis scroll
-├── W window      [v] title + hwnd focus, live re-validation
-├── A grammar     [v] one effect, why, verdicts, receipts;
-│                 [v] `source`/`role` admission (0.0.15);
-│                 [_] batched actions
-├── C code-first  [study] emit-script-then-run; [no] in this repo
-└── S safety      [v] UIPI/TCC named refusals; [_] injection defence, approval
+鈹溾攢鈹€ K keyboard    [v] type / key / held modifiers; [no] layout or IME claim
+鈹溾攢鈹€ M mouse       [v] click receipt / drag path / two-axis scroll
+鈹溾攢鈹€ W window      [v] title + hwnd focus, live re-validation
+鈹溾攢鈹€ A grammar     [v] one effect, why, verdicts, receipts;
+鈹?                [v] `source`/`role` admission (0.0.15);
+鈹?                [_] batched actions
+鈹溾攢鈹€ C code-first  [study] emit-script-then-run; [no] in this repo
+鈹斺攢鈹€ S safety      [v] UIPI/TCC named refusals; [_] injection defence, approval
 ```
 
-### T3 — resource domain (full tree: `PRD_01_21`, all `[study]` / `[no]`)
+### T3 鈥?resource domain (full tree: `PRD_01_21`, all `[study]` / `[no]`)
 
 ```text
 T3 resource domain                     NOT screen authority (G)
-├── R1 process / pid / namespaces / pids.max
-├── R2 CPU       EEVDF, cpu.max/weight, throttling, cpuset, PSI
-├── R3 memory    max/high/low/min, oom.group, THP/HugeTLB, PSI
-├── R4 GPU       MIG, SR-IOV+IOMMU, vGPU, MPS, CUDA_VISIBLE_DEVICES
-├── R5 I/O       io.max/io.weight, io_uring, tmpfs, snapshots
-├── R6 net/device eBPF, default-deny egress, metadata block, LSM
-├── R7 isolation container -> gVisor -> microVM -> full KVM
-├── R8 lifecycle  credential broker, three timeouts, audit, quotas, stop
-├── R9 cost       PSI telemetry, 7.3x price spread, memory-dominant bills
-└── R10 acceptance guest-side read/cap/cleanup probes
-    └── [decision] (a) keep G closed — controller decision 2026-11-06, T8
+鈹溾攢鈹€ R1 process / pid / namespaces / pids.max
+鈹溾攢鈹€ R2 CPU       EEVDF, cpu.max/weight, throttling, cpuset, PSI
+鈹溾攢鈹€ R3 memory    max/high/low/min, oom.group, THP/HugeTLB, PSI
+鈹溾攢鈹€ R4 GPU       MIG, SR-IOV+IOMMU, vGPU, MPS, CUDA_VISIBLE_DEVICES
+鈹溾攢鈹€ R5 I/O       io.max/io.weight, io_uring, tmpfs, snapshots
+鈹溾攢鈹€ R6 net/device eBPF, default-deny egress, metadata block, LSM
+鈹溾攢鈹€ R7 isolation container -> gVisor -> microVM -> full KVM
+鈹溾攢鈹€ R8 lifecycle  credential broker, three timeouts, audit, quotas, stop
+鈹溾攢鈹€ R9 cost       PSI telemetry, 7.3x price spread, memory-dominant bills
+鈹斺攢鈹€ R10 acceptance guest-side read/cap/cleanup probes
+    鈹斺攢鈹€ [decision] (a) keep G closed 鈥?controller decision 2026-11-06, T8
 ```
 
-### T4 — platform (full tree: `PRD_01_22`)
+### T4 鈥?platform (full tree: `PRD_01_22`)
 
 ```text
 T4 platform                             12 / 10 / 8 / 0 matrix
-├── PL1 Windows  [v] EnumWindows, MSAA, SendInput; [study] UIA, UIPI, WGC
-├── PL2 macOS    [v] 8/12, TCC boundaries, scale; [study] AX, bundle id
-├── PL3 Linux    [v] 10/12, XTest, empty a11y tree; [study] AT-SPI2, portals
-├── PL4 fallback [v] 0/12 with named reasons
-└── PL5 contract [v] four cfgs, identical native signatures, type gate
+鈹溾攢鈹€ PL1 Windows  [v] EnumWindows, MSAA, SendInput; [study] UIA, UIPI, WGC
+鈹溾攢鈹€ PL2 macOS    [v] 8/12, TCC boundaries, scale; [study] AX, bundle id
+鈹溾攢鈹€ PL3 Linux    [v] 10/12, XTest, empty a11y tree; [study] AT-SPI2, portals
+鈹溾攢鈹€ PL4 fallback [v] 0/12 with named reasons
+鈹斺攢鈹€ PL5 contract [v] four cfgs, identical native signatures, type gate
 ```
 
-### T5 — capability maturity (full tree: `PRD_01_23`)
+### T5 鈥?capability maturity (full tree: `PRD_01_23`)
 
 ```text
 T5 A-F capability index -> T1/T2/T4/T6 subtrees
-└── L0 read-only [v] -> L1 evidenced interaction [v]
+鈹斺攢鈹€ L0 read-only [v] -> L1 evidenced interaction [v]
     -> L2 self-sustained loop [_] gates: A5/D2, B7b/D4 [v], A4, F3
     -> L3 self-hosted orchestration [_] gates: L2 + F3 + C5/C6
 ```
 
-### T6 — evidence (full tree: `PRD_01_22`)
+### T6 鈥?evidence (full tree: `PRD_01_22`)
 
 ```text
 T6 evidence
-├── E1 CI gates          [v] platforms + journeys + four-cfg type gate
-├── E2 independent reader[v] producer never grades; no assertion weakened
-├── E3 typed rows        [v] receipts, grants, scales, a11y schema, wait
-├── E4 release chain     [v] receipts, sidecars, Authenticode, owner view
-├── E5 external methods  [study] OSWorld 2.1 release contract, accept+reject
-└── E6 evidence grades   [study] O / B / P / V / S / X; only X can be [v]
+鈹溾攢鈹€ E1 CI gates          [v] platforms + journeys + four-cfg type gate
+鈹溾攢鈹€ E2 independent reader[v] producer never grades; no assertion weakened
+鈹溾攢鈹€ E3 typed rows        [v] receipts, grants, scales, a11y schema, wait
+鈹溾攢鈹€ E4 release chain     [v] receipts, sidecars, Authenticode, owner view
+鈹溾攢鈹€ E5 external methods  [study] OSWorld 2.1 release contract, accept+reject
+鈹斺攢鈹€ E6 evidence grades   [study] O / B / P / V / S / X; only X can be [v]
 ```
 
-### T7 — version state (full tree: `PRD_01_23`)
+### T7 鈥?version state (full tree: `PRD_01_23`)
 
 ```text
 T7 versions
-├── V0.0.1 - V0.0.14   [v] published, accepted signed Releases
-├── V0.0.15            [v] W1 UIA diagnostic probe; [v] a11y-addressed
-│                      actuation shipped as a public signed Release
-├── V0.0.16            [v] a11y effect readback, expect-vs-observed;
-│                      public signed Release, accepted from the owner's view
-├── V0.0.17            [v] native default action + tree dimension;
-│                      public signed Release, accepted from the owner's view
-├── V0.0.18            [v] a11y text write (set_value); public signed
-│                      Release, accepted from the owner's view
-├── V0.0.19            [v] core published + accepted; H-line MCP adapter
-│                      built and E1-E7 tested, but NOT a Release asset, so
-│                      the H-line is `[_]` (named packaging gap)
-├── V0.0.20            [_] M-line gate skeleton; plan 6/6 target, no code yet
-├── release evidence   0.0.1-0.0.19 CI ids + dated records -> `prd_hist.md`
-├── line freeze        [decision] satisfied; harness/omp line eligible
-├── candidate pool      [study] ordered by gate, never a version commitment
-└── standing [no]      [no] unchanged; canonical list in "Non-goals"
+鈹溾攢鈹€ V0.0.1 - V0.0.14   [v] published, accepted signed Releases
+鈹溾攢鈹€ V0.0.15            [v] W1 UIA diagnostic probe; [v] a11y-addressed
+鈹?                     actuation shipped as a public signed Release
+鈹溾攢鈹€ V0.0.16            [v] a11y effect readback, expect-vs-observed;
+鈹?                     public signed Release, accepted from the owner's view
+鈹溾攢鈹€ V0.0.17            [v] native default action + tree dimension;
+鈹?                     public signed Release, accepted from the owner's view
+鈹溾攢鈹€ V0.0.18            [v] a11y text write (set_value); public signed
+鈹?                     Release, accepted from the owner's view
+鈹溾攢鈹€ V0.0.19            [v] core published + accepted; H-line MCP adapter
+鈹?                     built and E1-E7 tested, but NOT a Release asset, so
+鈹?                     the H-line is `[_]` (named packaging gap)
+鈹溾攢鈹€ V0.0.20            [v] M-line gate skeleton; published, three-OS tier green
+鈹溾攢鈹€ release evidence   0.0.1-0.0.19 CI ids + dated records -> `prd_hist.md`
+鈹溾攢鈹€ line freeze        [decision] satisfied; harness/omp line eligible
+鈹溾攢鈹€ candidate pool      [study] ordered by gate, never a version commitment
+鈹斺攢鈹€ standing [no]      [no] unchanged; canonical list in "Non-goals"
 ```
 
-### T9 — semantic addressing (full tree: `PRD_01_25`)
+### T9 鈥?semantic addressing (full tree: `PRD_01_25`)
 
 ```text
 T9 semantic addressing          identity -> bounded effect -> readback
-├── S1 identity   [v] Win32 controls, MSAA a11y nodes, live hwnd;
-│                 [no] a pixel coordinate as an identity
-├── S2 resolver   [v] exact name -> unique substring -> optional role filter;
-│                 [v] ambiguity / unknown role / vetoed state refused
-├── S3 admission  [v] `source` enum, generation pin, empty tree named refusal;
-│                 [v] press=false default, no click from a bare resolution
-├── S4 effect     [v] same hover/click backend, readback inside the node rect;
-│                 [v] native default-action + tree dimension shipped in 0.0.17
-├── S5 evidence   [v] `a11y_node` schema, reader recomputes state_names,
-│                 centre and containment; no earlier assertion weakened
-├── S6 three OS   [v] Windows real button hover; other cells named refusal;
-│                 [v] 12/10/8/0 matrix and four-cfg gate unchanged
-└── S7 maturity   [v] L1 addressable interaction; [_] L2 / L3 gates unchanged
+鈹溾攢鈹€ S1 identity   [v] Win32 controls, MSAA a11y nodes, live hwnd;
+鈹?                [no] a pixel coordinate as an identity
+鈹溾攢鈹€ S2 resolver   [v] exact name -> unique substring -> optional role filter;
+鈹?                [v] ambiguity / unknown role / vetoed state refused
+鈹溾攢鈹€ S3 admission  [v] `source` enum, generation pin, empty tree named refusal;
+鈹?                [v] press=false default, no click from a bare resolution
+鈹溾攢鈹€ S4 effect     [v] same hover/click backend, readback inside the node rect;
+鈹?                [v] native default-action + tree dimension shipped in 0.0.17
+鈹溾攢鈹€ S5 evidence   [v] `a11y_node` schema, reader recomputes state_names,
+鈹?                centre and containment; no earlier assertion weakened
+鈹溾攢鈹€ S6 three OS   [v] Windows real button hover; other cells named refusal;
+鈹?                [v] 12/10/8/0 matrix and four-cfg gate unchanged
+鈹斺攢鈹€ S7 maturity   [v] L1 addressable interaction; [_] L2 / L3 gates unchanged
 ```
 
-### T8 — decision authority (full tree: `PRD_01_24`)
+### T8 鈥?decision authority (full tree: `PRD_01_24`)
 
 ```text
 T8 decision authority (controller-autonomous under /goal)
-├── D1 owner directions, dated and recorded verbatim                [v]
-├── D2 controller decisions, no prior owner approval              [decision]
-│   ├── version topic / ordering / gate / W1-W4 timing
-│   ├── additive capability inside cu-abi 1.0 + 12/10/8/0 matrix
-│   ├── lifting one [no] with dated reason and bounds
-│   ├── G boundary direction: (a) keep closed, 2026-11-06
-│   └── release chain, CI gates, owner-view acceptance
-├── D3 owner veto after the fact, never a pre-approval gate         [v]
-├── D4 escalation discipline                                       [no]
-│   └── [no] pasting options + waiting on a reversible default
-└── D5 decision record: date / choice / reason / evidence / trigger [v]
+鈹溾攢鈹€ D1 owner directions, dated and recorded verbatim                [v]
+鈹溾攢鈹€ D2 controller decisions, no prior owner approval              [decision]
+鈹?  鈹溾攢鈹€ version topic / ordering / gate / W1-W4 timing
+鈹?  鈹溾攢鈹€ additive capability inside cu-abi 1.0 + 12/10/8/0 matrix
+鈹?  鈹溾攢鈹€ lifting one [no] with dated reason and bounds
+鈹?  鈹溾攢鈹€ G boundary direction: (a) keep closed, 2026-11-06
+鈹?  鈹斺攢鈹€ release chain, CI gates, owner-view acceptance
+鈹溾攢鈹€ D3 owner veto after the fact, never a pre-approval gate         [v]
+鈹溾攢鈹€ D4 escalation discipline                                       [no]
+鈹?  鈹斺攢鈹€ [no] pasting options + waiting on a reversible default
+鈹斺攢鈹€ D5 decision record: date / choice / reason / evidence / trigger [v]
 ```
 
 ## CU capability tree (benchmarked against `prd/prd-cu-openai.md`)
@@ -352,87 +365,87 @@ the repo in a temporary corpus. No OpenAI field name is imported by this tree.
 
 ```text
 minicon-harness computer use
-├── A Observation
-│   ├── [v] A1 pixel arm: virtual screen, displays, window inventory, PNG
-│   │        captured under the task root; desktop/window/region, scale
-│   │        owner PRD 01.03 / 01.06
-│   ├── [v] A2 typed Win32 child controls: label, class-derived role, rect,
-│   │        text, state; deliberately NOT a UIA tree   owner PRD 01.05
-│   ├── [v] A3 foreground title, multi-monitor negative coordinates,
-│   │        bounded capture arithmetic                 owner PRD 01.06
-│   ├── [v] A4 Windows MSAA read-only tree in `observe.a11y` (0.0.11)
-│   │        bounded 400 rows / depth 12; no new grant, crate or elevation
-│   │        owner PRD 01.15; AT-SPI (Linux) / AX (macOS) still [_]
-│   │        unlock: per-app TCC grant on macOS; AT-SPI D-Bus bus + ATK
-│   │        fixture on Linux; each green on real CI before declaring true
-│   └── [_] A5 image arm in the wire codec: base64 PNG to the model each turn
-│            unlock: separate PRD + budget/retention decision
-├── B Actuation
-│   ├── [v] B1 pointer: hover, click, drag, scroll + pointer readback
-│   ├── [v] B2 keyboard: type, key
-│   ├── [v] B3 window: focus, move + rect readback (Linux/Windows)
-│   ├── [v] B4 named semantic control: resolve + hover/press (Windows only)
-│   ├── [v] B5 actuation receipt: button, downs/ups, double, target, plus
-│   │        post-observe live session                 shipped in 0.0.6
-│   ├── [v] B6a multi-point drag path                  qualified in 0.0.7
-│   │        16 bounded points, 12 steps per segment, `path_points` receipt
-│   ├── [v] B6b held-key modifiers                    qualified in 0.0.8
-│   │        host-owned held set, four-backend set/release, teardown release
-│   ├── [v] B7a two-axis scroll                      qualified in 0.0.7
-│   │        `delta_x`/`delta_y`, `delta` stays the vertical alias
-│   ├── [v] B7b explicit bounded wait                 shipped in 0.0.13
-│   │        one sleep per observe call, monotonic elapsed evidence
-│   ├── [_] B8 batched `actions[]` with ordered receipts
-│   │        unlock: its own admission/stale design
-│   └── [no] B9 browser-navigation buttons (`back`/`forward`/`wheel` as a
-│            button enum): desktop CU has no browser history to navigate
-├── C Contract and safety
-│   ├── [v] C1 `cu-abi 1.0`, CAPABILITIES, disclose, six typed verdicts
-│   ├── [v] C2 grant (`--allow-screen`), required `why`, task-root bounds
-│   ├── [v] C3 generation / `as_of` pin / stale refusal / receipts / evidence
-│   ├── [v] C4 per-OS capability matrix and named refusals
-│   ├── [_] C5 `pending_safety_checks` + acknowledged checks + human hand-off
-│   │        unlock: a policy PRD before any code
-│   ├── [_] C6 untrusted-screen-content policy (prompt injection)
-│   │        unlock: distinct from grant/admission
-│   └── [no] C7 takeover / owner-lock / watch mode (top-level non-goal)
-├── D Loop and state
-│   ├── [v] D1 one bounded tool call -> one verdict -> one evidence record
-│   ├── [_] D2 screenshot-per-turn loop with a model-visible image (needs A5)
-│   ├── [_] D3 session continuity beyond `as_of` (OpenAI uses
-│   │        `previous_response_id`; it does NOT restore login/runtime state)
-│   └── [_] D4 bounded iterations / time / cost ceilings
-│            partial: per-host wait ceilings shipped in 0.0.13;
-│            iteration and cost ceilings stay gated on L2
-├── E Platform and environment
-│   ├── [v] E1 three real backends: Win32, CG/CF, X11/XTest via dlopen
-│   ├── [v] E2 six cells cross-compiled on one runner, no link-time platform lib
-│   ├── [v] E3 environment enum + display width/height in `disclose`
-│   │        delivered in 0.0.9; geometry is already in the pixel arm
-│   ├── [v] E4 OS-grant matrix in evidence (Screen Recording, Input
-│   │        Monitoring, Accessibility) — delivered in 0.0.9
-│   ├── [v] E5a display scale / coordinate basis in `disclose`
-│   │        delivered in 0.0.10; additive evidence, not a capability row
-│   ├── [v] E5c structured `a11y_controls[]` in `observe`
-│   │        delivered in 0.0.11; Windows MSAA, other cells unknown+reason
-│   ├── [v] E5b `act:focus` hwnd + `target_hwnd`   delivered in 0.0.12
-│   │        three-OS CI, handle identity is an act target, not a scan arm
-│   └── [no] E5 Wayland-native protocol, runtime backend selection
-├── F Verification and delivery
-│   ├── [v] F1 CI compile gate + three-OS real-desktop journeys + independent
-│   │        reader recomputing matrix, readback, PNG IHDR, generation
-│   ├── [v] F2 public company-signed Release, Defender and post-publish court
-│   └── [_] F3 app-level effect evidence via a self-hosted echo window
-│            unlock: side-effect-free fixture on three OSes
-└── G Resource-domain boundary — NOT a capability axis; owner PRD 01.08
-    ├── [no] process spawn / inspect / signal / kill / usage / maps / fds:
-    │        `exec` owns processes; a window's `pid` is identity metadata
-    ├── [no] memory, CPU, load, topology and hardware inventory
-    ├── [no] network, disk and device management; displays and input devices
-    │        are preconditions of K/V/M, not objects this tool manages
-    ├── [no] window-manager product behavior (minicon-winmgr owns it);
-    │        here W is target binding: focus/move + inventory + named control
-    └── [no] widening `screen` into host control by adding one verb: a new
+鈹溾攢鈹€ A Observation
+鈹?  鈹溾攢鈹€ [v] A1 pixel arm: virtual screen, displays, window inventory, PNG
+鈹?  鈹?       captured under the task root; desktop/window/region, scale
+鈹?  鈹?       owner PRD 01.03 / 01.06
+鈹?  鈹溾攢鈹€ [v] A2 typed Win32 child controls: label, class-derived role, rect,
+鈹?  鈹?       text, state; deliberately NOT a UIA tree   owner PRD 01.05
+鈹?  鈹溾攢鈹€ [v] A3 foreground title, multi-monitor negative coordinates,
+鈹?  鈹?       bounded capture arithmetic                 owner PRD 01.06
+鈹?  鈹溾攢鈹€ [v] A4 Windows MSAA read-only tree in `observe.a11y` (0.0.11)
+鈹?  鈹?       bounded 400 rows / depth 12; no new grant, crate or elevation
+鈹?  鈹?       owner PRD 01.15; AT-SPI (Linux) / AX (macOS) still [_]
+鈹?  鈹?       unlock: per-app TCC grant on macOS; AT-SPI D-Bus bus + ATK
+鈹?  鈹?       fixture on Linux; each green on real CI before declaring true
+鈹?  鈹斺攢鈹€ [_] A5 image arm in the wire codec: base64 PNG to the model each turn
+鈹?           unlock: separate PRD + budget/retention decision
+鈹溾攢鈹€ B Actuation
+鈹?  鈹溾攢鈹€ [v] B1 pointer: hover, click, drag, scroll + pointer readback
+鈹?  鈹溾攢鈹€ [v] B2 keyboard: type, key
+鈹?  鈹溾攢鈹€ [v] B3 window: focus, move + rect readback (Linux/Windows)
+鈹?  鈹溾攢鈹€ [v] B4 named semantic control: resolve + hover/press (Windows only)
+鈹?  鈹溾攢鈹€ [v] B5 actuation receipt: button, downs/ups, double, target, plus
+鈹?  鈹?       post-observe live session                 shipped in 0.0.6
+鈹?  鈹溾攢鈹€ [v] B6a multi-point drag path                  qualified in 0.0.7
+鈹?  鈹?       16 bounded points, 12 steps per segment, `path_points` receipt
+鈹?  鈹溾攢鈹€ [v] B6b held-key modifiers                    qualified in 0.0.8
+鈹?  鈹?       host-owned held set, four-backend set/release, teardown release
+鈹?  鈹溾攢鈹€ [v] B7a two-axis scroll                      qualified in 0.0.7
+鈹?  鈹?       `delta_x`/`delta_y`, `delta` stays the vertical alias
+鈹?  鈹溾攢鈹€ [v] B7b explicit bounded wait                 shipped in 0.0.13
+鈹?  鈹?       one sleep per observe call, monotonic elapsed evidence
+鈹?  鈹溾攢鈹€ [_] B8 batched `actions[]` with ordered receipts
+鈹?  鈹?       unlock: its own admission/stale design
+鈹?  鈹斺攢鈹€ [no] B9 browser-navigation buttons (`back`/`forward`/`wheel` as a
+鈹?           button enum): desktop CU has no browser history to navigate
+鈹溾攢鈹€ C Contract and safety
+鈹?  鈹溾攢鈹€ [v] C1 `cu-abi 1.0`, CAPABILITIES, disclose, six typed verdicts
+鈹?  鈹溾攢鈹€ [v] C2 grant (`--allow-screen`), required `why`, task-root bounds
+鈹?  鈹溾攢鈹€ [v] C3 generation / `as_of` pin / stale refusal / receipts / evidence
+鈹?  鈹溾攢鈹€ [v] C4 per-OS capability matrix and named refusals
+鈹?  鈹溾攢鈹€ [_] C5 `pending_safety_checks` + acknowledged checks + human hand-off
+鈹?  鈹?       unlock: a policy PRD before any code
+鈹?  鈹溾攢鈹€ [_] C6 untrusted-screen-content policy (prompt injection)
+鈹?  鈹?       unlock: distinct from grant/admission
+鈹?  鈹斺攢鈹€ [no] C7 takeover / owner-lock / watch mode (top-level non-goal)
+鈹溾攢鈹€ D Loop and state
+鈹?  鈹溾攢鈹€ [v] D1 one bounded tool call -> one verdict -> one evidence record
+鈹?  鈹溾攢鈹€ [_] D2 screenshot-per-turn loop with a model-visible image (needs A5)
+鈹?  鈹溾攢鈹€ [_] D3 session continuity beyond `as_of` (OpenAI uses
+鈹?  鈹?       `previous_response_id`; it does NOT restore login/runtime state)
+鈹?  鈹斺攢鈹€ [_] D4 bounded iterations / time / cost ceilings
+鈹?           partial: per-host wait ceilings shipped in 0.0.13;
+鈹?           iteration and cost ceilings stay gated on L2
+鈹溾攢鈹€ E Platform and environment
+鈹?  鈹溾攢鈹€ [v] E1 three real backends: Win32, CG/CF, X11/XTest via dlopen
+鈹?  鈹溾攢鈹€ [v] E2 six cells cross-compiled on one runner, no link-time platform lib
+鈹?  鈹溾攢鈹€ [v] E3 environment enum + display width/height in `disclose`
+鈹?  鈹?       delivered in 0.0.9; geometry is already in the pixel arm
+鈹?  鈹溾攢鈹€ [v] E4 OS-grant matrix in evidence (Screen Recording, Input
+鈹?  鈹?       Monitoring, Accessibility) 鈥?delivered in 0.0.9
+鈹?  鈹溾攢鈹€ [v] E5a display scale / coordinate basis in `disclose`
+鈹?  鈹?       delivered in 0.0.10; additive evidence, not a capability row
+鈹?  鈹溾攢鈹€ [v] E5c structured `a11y_controls[]` in `observe`
+鈹?  鈹?       delivered in 0.0.11; Windows MSAA, other cells unknown+reason
+鈹?  鈹溾攢鈹€ [v] E5b `act:focus` hwnd + `target_hwnd`   delivered in 0.0.12
+鈹?  鈹?       three-OS CI, handle identity is an act target, not a scan arm
+鈹?  鈹斺攢鈹€ [no] E5 Wayland-native protocol, runtime backend selection
+鈹溾攢鈹€ F Verification and delivery
+鈹?  鈹溾攢鈹€ [v] F1 CI compile gate + three-OS real-desktop journeys + independent
+鈹?  鈹?       reader recomputing matrix, readback, PNG IHDR, generation
+鈹?  鈹溾攢鈹€ [v] F2 public company-signed Release, Defender and post-publish court
+鈹?  鈹斺攢鈹€ [_] F3 app-level effect evidence via a self-hosted echo window
+鈹?           unlock: side-effect-free fixture on three OSes
+鈹斺攢鈹€ G Resource-domain boundary 鈥?NOT a capability axis; owner PRD 01.08
+    鈹溾攢鈹€ [no] process spawn / inspect / signal / kill / usage / maps / fds:
+    鈹?       `exec` owns processes; a window's `pid` is identity metadata
+    鈹溾攢鈹€ [no] memory, CPU, load, topology and hardware inventory
+    鈹溾攢鈹€ [no] network, disk and device management; displays and input devices
+    鈹?       are preconditions of K/V/M, not objects this tool manages
+    鈹溾攢鈹€ [no] window-manager product behavior (minicon-winmgr owns it);
+    鈹?       here W is target binding: focus/move + inventory + named control
+    鈹斺攢鈹€ [no] widening `screen` into host control by adding one verb: a new
              tool/grant, its own threat model and its own readback semantics
              are required first (unlock conditions in PRD 01.08)
 ```
@@ -452,9 +465,9 @@ Two directions of the gap, kept separate on purpose:
 
 ## Capability levels and the self-hosted orchestration target
 
-`prd/PRD_01_12_self_hosted_orchestration.md` defines four levels — L0
+`prd/PRD_01_12_self_hosted_orchestration.md` defines four levels 鈥?L0
 read-only observation, L1 evidenced interaction, L2 self-sustained loop, L3
-self-hosted orchestration — and records the owner's end state: this session
+self-hosted orchestration 鈥?and records the owner's end state: this session
 acts as controller, using `screen` to create, dispatch, read and retire
 sub-task sessions in the WorkBuddy client's own GUI, then aggregate their
 results. L2 is the lowest level at which that loop closes on its own; L3 is the
@@ -506,7 +519,7 @@ per-version section only states whether it changed, never repeats the list.
 Each cycle keeps learning current computer-use and resource-domain technology,
 records dated notes with an evidence grade in `PRD_01_17`, folds findings into
 the T1-T9 trees, and **completes the plan before starting code or tests** --
-三思后行 (think three times before acting) and 分而治之 (divide and conquer).
+涓夋€濆悗琛?(think three times before acting) and 鍒嗚€屾不涔?(divide and conquer).
 A research finding is not authority: no `[v]`, `cu-abi`, matrix row, `[no]` or
 G boundary changes because an article exists. Only three-OS CI plus the
 independent reader plus owner-view acceptance produce a `[v]`.
@@ -531,24 +544,24 @@ PRD.md                                     top: product, status, roadmap, trees
 prd_hist.md                                archived history, release evidence, dated records
 plan/product-review-2026-11-09.md          product review, rationale, PRD split
 prd/
-├── PRD_01_08_computer_use_scope.md        K/V/M/W/S domain model + G boundary
-├── PRD_01_12_self_hosted_orchestration.md L0-L3 end state
-├── PRD_01_17_frontier_radar.md            W0 learning ledger + candidate table
-├── PRD_01_19_cu_perception_subtree.md     T1 observation / perception
-├── PRD_01_20_cu_actuation_subtree.md      T2 actuation / input
-├── PRD_01_21_resource_domain_subtree.md   T3 resource domain (all study / no)
-├── PRD_01_22_platform_evidence_subtree.md T4 platform + T6 evidence
-├── PRD_01_23_capability_maturity_subtree.md T5 maturity + T7 version state
-├── PRD_01_24_decision_authority_subtree.md T8 who decides what (controller)
-├── PRD_01_25_semantic_addressing_subtree.md T9 identity -> bounded effect
-├── PRD_01_27_llm_gate.md                   M-line gate contract (0.0.20, [_])
-├── PRD_01_01 .. PRD_01_16, PRD_01_18    per-version contracts (unchanged)
-└── prd-cu-openai.md                      external reference, NOT a contract
+鈹溾攢鈹€ PRD_01_08_computer_use_scope.md        K/V/M/W/S domain model + G boundary
+鈹溾攢鈹€ PRD_01_12_self_hosted_orchestration.md L0-L3 end state
+鈹溾攢鈹€ PRD_01_17_frontier_radar.md            W0 learning ledger + candidate table
+鈹溾攢鈹€ PRD_01_19_cu_perception_subtree.md     T1 observation / perception
+鈹溾攢鈹€ PRD_01_20_cu_actuation_subtree.md      T2 actuation / input
+鈹溾攢鈹€ PRD_01_21_resource_domain_subtree.md   T3 resource domain (all study / no)
+鈹溾攢鈹€ PRD_01_22_platform_evidence_subtree.md T4 platform + T6 evidence
+鈹溾攢鈹€ PRD_01_23_capability_maturity_subtree.md T5 maturity + T7 version state
+鈹溾攢鈹€ PRD_01_24_decision_authority_subtree.md T8 who decides what (controller)
+鈹溾攢鈹€ PRD_01_25_semantic_addressing_subtree.md T9 identity -> bounded effect
+鈹溾攢鈹€ PRD_01_27_llm_gate.md                   M-line gate contract (0.0.20, [v])
+鈹溾攢鈹€ PRD_01_01 .. PRD_01_16, PRD_01_18    per-version contracts (unchanged)
+鈹斺攢鈹€ prd-cu-openai.md                      external reference, NOT a contract
 plan/
-├── plan-0.0.1 .. plan-0.0.18             per-version plans (archived records)
-├── v0.0.19.md                            H-line plan + D10 answers + W0 pass 11
-├── v0.0.20.md                            0.0.20 plan -- LLM gate skeleton (6/6, D13)
-└── v0.0.20-handoff.md                    implementation task order for the dev agent
+鈹溾攢鈹€ plan-0.0.1 .. plan-0.0.18             per-version plans (archived records)
+鈹溾攢鈹€ v0.0.19.md                            H-line plan + D10 answers + W0 pass 11
+鈹溾攢鈹€ v0.0.20.md                            0.0.20 plan -- LLM gate skeleton (6/6, D13)
+鈹斺攢鈹€ v0.0.20-handoff.md                    implementation task order for the dev agent
 ```
 
 Every dated record moved out of this file is kept verbatim in `prd_hist.md`:
