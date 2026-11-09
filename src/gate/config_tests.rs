@@ -79,14 +79,29 @@ mod tests {
 
     #[test]
     fn client_credential_without_allowed_hosts_is_refused() {
-        let stripped = FIXTURE.replace(
-            ",\n                     \"allowedHosts\": [\"relay.internal.example\"]",
-            "",
-        );
-        assert_ne!(stripped, FIXTURE, "the allowedHosts line moved; update this test");
-        let refusals = parse(&stripped, false).expect_err("must refuse");
+        // `include_str!` compiles whichever line endings the checkout has: this
+        // repository's blob for the fixture is CRLF, a normalising checkout
+        // gives LF. Work line-wise and rebuild the line so the test does not
+        // depend on which, and keep the closing brace the line also carries.
+        let blanked = FIXTURE
+            .lines()
+            .map(|line| {
+                if line.trim_start().starts_with("\"allowedHosts\"") {
+                    let indent = &line[..line.len() - line.trim_start().len()];
+                    let tail = line.rsplit_once(']').map(|(_, rest)| rest).unwrap_or(" }");
+                    format!("{indent}\"allowedHosts\": []{tail}")
+                } else {
+                    line.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(blanked.contains("\"allowedHosts\": []"), "the allowedHosts line moved");
+        let refusals = parse(&blanked, false).expect_err("must refuse");
         assert!(codes(&refusals).contains(&code::CLIENT_HOSTS_MISSING));
-    }    // --- expansion -------------------------------------------------------
+    }
+
+    // --- expansion -------------------------------------------------------
 
     #[test]
     fn expansion_is_credential_outer_egress_inner() {
