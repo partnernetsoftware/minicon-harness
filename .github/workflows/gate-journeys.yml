@@ -1,0 +1,92 @@
+# The gate's three-OS loopback tier (0.0.20 W4).
+#
+# The gate binds a loopback socket, so this tier runs the real binary on each
+# desktop OS against in-process stubs, then asks the independent reader to
+# recompute every routing decision from the recorded revision. A green run is
+# evidence of behaviour on that OS, never of a model API call: no network is
+# used and no credential is read.
+name: Gate loopback tier
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/gate/**'
+      - 'src/bin/minicon-gate.rs'
+      - 'tests/gate_*.rs'
+      - 'tests/g1_spike.rs'
+      - 'tests/fixtures/**'
+      - 'scripts/gate-verify.py'
+      - 'scripts/gate-verify-test.py'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/gate-journeys.yml'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: minicon-harness-gate-journeys
+  cancel-in-progress: false
+
+jobs:
+  loopback:
+    name: ${{ matrix.family }} gate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {family: linux, runner: ubuntu-24.04}
+          - {family: macos, runner: macos-15}
+          - {family: windows, runner: windows-2025}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      # The G1 spike first: it answers whether the transport seam the tunnel
+      # plane depends on still behaves as recorded.
+      - name: G1 spike
+        shell: bash
+        run: cargo test --locked --test g1_spike -- --nocapture
+
+      # The loopback tier: the real listener, stubs, byte-exact relay, tunnels.
+      - name: Loopback tier
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --test gate_loopback -- --test-threads=1 --nocapture
+          cargo test --locked --test gate_tunnel
+
+      - name: SSE pass-through
+        shell: bash
+        run: cargo test --locked --test gate_sse
+
+      - name: Definition and resolution planes
+        shell: bash
+        run: cargo test --locked --lib gate::
+
+      # The reader: drives the real binary and asserts it accepts the true
+      # mirror and rejects tampering. Needs the debug binary built.
+      - name: Independent reader
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --bins
+          python3 scripts/gate-verify-test.py
+
+      # The whole suite stays green: the gate widens nothing in the core.
+      - name: Full suite
+        shell: bash
+        run: cargo test --locked

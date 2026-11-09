@@ -15,7 +15,11 @@ fn body_or_refusal(request: &Request) -> Result<Value, Response> {
 /// Builds the handler the loopback server calls.
 pub fn handler(router: Arc<super::router::Router>) -> Arc<Handler> {
     Arc::new(move |request: &Request| match (request.method.as_str(), request.path.as_str()) {
-        ("POST", "/v1/chat/completions") => {
+        // Both spellings, because clients disagree about whether the base URL
+        // ends at the version root or at the endpoint. The core's `--base-url`
+        // is the full endpoint URL, so it posts `/chat/completions`; OpenAI's
+        // own SDKs post `/v1/chat/completions`.
+        ("POST", "/v1/chat/completions") | ("POST", "/chat/completions") => {
             if let Err(response) = authorize(&router, request) {
                 return response;
             }
