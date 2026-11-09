@@ -3,3 +3,4 @@
 /loader/payload-build
 
 scripts/__pycache__/
+/dist

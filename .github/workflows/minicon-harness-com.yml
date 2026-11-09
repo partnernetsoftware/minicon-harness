@@ -276,6 +276,23 @@ jobs:
                   (destination / leaf).write_bytes(raw)
           print('six cells extracted and digest-verified against the receipt')
           PY
+      # The sidecars travel beside the core. 0.0.19 built the MCP adapter but
+      # never archived it, which is why the companion thesis had no downloadable
+      # artifact; this step is the fix, and it stages the gate with it.
+      - name: Build the sidecars on this runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --bins
+          mkdir -p sidecars
+          for product in minicon-harness-mcp minicon-gate; do
+            src="target/release/$product"
+            test -f "$src" || { echo "missing $product" >&2; exit 1; }
+            cp "$src" "sidecars/$product"
+            shasum -a 256 "sidecars/$product" > "sidecars/$product.sha256"
+          done
+          ls -lh sidecars
+
       - name: Archive exact cell bytes per platform
         shell: bash
         run: |
@@ -300,6 +317,10 @@ jobs:
               cp "cells/$cell/minicon-harness" "package/$name/"
               chmod 0755 "package/$name/minicon-harness"
             fi
+            # The two sidecars ride with the core on every platform.
+            cp sidecars/minicon-harness-mcp sidecars/minicon-gate "package/$name/"
+            cp sidecars/*.sha256 "package/$name/"
+            chmod 0755 "package/$name/minicon-harness-mcp" "package/$name/minicon-gate"
             cp README.md "package/$name/" 2>/dev/null || true
             tar -czf "package/$name.tar.gz" -C package "$name"
             rm -rf "package/$name"
@@ -312,11 +333,17 @@ jobs:
             esac
             mkdir -p "package/$name"
             cp "cells/$cell/minicon-harness.exe" "package/$name/"
+            # The sidecars ride with the core on every platform, including the
+            # zip shape Windows uses.
+            cp sidecars/minicon-harness-mcp sidecars/minicon-gate "package/$name/"
+            cp sidecars/*.sha256 "package/$name/"
             python3 - "$name" <<'PY'
           import sys, zipfile
           name = sys.argv[1]
+          members = ['minicon-harness.exe', 'minicon-harness-mcp', 'minicon-gate']
           with zipfile.ZipFile(f'package/{name}.zip', 'w', zipfile.ZIP_DEFLATED) as z:
-              z.write(f'package/{name}/minicon-harness.exe', f'{name}/minicon-harness.exe')
+              for member in members:
+                  z.write(f'package/{name}/{member}', f'{name}/{member}')
           PY
             rm -rf "package/$name"
           done

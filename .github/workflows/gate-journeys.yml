@@ -75,7 +75,7 @@ jobs:
 
       - name: Definition and resolution planes
         shell: bash
-        run: cargo test --locked --lib gate::
+        run: cargo test --locked --lib "gate::"
 
       # The reader: drives the real binary and asserts it accepts the true
       # mirror and rejects tampering. Needs the debug binary built.

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "0.0.19",
+  "version": "0.0.20",
   "assets": {
     "native_archives": true,
     "minicon_harness_com": true
