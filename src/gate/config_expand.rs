@@ -1,4 +1,4 @@
-// Expansion half of the definition plane: the pure resolution function.
+﻿// Expansion half of the definition plane: the pure resolution function.
 // Included by `config.rs`.
 
 /// The expansion for one lane in a fixed credential order and egress order:
@@ -104,4 +104,19 @@ pub fn apply_credential_scope(candidate: &mut Candidate, credential: &Credential
     if let Some(scope) = &credential.scope {
         candidate.model_args = merge_model_args(scope, &candidate.model_args);
     }
+}
+
+/// Resolves one workflow node to its ordered, ordered-by-agent candidates.
+pub fn node_plan(config: &GateConfig, agent: &Agent, node: &Node) -> Vec<Candidate> {
+    let mut candidates = resolve_node(node, agent, &config.lanes, &config.defaults.timeouts);
+    for candidate in candidates.iter_mut() {
+        if let Some((_, credential)) = config
+            .credentials
+            .iter()
+            .find(|(id, _)| *id == candidate.credential)
+        {
+            apply_credential_scope(candidate, credential);
+        }
+    }
+    candidates
 }

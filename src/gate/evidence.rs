@@ -11,6 +11,7 @@
 
 use serde_json::{json, Value};
 
+pub use super::config::Axis;
 use super::config::Candidate;
 use super::refusal::code;
 
@@ -54,28 +55,6 @@ impl Verdict {
             "unsupported" => Some(Verdict::Unsupported),
             "stale" => Some(Verdict::Stale),
             _ => None,
-        }
-    }
-}
-
-/// Which axis a cooling decision lands on.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Axis {
-    /// The credential (429, 401/403, an unreadable secret).
-    Credential,
-    /// The egress (5xx, connect failure, proxy 407).
-    Egress,
-    /// The lane itself (an over-bound body).
-    Lane,
-}
-
-impl Axis {
-    /// The word a row carries.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Axis::Credential => "credential",
-            Axis::Egress => "egress",
-            Axis::Lane => "lane",
         }
     }
 }
@@ -173,13 +152,26 @@ impl Evidence {
     pub fn new(capacity: usize, mirror: Option<String>) -> Result<Self, String> {
         let file = match &mirror {
             None => None,
-            Some(path) => Some(std::fs::OpenOptions::new().create(true).append(true).open(path).map_err(|error| {
-                format!(
-                    "{}: {path}: {}: {error}",
-                    super::PROGRAM,
-                    code::MIRROR_PARENT_MISSING
+            Some(path) => {
+                // The loader checked the parent exists; create it anyway so a
+                // test that reuses a fresh directory cannot race the check.
+                if let Some(parent) = std::path::Path::new(path).parent() {
+                    if !parent.as_os_str().is_empty() {
+                        std::fs::create_dir_all(parent).map_err(|error| {
+                            format!("{}: {path}: {}: {error}", super::PROGRAM, code::MIRROR_PARENT_MISSING)
+                        })?;
+                    }
+                }
+                Some(
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                        .map_err(|error| {
+                            format!("{}: {path}: {}: {error}", super::PROGRAM, code::MIRROR_PARENT_MISSING)
+                        })?,
                 )
-            })?),
+            }
         };
         Ok(Self {
             capacity: capacity.max(1),
@@ -211,7 +203,7 @@ impl Evidence {
     }
 
     /// The retained rows, oldest first.
-    pub fn rows(&self) -> impl Iterator<Item = &Value> {
+    pub fn rows(&self) -> impl DoubleEndedIterator<Item = &Value> {
         self.rows.iter()
     }
 

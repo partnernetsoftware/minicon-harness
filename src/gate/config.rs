@@ -174,6 +174,96 @@ pub struct Egress {
     pub timeouts: Option<Timeouts>,
 }
 
+impl Proxy {
+    /// The proxy URL, or `None` for `direct`/`env`.
+    pub fn as_url(&self) -> Option<String> {
+        match self {
+            Proxy::Url { url, .. } => Some(url.clone()),
+            _ => None,
+        }
+    }
+}
+
+/// Which axis a cooling decision lands on.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum Axis {    /// The credential (429, 401/403, an unreadable secret).
+    Credential,
+    /// The egress (5xx, connect failure, proxy 407).
+    Egress,
+    /// The lane itself (an over-bound body).
+    Lane,
+}
+
+impl Axis {
+    /// The word a row carries.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Axis::Credential => "credential",
+            Axis::Egress => "egress",
+            Axis::Lane => "lane",
+        }
+    }
+}
+
+/// The process facts a secret resolution depends on, injected so a test never
+/// has to touch the real environment.
+#[derive(Clone, Debug, Default)]
+pub struct CommandLine {
+    /// Environment variables, resolved lazily by name.
+    pub env: std::collections::BTreeMap<String, String>,
+}
+
+impl CommandLine {
+    /// A command line over the real process environment.
+    pub fn from_process() -> Self {
+        Self {
+            env: std::env::vars().collect(),
+        }
+    }
+
+    /// Resolves one secret reference into the value a request will carry.
+    ///
+    /// A `client` credential resolves to the caller's forwarded value; an
+    /// unset env or unreadable file is `secret_unreadable`, named but never
+    /// echoing the value.
+    pub fn read_secret(
+        &self,
+        secret: &SecretRef,
+        client: bool,
+        caller_credential: Option<String>,
+    ) -> Result<super::secret::Secret, String> {
+        if client {
+            return caller_credential
+                .map(|value| super::secret::Secret::from_value(&value))
+                .ok_or_else(|| String::from("a client credential needs `x-gate-upstream-authorization`"));
+        }
+        match secret {
+            SecretRef::Env(name) => self
+                .env
+                .get(name)
+                .filter(|value| !value.is_empty())
+                .cloned()
+                .map(|value| super::secret::Secret::from_value(&value))
+                .ok_or_else(|| {
+                    format!(
+                        "the environment variable `{name}` is unset or empty ({})",
+                        code::SECRET_UNREADABLE
+                    )
+                }),
+            SecretRef::File(path) => std::fs::read_to_string(path)
+                .map(|text| super::secret::Secret::from_value(&text.trim_end_matches(['\r', '\n'])))
+                .map_err(|error| {
+                    format!("the secret file could not be read: {error} ({})", code::SECRET_UNREADABLE)
+                }),
+            SecretRef::OauthFile(_) | SecretRef::Command(_) => Err(format!(
+                "secret shape `{}` is not in 0.0.20 ({})",
+                secret.shape(),
+                code::NOT_IN_THIS_SLICE
+            )),
+        }
+    }
+}
+
 /// Transport timeouts for one attempt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Timeouts {
@@ -493,6 +583,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     out
 }
 
+include!("handler.rs");
 include!("config_parse.rs");
 include!("config_expand.rs");
 include!("config_tests.rs");
