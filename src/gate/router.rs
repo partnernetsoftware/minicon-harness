@@ -277,13 +277,12 @@ fn dispatch(router: &Router, request: &Request, intent: Intent, body: Value) -> 
     let mut cursor = Instant::now();
     let mut previous: Option<u32> = None;
     let mut trigger: Option<&'static str> = None;
-    let mut attempts = 0u32;
-    for (candidate, cooling_reason) in ordered.iter() {
-        if attempts >= intent.max_attempts {
+    let mut completed = 0u32;
+    for (candidate, _cooling_reason) in ordered.iter() {
+        if completed >= intent.max_attempts {
             break;
         }
-        attempts += 1;
-        let number = attempts;
+        let number = completed + 1;
         let Some((_, lane)) = router
             .config
             .config
@@ -355,6 +354,7 @@ fn dispatch(router: &Router, request: &Request, intent: Intent, body: Value) -> 
                 if !disposition.fallback {
                     return refusal_response(502, code::SECRET_UNREADABLE, &reason);
                 }
+                completed += 1;
                 previous = Some(number);
                 trigger = Some(disposition.reason);
                 cursor = Instant::now();
@@ -418,6 +418,17 @@ fn dispatch(router: &Router, request: &Request, intent: Intent, body: Value) -> 
                 return response;
             }
             transport::Outcome::Answered { status, body: response_body, .. } => {
+                // A non-429 4xx and a 401/403 are final: the next lane would
+                // answer identically, so the body passes through verbatim.
+                // A 429 or 5xx is retryable and falls back first; the last
+                // candidate's answer is what the client sees.
+                if disposition.fallback {
+                    completed += 1;
+                    previous = Some(number);
+                    trigger = Some(disposition.reason);
+                    cursor = Instant::now();
+                    continue;
+                }
                 // An upstream refusal passes through verbatim with the evidence
                 // headers added: the gate never rewrites an upstream answer.
                 let mut response = Response {
@@ -431,13 +442,29 @@ fn dispatch(router: &Router, request: &Request, intent: Intent, body: Value) -> 
                 response.headers.extend(evidence_headers(candidate, number, &router.config.revision, host_of(egress.proxy.as_url())));
                 return response;
             }
+            transport::Outcome::ProxyRejected { status } => {
+                // The proxy answered instead of the upstream. A 407 stops the
+                // chain (the pipe is broken, not the lane) and surfaces as a
+                // gate refusal, never as an upstream answer the client could
+                // mistake for the provider's own.
+                if disposition.fallback {
+                    completed += 1;
+                    previous = Some(number);
+                    trigger = Some(disposition.reason);
+                    cursor = Instant::now();
+                    continue;
+                }
+                return refusal_response(
+                    502,
+                    code::UPSTREAM_UNREACHABLE,
+                    &format!("the egress proxy refused the tunnel with {status}"),
+                );
+            }
             transport::Outcome::Failed { reason, .. } => {
+                completed += 1;
                 previous = Some(number);
                 trigger = Some(disposition.reason);
                 cursor = Instant::now();
-                if cooling_reason.is_some() && !disposition.fallback {
-                    return refusal_response(502, code::UPSTREAM_UNREACHABLE, &reason);
-                }
                 if !disposition.fallback {
                     return refusal_response(502, code::UPSTREAM_UNREACHABLE, &reason);
                 }
@@ -599,6 +626,47 @@ mod tests {
         assert!(runtime.is_cooling(Axis::Credential, "c", now_ms()).is_some());
         runtime.clear();
         assert!(runtime.is_cooling(Axis::Credential, "c", now_ms()).is_none());
+    }
+
+    #[test]
+    fn a_cooling_egress_is_demoted_to_the_back_of_the_plan() {
+        // M16 as a pure function: the cooling candidate is still in the list,
+        // marked with its reason, and the warm one is served first.
+        let config = config::parse(MINIMAL, false).expect("config");
+        let intent = resolve(&config, "gate/planner").expect("agent");
+        let runtime = Runtime::default();
+        let now = now_ms();
+        runtime.cool(Axis::Egress, "proxy", 60_000, "connect_failure", now);
+        let ordered = order(&intent.candidates, &runtime, now);
+        assert_eq!(ordered.len(), 4, "nothing is dropped");
+        let warm: Vec<&str> = ordered
+            .iter()
+            .filter(|(_, reason)| reason.is_none())
+            .map(|(candidate, _)| candidate.egress.as_str())
+            .collect();
+        let cooling: Vec<(&str, Option<&str>)> = ordered
+            .iter()
+            .filter(|(_, reason)| reason.is_some())
+            .map(|(candidate, reason)| (candidate.egress.as_str(), *reason))
+            .collect();
+        assert_eq!(warm, vec!["direct", "direct"], "both direct candidates stay warm");
+        assert_eq!(
+            cooling,
+            vec![("proxy", Some("connect_failure")), ("proxy", Some("connect_failure"))],
+            "both proxied candidates are demoted with the reason, not dropped"
+        );
+        // Declared order is preserved inside each group.
+        assert_eq!(ordered[0].0.credential, "c1");
+        assert_eq!(ordered[1].0.credential, "c2");
+    }
+
+    #[test]
+    fn a_cooling_entry_expires_after_its_window() {
+        let runtime = Runtime::default();
+        let start = now_ms();
+        runtime.cool(Axis::Egress, "x", 1_000, "upstream_5xx", start);
+        assert!(runtime.is_cooling(Axis::Egress, "x", start + 500).is_some());
+        assert!(runtime.is_cooling(Axis::Egress, "x", start + 1_001).is_none());
     }
 
     const MINIMAL: &str = r#"{

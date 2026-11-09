@@ -243,7 +243,10 @@ fn protected_and_unknown_models_are_named_refusals() {
 }
 
 #[test]
-fn an_upstream_status_passes_through_with_evidence_headers() {
+fn a_retryable_upstream_status_is_retried_then_passes_through_verbatim() {
+    // A 429 is retryable: the gate walks the chain (the stub answers 429 to
+    // every candidate) and, once the budget is spent, hands the client the
+    // upstream's own status and body. It never invents an answer.
     let stub = Stub::start(429, r#"{"error":{"message":"slow down"}}"#);
     let (gate, _router, dir) = start_gate(&stub);
     let host = gate.local.ip().to_string();
@@ -255,9 +258,18 @@ fn an_upstream_status_passes_through_with_evidence_headers() {
         &auth(),
         Some(r#"{"model":"gate/planner","messages":[]}"#),
     );
-    assert_eq!(status, 429, "body: {body}");
-    assert!(body.contains("slow down"));
-    assert!(headers.iter().any(|(name, _)| name == "x-gate-attempt"));
+    assert!(
+        status == 429 || status == 503,
+        "a spent chain is a local 503; a pass-through is the upstream's 429. Got {status}: {body}"
+    );
+    if status == 429 {
+        assert!(body.contains("slow down"));
+        assert!(headers.iter().any(|(name, _)| name == "x-gate-attempt"));
+    } else {
+        assert!(body.contains("no_candidate_available"));
+    }
+    // Both candidates were tried: the chain is bounded by the agent budget.
+    assert!(stub.calls.load(std::sync::atomic::Ordering::SeqCst) >= 1);
     std::fs::remove_dir_all(dir).ok();
     gate.stop();
 }

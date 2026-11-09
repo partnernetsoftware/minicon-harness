@@ -21,6 +21,7 @@ pub mod router;
 pub mod secret;
 pub mod server;
 pub mod transport;
+pub mod tunnel;
 
 /// Program name in every diagnostic line.
 pub const PROGRAM: &str = "minicon-gate";
