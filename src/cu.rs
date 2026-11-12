@@ -1059,6 +1059,11 @@ pub struct CuHost {
     /// the real UIA-first dispatcher; the unit tests pin a stub so the
     /// semantic invoke is testable without touching any desktop.
     a11y_invoke: A11yInvokeBackend,
+    /// The post-invoke snapshot backend, as a named dependency for the same
+    /// reason as `a11y_invoke`: the effect check must be testable without a
+    /// desktop. It returns the window's control names, or `None` when the tree
+    /// cannot be re-read.
+    a11y_invoke_snapshot: A11ySnapshotBackend,
 }
 
 /// The backend signature of [`crate::screen::a11y_invoke`]: `Err` is a
@@ -1070,8 +1075,21 @@ type A11yInvokeBackend = std::sync::Arc<
         + Sync,
 >;
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
+/// The backend signature of the post-invoke snapshot: every control name in the
+/// window, or `None` when the tree cannot be read. Only names are needed: a
+/// toggle renames itself, and a node count catches the rest.
+type A11ySnapshotBackend = std::sync::Arc<dyn Fn(u64) -> Option<Vec<String>> + Send + Sync>;
+
+/// The production snapshot: every control name the window's a11y tree
+/// currently publishes, or `None` when the scan fails.
+fn default_a11y_snapshot(handle: u64) -> Option<Vec<String>> {
+    match crate::screen::a11y_control_names(handle) {
+        Some(names) => Some(names),
+        None => None,
+    }
+}
+
+fn now_ms() -> u64 {    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis().min(u64::MAX as u128) as u64)
         .unwrap_or(0)
@@ -1135,6 +1153,7 @@ impl CuHost {
                 wait_calls: 0,
             }),
             a11y_invoke: std::sync::Arc::new(crate::screen::a11y_invoke),
+            a11y_invoke_snapshot: std::sync::Arc::new(default_a11y_snapshot),
         }
     }
 
@@ -2146,6 +2165,14 @@ impl CuHost {
             let label = resolved.label.clone();
             let node_role = resolved.role.clone();
             let (nx, ny, nw, nh) = (resolved.x, resolved.y, resolved.width, resolved.height);
+            // The node count this host published for the window in its last
+            // observation, read before the invoke so the effect check compares
+            // like with like.
+            let observed_nodes_before = state
+                .frame
+                .as_ref()
+                .map(|frame| frame.snapshot.a11y_controls.len())
+                .unwrap_or(0);
             drop(state);
             // Rank-1 disclosure: a semantic invoke must not change the
             // foreground, and some providers do anyway (Chromium focuses its
@@ -2193,6 +2220,53 @@ impl CuHost {
                 ));
             }
             let mode_word = if defaulted { "invoke-default" } else { "invoke" };
+            // An invoke that returns S_OK is not evidence that the interface
+            // changed. Measured on a minimized Chromium window (ZCode,
+            // 2026-11-12): UIA InvokePattern returned success, the receipt said
+            // `performed`, and the tree was byte-identical afterwards. So the
+            // verdict is only `performed` when the target node itself changed
+            // (its name is the observable that a toggle carries) or the tree's
+            // shape did; otherwise it is `not_performed` with the reason
+            // disclosed. The check is bounded and never guesses.
+            let mut effect_note = String::new();
+            let mut effect_confirmed = true;
+            if matches!(verdict, CuVerdict::Performed) {
+                let after = (self.a11y_invoke_snapshot)(handle);
+                match after {
+                    None => {
+                        effect_note.push_str(
+                            "; effect unverified: the window tree could not be re-read",
+                        );
+                        effect_confirmed = false;
+                    }
+                    Some(snapshot) => {
+                        let before_name_found = snapshot.iter().any(|entry| entry == &label);
+                        let before_shape_matches = observed_nodes_before != 0 && snapshot.len() == observed_nodes_before;
+                        if before_name_found && before_shape_matches {
+                            effect_note.push_str(&format!(
+                                "; effect NOT observed: the window is unchanged after the invoke \
+                                 ({} nodes, the target label is still present) -- an S_OK from \
+                                 the provider is not a DOM effect",
+                                snapshot.len()
+                            ));
+                            effect_confirmed = false;
+                        } else if before_name_found {
+                            effect_note.push_str(&format!(
+                                "; effect observed: the window tree changed ({} nodes)",
+                                snapshot.len()
+                            ));
+                        }
+                    }
+                }
+            }
+            let verdict = if effect_confirmed {
+                verdict
+            } else {
+                CuVerdict::NotPerformed
+            };
+            if !effect_note.is_empty() {
+                readback.push_str(&effect_note);
+            }
             let text = format!(
                 "why: {why}\nscreen: act=control mode={mode_word} control={label:?}\nreadback: {readback}\ncu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} generation={generation} verdict={} capability={capability}",
                 verdict.tag()
@@ -3764,8 +3838,64 @@ mod tests {
         });
     }
 
-    fn ui_performed() -> Result<Result<crate::screen::A11yInvokeOutcome, String>, String> {
-        Ok(Ok(crate::screen::A11yInvokeOutcome {
+    /// Pin the post-invoke snapshot to a fixed answer. `None` models an
+    /// unreadable tree, which must be disclosed rather than read as "unchanged".
+    #[cfg(test)]
+    fn pin_snapshot(host: &mut CuHost, names: Option<Vec<String>>) {
+        host.a11y_invoke_snapshot = std::sync::Arc::new(move |_handle| names.clone());
+    }
+
+    /// The effect readback exists because `performed` must not mean "the
+    /// provider returned S_OK". Measured on a minimized Chromium window
+    /// (2026-11-12) a real invoke changes the tree; a provider S_OK that leaves
+    /// the tree identical must not be reported as a performed act.
+    #[test]
+    fn an_invoke_that_leaves_the_window_unchanged_is_not_performed() {
+        // A frame to compare against: the host's last observation published
+        // these nodes for the window.
+        for (label, snapshot, expect_performed) in [
+            (
+                "unchanged tree, target still present",
+                Some(vec![String::from("切换侧边栏"), String::from("自动化")]),
+                false,
+            ),
+            (
+                "tree changed",
+                Some(vec![String::from("切换侧边栏")]),
+                true,
+            ),
+            ("tree unreadable", None, false),
+        ] {
+            let frame = vec![
+                synthetic_a11y_node("切换侧边栏", 43, 1_048_576, 516, 164, 28, 28),
+                synthetic_a11y_node("自动化", 43, 1_048_576, 511, 243, 248, 32),
+            ];
+            let mut host = host_with_a11y_frame(frame, 1, 1, (0, 0, 1680, 1050));
+            pin_invoke_backend(&mut host, seen_slot(), ui_performed());
+            pin_snapshot(&mut host, snapshot);
+            let result = host.invoke_json(&json!({
+                "op": "act",
+                "why": "effect readback",
+                "action": "control",
+                "control": "切换侧边栏",
+                "source": "a11y",
+            }));
+            if expect_performed {
+                assert_eq!(result.verdict, CuVerdict::Performed, "{label}: {}", result.text);
+                assert!(result.text.contains("effect observed"), "{label}: {}", result.text);
+            } else {
+                assert_eq!(result.verdict, CuVerdict::NotPerformed, "{label}: {}", result.text);
+                assert!(
+                    result.text.contains("effect NOT observed")
+                        || result.text.contains("effect unverified"),
+                    "{label}: {}",
+                    result.text
+                );
+            }
+        }
+    }
+
+    fn ui_performed() -> Result<Result<crate::screen::A11yInvokeOutcome, String>, String> {        Ok(Ok(crate::screen::A11yInvokeOutcome {
             path: crate::screen::A11yInvokePath::UiaInvokePattern,
             detail: String::new(),
         }))

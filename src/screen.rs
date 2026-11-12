@@ -2402,6 +2402,30 @@ pub fn a11y_put_acc_value(
     }
 }
 
+/// Every control name the window's accessibility tree currently publishes.
+///
+/// The effect readback in `cu.rs` needs exactly this much to tell an invoke
+/// that changed the interface from one that only returned S_OK: a toggle
+/// renames itself, and any structural change moves the count. `None` means the
+/// tree could not be read, which the caller must disclose rather than treat as
+/// "unchanged".
+pub fn a11y_control_names(handle: u64) -> Option<Vec<String>> {
+    #[cfg(windows)]
+    {
+        match native::a11y_controls(handle) {
+            Ok((controls, _truncated, _reason)) => {
+                Some(controls.into_iter().map(|control| control.name).collect())
+            }
+            Err(_) => None,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = handle;
+        None
+    }
+}
+
 #[cfg(windows)]
 mod native {
     //! Hand-written `user32`/`gdi32` bindings. No crate, no COM, no service:
