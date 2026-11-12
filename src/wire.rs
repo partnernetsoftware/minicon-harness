@@ -460,12 +460,16 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         },
                         "press": {
                             "type": "boolean",
-                            "description": "For action=control: false (default) only hovers at the control's centre; true clicks it. Readback must land inside the control's rectangle."
+                            "description": "For action=control: true clicks the resolved control's centre with the real pointer. Explicit-only (0.0.21): the default is the semantic a11y invoke, never a pointer move. The receipt discloses the foreground before and after. Readback must land inside the control's rectangle."
+                        },
+                        "hover": {
+                            "type": "boolean",
+                            "description": "For action=control: true places the real pointer at the resolved control's centre without pressing. Explicit-only (0.0.21): the default is the semantic a11y invoke, never a pointer move. Mutually exclusive with press/invoke/set_value."
                         },
                         "source": {
                             "type": "string",
                             "enum": ["controls", "a11y"],
-                            "description": "For action=control only: which inventory to resolve. `controls` (default) uses typed Win32 child windows; `a11y` uses the normalised MSAA nodes from the same generation's op=observe with `a11y`. An empty a11y tree is a named refusal, never a fallback to coordinates."
+                            "description": "For action=control only: which inventory to resolve. `a11y` uses the normalised MSAA nodes from the same generation's op=observe with `a11y` and is the only source of the default semantic invoke; `controls` uses typed Win32 child windows for the explicit pointer modes. An empty a11y tree is a named refusal, never a fallback to coordinates."
                         },
                         "role": {
                             "type": "string",
@@ -473,7 +477,7 @@ pub(crate) fn tool_definitions() -> serde_json::Value {
                         },
                         "invoke": {
                             "type": "boolean",
-                            "description": "For action=control with source=\"a11y\" only: call the resolved node's native default action (accDoDefaultAction) by identity. No pointer, no window activation, mutually exclusive with press (default false). Verify with the next observe effect and expect [\"tree\"] or field names."
+                            "description": "For action=control with source=\"a11y\" only: fire the resolved node's native invoke explicitly - UIA InvokePattern first (the path that reaches Chromium's DOM on self-drawn buttons), MSAA accDoDefaultAction as the disclosed fallback; the receipt names the path used. Omitting every mode flag is this same operation (the 0.0.21 default, disclosed as mode=invoke-default). No pointer, no window activation; works on background and minimized windows. Mutually exclusive with press/hover. Verify with the next observe effect and expect [\"tree\"] or field names."
                         },
                         "set_value": {
                             "type": "string",

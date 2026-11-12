@@ -35,11 +35,23 @@ pub struct Adapter {
     root: String,
     allow_cmd: Vec<String>,
     allow_screen: bool,
+    /// One resident screen core for the whole serve loop. Observations carry
+    /// a generation and `act` resolves controls against the *last* frame, so
+    /// observe -> act:control only composes when the state survives between
+    /// stdio calls. Constructing a core per call silently broke that chain:
+    /// every act would refuse with "no observation yet" against its own
+    /// empty frame.
+    screen_host: std::sync::OnceLock<CuHost>,
 }
 
 impl Adapter {
     pub fn new(root: String, allow_cmd: Vec<String>, allow_screen: bool) -> Self {
-        Self { root, allow_cmd, allow_screen }
+        Self {
+            root,
+            allow_cmd,
+            allow_screen,
+            screen_host: std::sync::OnceLock::new(),
+        }
     }
 
     /// The whole adapter: read a line, route, write a line. Notifications
@@ -243,7 +255,9 @@ impl Adapter {
     fn screen_call(&self, arguments: &Value) -> (bool, String) {
         // E2: a non-granted or non-Windows cell refuses identically through
         // the adapter; the cell matrix never widens or narrows here.
-        let host = CuHost::new(ScreenTool::new(std::path::Path::new(&self.root), self.allow_screen));
+        let host = self.screen_host.get_or_init(|| {
+            CuHost::new(ScreenTool::new(std::path::Path::new(&self.root), self.allow_screen))
+        });
         let result = host.invoke_json(arguments);
         let is_error = !matches!(result.verdict, crate::cu::CuVerdict::Performed);
         (is_error, result.text)
@@ -378,5 +392,53 @@ mod tests {
         assert!(a
             .route(&json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": {} }))
             .is_none());
+    }
+
+    #[test]
+    fn the_screen_host_is_resident_across_stdio_calls() {
+        // observe -> act composes only because one CuHost survives the whole
+        // serve loop: a per-call host would answer every act with
+        // "no observation yet" against its own empty frame. The proof: the
+        // second call resolves a control from a frame the first call's host
+        // was carrying, and the refusal names the resolved geometry instead
+        // of a missing frame (the row is deliberately offscreen so the
+        // refusal fires before any pointer effect; nothing is moved).
+        let a = adapter(true);
+        let (first_error, _first) = call(&a, "screen", json!({ "op": "disclose" }));
+        assert!(!first_error, "disclose is always performed");
+        let host = a.screen_host.get().expect("the first call built the host");
+        host.install_test_frame(
+            vec![crate::screen::ControlInfo {
+                handle: 7,
+                parent: 1,
+                label: "button:OK".to_owned(),
+                class: "Button".to_owned(),
+                role: "button",
+                text: "OK".to_owned(),
+                x: 900,
+                y: 10,
+                width: 40,
+                height: 20,
+                visible: true,
+                enabled: true,
+            }],
+            Vec::new(),
+            (0, 0, 800, 600),
+        );
+        let (second_error, second) = call(
+            &a,
+            "screen",
+            json!({
+                "op": "act", "why": "x", "action": "control",
+                "control": "button:OK", "hover": true
+            }),
+        );
+        assert!(second_error);
+        // The frame survived across calls: the act resolved the named control
+        // and refused on its coordinates - not "no observation yet".
+        assert!(
+            second.contains("outside the virtual desktop"),
+            "the resident host lost the frame between calls: {second}"
+        );
     }
 }

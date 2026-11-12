@@ -140,8 +140,13 @@ const P_PRESS: CuParam = CuParam { name: "press", ty: CuType::Bool, required: fa
 // byte-for-byte unchanged.
 const P_SOURCE: CuParam = CuParam { name: "source", ty: CuType::String, required: false };
 const P_ROLE: CuParam = CuParam { name: "role", ty: CuType::String, required: false };
-/// 0.0.17: invoke the resolved node's native default action by identity.
+/// 0.0.17: `invoke` requests the semantic invoke explicitly; omitting every
+/// mode flag is now the same operation (the 0.0.21 default), disclosed as
+/// `invoke-default` in the receipt.
 const P_INVOKE: CuParam = CuParam { name: "invoke", ty: CuType::Bool, required: false };
+/// 0.0.21: `hover` places the pointer at the resolved centre without
+/// pressing. Explicit-only: the pointer is never moved by omission.
+const P_HOVER: CuParam = CuParam { name: "hover", ty: CuType::Bool, required: false };
 /// 0.0.18: write text into the resolved node's value by identity.
 const P_SET_VALUE: CuParam = CuParam { name: "set_value", ty: CuType::String, required: false };
 const P_SCALE: CuParam = CuParam { name: "scale", ty: CuType::Int, required: false };
@@ -243,8 +248,8 @@ pub const CAPABILITIES: &[CuCapability] = &[
     CuCapability {
         name: "act:control",
         kind: CuKind::Act,
-        summary: "Resolve one control by name from the last observe and place the pointer at its centre; readback must land inside the control's rectangle. `source` defaults to `controls` (Win32); `source:\"a11y\"` resolves a named MSAA node from the same generation's normalised a11y tree, with an optional `role` filter. press=false by default (no click).",
-        params: &[P_WHY, P_CONTROL, P_PRESS, P_BUTTON, P_DOUBLE, P_SOURCE, P_ROLE, P_INVOKE, P_SET_VALUE],
+        summary: "Resolve one control by name from the last observe and operate it semantically: with no mode flag the resolved a11y node's native invoke fires (UIA InvokePattern first, MSAA accDoDefaultAction as the disclosed fallback) - no pointer, no activation, works on background and minimized windows. `set_value` writes text by identity. `source:\"a11y\"` (required for the semantic modes) resolves a named MSAA node from the same generation's normalised a11y tree, with an optional `role` filter; `source:\"controls\"` resolves Win32 rows for the pointer modes. The pointer modes are explicit-only: `press: true` clicks the resolved centre and `hover: true` places the pointer there, both disclosing the foreground before and after; there is no default that moves the pointer.",
+        params: &[P_WHY, P_CONTROL, P_PRESS, P_HOVER, P_BUTTON, P_DOUBLE, P_SOURCE, P_ROLE, P_INVOKE, P_SET_VALUE],
     },
 ];
 
@@ -811,26 +816,61 @@ pub enum CuAction {
     Key { keys: String, hold: bool, release: bool },
     Scroll { x: i32, y: i32, delta_x: i32, delta_y: i32 },
     /// Resolve a control from the current frame **by name**; see
-    /// [`CuHost::act_control`]. `press` is opt-in so a semantic target can be
-    /// qualified on a real desktop without clicking anything. `source` selects
-    /// the Win32 inventory (default) or the 0.0.15 normalised a11y tree;
-    /// `role` is an optional identity filter for the a11y arm only.
+    /// [`CuHost::act_control`]. 0.0.21: with no mode flag the operation is
+    /// the semantic invoke - the background-first rank-1 path - and the
+    /// pointer paths (`press`, `hover`) are explicit-only and disclose the
+    /// foreground before and after. `source` selects the normalised a11y
+    /// tree (the invoke arm's only source) or the Win32 inventory; `role` is
+    /// an optional identity filter for the a11y arm only.
     Control {
         control: String,
-        press: bool,
+        /// 0.0.21: how the resolved target performs. The default is
+        /// [`ControlMode::Invoke`]; see that type for the disclosure rules.
+        mode: ControlMode,
+        /// `button`/`double` apply to [`ControlMode::Press`] only.
         button: ClickButton,
         double: bool,
         source: ControlSource,
         role: Option<String>,
-        /// 0.0.17: call the resolved a11y node's MSAA default action by
-        /// identity instead of moving the pointer. Mutually exclusive with
-        /// `press`; a11y arm only.
-        invoke: bool,
-        /// 0.0.18: write this text into the resolved a11y node's value via
-        /// `put_accValue`, by identity. Mutually exclusive with `press` and
-        /// `invoke`; a11y arm only.
-        set_value: Option<String>,
     },
+}
+
+/// 0.0.21: how one `act:control` performs on its resolved target. Exactly one
+/// mode is in force per call; mixing modes is a parse refusal that names
+/// both. The modes that touch the pointer (`Press`, `Hover`) are explicit
+/// flags only - there is no call shape that reaches them by omission - so a
+/// background window is never stolen to the foreground by a default.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ControlMode {
+    /// The default and the rank-1 semantic path: fire the resolved a11y
+    /// node's native invoke (UIA `InvokePattern` first, MSAA
+    /// `accDoDefaultAction` as the disclosed fallback). No pointer, no
+    /// activation; works on background and minimized windows.
+    /// `defaulted` records that the caller sent no mode flag at all, so the
+    /// receipt can disclose default-versus-explicit.
+    Invoke { defaulted: bool },
+    /// `set_value`: write text into the resolved node by identity
+    /// (`put_accValue`); the caller verifies on a later observe, because on
+    /// Chromium the write lands asynchronously.
+    SetValue { text: String },
+    /// `press: true`: one pointer click at the resolved centre. The rank-3
+    /// path; the receipt discloses the foreground before and after.
+    Press,
+    /// `hover: true`: place the pointer at the resolved centre without
+    /// pressing. Explicit-only for the same reason.
+    Hover,
+}
+
+impl ControlMode {
+    /// The tag the receipt and evidence publish.
+    fn tag(&self) -> &'static str {
+        match self {
+            Self::Invoke { .. } => "invoke",
+            Self::SetValue { .. } => "set-value",
+            Self::Press => "press",
+            Self::Hover => "hover",
+        }
+    }
 }
 
 impl CuAction {
@@ -1015,7 +1055,20 @@ fn keyboard_evidence(readback: &str, generation: u64, held: &[String], released:
 pub struct CuHost {
     tool: ScreenTool,
     state: Mutex<CuState>,
+    /// The a11y invoke backend as a named dependency. Production points at
+    /// the real UIA-first dispatcher; the unit tests pin a stub so the
+    /// semantic invoke is testable without touching any desktop.
+    a11y_invoke: A11yInvokeBackend,
 }
+
+/// The backend signature of [`crate::screen::a11y_invoke`]: `Err` is a
+/// dispatch failure, `Ok(Err(..))` a failed invoke, `Ok(Ok(outcome))` a
+/// performed invoke via the named path with its disclosure detail.
+type A11yInvokeBackend = std::sync::Arc<
+    dyn Fn(u64, crate::screen::A11yIdentity) -> Result<Result<crate::screen::A11yInvokeOutcome, String>, String>
+        + Send
+        + Sync,
+>;
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -1081,11 +1134,48 @@ impl CuHost {
                 wait_cumulative_ms: 0,
                 wait_calls: 0,
             }),
+            a11y_invoke: std::sync::Arc::new(crate::screen::a11y_invoke),
         }
     }
 
     pub fn granted(&self) -> bool {
         self.tool.enabled()
+    }
+
+    /// Test-only: install a synthetic frame so multi-call composition (the
+    /// resident MCP screen host carrying observe state across stdio calls)
+    /// is testable without touching a desktop. The caller picks rows whose
+    /// refusals fire before any pointer effect.
+    #[cfg(test)]
+    pub(crate) fn install_test_frame(
+        &self,
+        controls: Vec<crate::screen::ControlInfo>,
+        a11y: Vec<crate::screen::A11yControl>,
+        desktop: (i32, i32, i32, i32),
+    ) {
+        let snapshot = crate::screen::ScreenSnapshot {
+            platform: "windows".to_owned(),
+            qualified: true,
+            desktop,
+            displays: Vec::new(),
+            display_scales: Vec::new(),
+            windows: Vec::new(),
+            controls_source: Some("window:synthetic".to_owned()),
+            controls_truncated: false,
+            controls,
+            a11y_controls: a11y,
+            a11y_source: None,
+            a11y_reason: None,
+            a11y_truncated: false,
+            capture: None,
+        };
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.generation = 1;
+        state.frame = Some(CuFrame {
+            generation: 1,
+            facts_as_of_ms: 0,
+            snapshot,
+        });
     }
 
     /// Teardown releases every modifier, whether or not the caller did.
@@ -1354,10 +1444,9 @@ impl CuHost {
             }
             CuCall::Act { why, action } => match action {
                 CuAction::Control {
-                    control, press, button, double, source, role, invoke, set_value,
+                    control, mode, button, double, source, role,
                 } => self.act_control(
-                    &capability, why, control, press, button, double, source, role, invoke,
-                    set_value,
+                    &capability, &why, &control, mode, button, double, source, role,
                 ),
                 CuAction::Key { keys, hold, release } if hold || release => {
                     self.act_key_modifier(&capability, why, keys, release)
@@ -1732,16 +1821,14 @@ impl CuHost {
     #[allow(clippy::too_many_arguments)]
     fn act_control(
         &self,
+        why: &str,
         capability: &str,
-        why: String,
-        control: String,
-        press: bool,
+        control: &str,
+        mode: ControlMode,
         button: ClickButton,
         double: bool,
         source: ControlSource,
         role: Option<String>,
-        invoke: bool,
-        set_value: Option<String>,
     ) -> CuResult {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         let generation = state.generation;
@@ -1888,20 +1975,24 @@ impl CuHost {
                     capability,
                     format!(
                         "screen: refused: control {:?} has a {}x{} rectangle with no centre; \
-                         nothing was clicked",
+                         the operation was not performed",
                         resolved.label, resolved.width, resolved.height
                     ),
                     json!({ "control": resolved.label }),
                 )
             }
         };
-        // 0.0.18: the semantic text write. Identity is already resolved and
-        // the readonly/protected veto has run (the state veto above rejects
-        // unavailable nodes; the W1 probe adds the value-specific refusals).
-        // The write is asynchronous on Chromium: the caller MUST verify via
-        // the 0.0.16 effect readback with expect:["value"] on a later
-        // observe; the HRESULT alone proves nothing (probe evidence).
-        if let Some(text) = set_value {
+        // 0.0.21 dispatch. The semantic modes return their own receipt here;
+        // the pointer modes fall through to the pointer readback below.
+        match &mode {
+            ControlMode::SetValue { text } => {
+                let text = text.clone();
+                // 0.0.18: the semantic text write. Identity is already resolved and
+                // the readonly/protected veto has run (the state veto above rejects
+                // unavailable nodes; the W1 probe adds the value-specific refusals).
+                // The write is asynchronous on Chromium: the caller MUST verify via
+                // the 0.0.16 effect readback with expect:["value"] on a later
+                // observe; the HRESULT alone proves nothing (probe evidence).
             let node_row = resolved.a11y_node.clone().unwrap_or(Value::Null);
             let state_mask = node_row["state"].as_i64().unwrap_or(0) as i32;
             if state_mask & 0x40 != 0 {
@@ -1951,7 +2042,9 @@ impl CuHost {
             let node_role = resolved.role.clone();
             let (nx, ny, nw, nh) = (resolved.x, resolved.y, resolved.width, resolved.height);
             drop(state);
+            let foreground_before = crate::screen::foreground_title();
             let written = crate::screen::a11y_put_acc_value(handle, identity, &text);
+            let foreground_after = crate::screen::foreground_title();
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
             let generation = state.generation;
             let (verdict, detail, hresult) = match written {
@@ -1963,9 +2056,15 @@ impl CuHost {
                     (CuVerdict::Unknown, "write could not be dispatched", reason)
                 }
             };
-            let readback = format!(
+            let focus_changed = foreground_before != foreground_after;
+            let mut readback = format!(
                 "set_value; control={label:?} role={node_role} rect={nx},{ny} {nw}x{nh} {detail}"
             );
+            if focus_changed {
+                readback.push_str(&format!(
+                    " focus changed: {foreground_before:?} -> {foreground_after:?}"
+                ));
+            }
             let text_out = format!(
                 "why: {why}\nscreen: act=control set_value={text:?} control={label:?}\nreadback: {readback}\ncu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} generation={generation} verdict={} capability={capability}",
                 verdict.tag()
@@ -1986,6 +2085,9 @@ impl CuHost {
                 "role": node_role,
                 "rect": [nx, ny, nw, nh],
                 "set_value": text,
+                "foreground_before": foreground_before,
+                "foreground_after": foreground_after,
+                "focus_changed": focus_changed,
                 "hresult": hresult,
                 "readback": readback,
                 "verdict": verdict.tag(),
@@ -2010,12 +2112,16 @@ impl CuHost {
                 evidence,
                 text: text_out,
             };
-        }
-        // 0.0.17: the native default action. Identity is already resolved
-        // above; the invoke addresses that node, never a coordinate. There is
-        // no pointer readback — the caller verifies via the 0.0.16 effect
-        // readback on the next observe (node fields and/or the tree diff).
-        if invoke {
+            }
+            // 0.0.21: the default and the explicit `invoke: true` alike. The
+            // semantic invoke addresses the node by identity - UIA
+            // InvokePattern first (the path that reaches Chromium's DOM on
+            // self-drawn buttons), MSAA accDoDefaultAction as the disclosed
+            // fallback - never a coordinate, never the pointer. There is no
+            // pointer readback: the caller verifies via the 0.0.16 effect
+            // readback on the next observe (node fields and/or tree diff).
+            ControlMode::Invoke { defaulted } => {
+            let defaulted = *defaulted;
             // Identity is already resolved. The handle comes from the frame's
             // a11y_source ("handle:<n> ..."), the child_id from the published
             // node row — neither is guessed.
@@ -2041,25 +2147,54 @@ impl CuHost {
             let node_role = resolved.role.clone();
             let (nx, ny, nw, nh) = (resolved.x, resolved.y, resolved.width, resolved.height);
             drop(state);
-            let invoked = crate::screen::a11y_invoke_default_action(handle, identity);
+            // Rank-1 disclosure: a semantic invoke must not change the
+            // foreground, and some providers do anyway (Chromium focuses its
+            // render widget on a default action for a visible background
+            // window; a minimized window cannot be activated, so the
+            // minimized loop stays at zero focus change). Both readings travel
+            // in the receipt, and a change is flagged for the reader.
+            let foreground_before = crate::screen::foreground_title();
+            let invoked = (self.a11y_invoke)(handle, identity);
+            let foreground_after = crate::screen::foreground_title();
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
             let generation = state.generation;
-            let (verdict, detail, hresult): (CuVerdict, &str, String) = match invoked {
-                Ok(Ok(())) => {
-                    (CuVerdict::Performed, "accDoDefaultAction S_OK", "0x00000000".to_owned())
-                }
-                Ok(Err(reason)) => {
-                    (CuVerdict::NotPerformed, "accDoDefaultAction failed", reason)
-                }
-                Err(reason) => {
-                    (CuVerdict::Unknown, "invoke could not be dispatched", reason)
-                }
-            };
-            let readback = format!(
+            let (verdict, detail, hresult, path): (CuVerdict, String, String, Option<&'static str>) =
+                match invoked {
+                    Ok(Ok(outcome)) => {
+                        let path_tag = outcome.path.tag();
+                        let detail = if outcome.detail.is_empty() {
+                            format!("invoke via {path_tag}")
+                        } else {
+                            format!("invoke via {path_tag}; {}", outcome.detail)
+                        };
+                        (
+                            CuVerdict::Performed,
+                            detail,
+                            "0x00000000".to_owned(),
+                            Some(path_tag),
+                        )
+                    }
+                    Ok(Err(reason)) => {
+                        (CuVerdict::NotPerformed, "invoke failed".to_owned(), reason, None)
+                    }
+                    Err(reason) => {
+                        (CuVerdict::Unknown, "invoke could not be dispatched".to_owned(), reason, None)
+                    }
+                };
+            // A foreground change during a semantic invoke is a defect the
+            // reader must see, not a silent success.
+            let focus_changed = foreground_before != foreground_after;
+            let mut readback = format!(
                 "invoke; control={label:?} role={node_role} rect={nx},{ny} {nw}x{nh} {detail}"
             );
+            if focus_changed {
+                readback.push_str(&format!(
+                    " focus changed: {foreground_before:?} -> {foreground_after:?}"
+                ));
+            }
+            let mode_word = if defaulted { "invoke-default" } else { "invoke" };
             let text = format!(
-                "why: {why}\nscreen: act=control invoke=true control={label:?}\nreadback: {readback}\ncu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} generation={generation} verdict={} capability={capability}",
+                "why: {why}\nscreen: act=control mode={mode_word} control={label:?}\nreadback: {readback}\ncu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} generation={generation} verdict={} capability={capability}",
                 verdict.tag()
             );
             self.record(
@@ -2074,10 +2209,15 @@ impl CuHost {
             );
             let mut evidence = json!({
                 "action": "control",
+                "mode": mode_word,
                 "control": label,
                 "role": node_role,
                 "rect": [nx, ny, nw, nh],
                 "invoke": true,
+                "invoke_defaulted": defaulted,
+                "foreground_before": foreground_before,
+                "foreground_after": foreground_after,
+                "focus_changed": focus_changed,
                 "hresult": hresult,
                 "readback": readback,
                 "verdict": verdict.tag(),
@@ -2090,6 +2230,10 @@ impl CuHost {
                 // pointer; declare what the next observe(effect) must compare.
                 "effect_hint": "compare node fields and/or a11y tree diff",
             });
+            match path {
+                Some(tag) => evidence["invoke_path"] = json!(tag),
+                None => evidence["invoke_path"] = Value::Null,
+            }
             if handle != 0 {
                 evidence["target_hwnd"] = json!(handle);
             }
@@ -2101,7 +2245,12 @@ impl CuHost {
                 evidence,
                 text,
             };
+            }
+            // The pointer modes are the declared rank-3 fallbacks. Both are
+            // explicit flags; no default reaches them (0.0.21).
+            ControlMode::Press | ControlMode::Hover => {}
         }
+        let press = matches!(mode, ControlMode::Press);
         let (vx, vy, vw, vh) = frame.snapshot.desktop;
         if x < vx || y < vy || x >= vx + vw || y >= vy + vh {
             return self.result_with_state(
@@ -2118,6 +2267,11 @@ impl CuHost {
         }
         drop(state);
 
+        // Rank-3 disclosure: the pointer modes can change the foreground (a
+        // click on a background window activates it), so the receipt carries
+        // the foreground before and after. The semantic modes above never
+        // reach this.
+        let foreground_before = crate::screen::foreground_title();
         let act = if press {
             Act::Click { x, y, button, double }
         } else {
@@ -2130,6 +2284,7 @@ impl CuHost {
                 return self.effect_failure(capability, verdict, reason);
             }
         };
+        let foreground_after = crate::screen::foreground_title();
         // The pointer readback must land inside the *control*, not merely near
         // the requested centre. A control that moved, collapsed or was covered
         // between observe and act is therefore `not_performed`/`unknown`, never
@@ -2173,9 +2328,17 @@ impl CuHost {
             resolved.height
         );
         let mut text = format!(
-            "why: {why}\nscreen: act={} control={:?} press={press}\nreadback: {readback}",
-            outcome.action, resolved.label
+            "why: {why}\nscreen: act={} control={:?} mode={} press={press}\nreadback: {readback}",
+            outcome.action,
+            resolved.label,
+            mode.tag(),
         );
+        // The rank-3 disclosure travels in the text too, for text-only
+        // readers; unchanged foreground on a hover is the expected shape.
+        text.push_str(&format!(
+            "\nforeground: before={:?} after={:?}",
+            foreground_before, foreground_after
+        ));
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
         text.push_str(&format!(
             "\ncu-abi={CU_ABI_MAJOR}.{CU_ABI_MINOR} generation={} verdict={} capability={capability}",
@@ -2185,11 +2348,14 @@ impl CuHost {
         let generation = state.generation;
         let mut evidence = json!({
             "action": outcome.action,
+            "mode": mode.tag(),
             "control": resolved.label,
             "role": resolved.role,
             "rect": [resolved.x, resolved.y, resolved.width, resolved.height],
             "center": [x, y],
             "press": press,
+            "foreground_before": foreground_before,
+            "foreground_after": foreground_after,
             "readback": readback,
             "verdict": verdict.tag(),
             "generation": generation,
@@ -2796,7 +2962,106 @@ fn parse_effect_request(value: &Value) -> Result<EffectRequest, String> {
     Ok(EffectRequest { hwnd, name, role, child_id, expect })
 }
 
+/// Every argument `parse_request` reads. Anything else is refused by name.
+///
+/// A silently ignored argument is a silent wrong answer: a caller that writes
+/// `hwnd` (the name every `act` verb uses) instead of `a11y: <hwnd>` used to get
+/// a *successful* observation of the foreground window. The tool has to say so.
+pub const SCREEN_ARGUMENTS: &[&str] = &[
+    // envelope
+    "abi_major", "abi_minor", "op", "why", "as_of", "window",
+    // observe
+    "capture", "a11y", "controls", "scale", "wait_ms",
+    // act
+    "action", "hwnd", "source", "control", "role", "text", "keys", "button", "double", "hold",
+    "release", "delta", "delta_x", "delta_y", "press", "hover", "invoke", "set_value", "effect",
+    // pointer and region geometry
+    "x", "y", "width", "height", "to_x", "to_y", "middle", "right",
+    // drag destinations, resolved by the drag parser rather than read here
+    "path",
+];
+
+/// The arguments each `op` reads. The union is `SCREEN_ARGUMENTS`; the split is
+/// what makes `hwnd` legal for `act` and refused for `observe`.
+pub fn arguments_for_op(op: &str) -> Option<&'static [&'static str]> {
+    const OBSERVE: &[&str] = &[
+        "abi_major", "abi_minor", "op", "as_of", "window", "capture", "a11y", "controls",
+        "scale", "wait_ms", "effect",
+    ];
+    const ACT: &[&str] = &[
+        "abi_major", "abi_minor", "op", "why", "as_of", "action", "hwnd", "source", "control",
+        "role", "text", "keys", "button", "double", "hold", "release", "delta", "delta_x",
+        "delta_y", "press", "hover", "invoke", "set_value", "effect", "x", "y", "width", "height",
+        "to_x", "to_y", "middle", "right", "path", "window",
+    ];
+    const DISCLOSE: &[&str] = &["abi_major", "abi_minor", "op", "effect"];
+    match op {
+        "observe" => Some(OBSERVE),
+        "act" => Some(ACT),
+        "disclose" => Some(DISCLOSE),
+        _ => None,
+    }
+}
+
+/// Refuses an argument the requested `op` does not read, naming it and, when a
+/// near-miss is obvious, the argument that was probably meant.
+///
+/// A silently ignored argument is a silent wrong answer: `observe {a11y: true,
+/// hwnd: 19798326}` used to return a *successful* observation of the foreground
+/// window. `hwnd` is legal for `act`, so this check is per-op rather than one
+/// global list.
+pub fn refuse_unknown_arguments(arguments: &Value) -> Result<(), String> {
+    let Some(object) = arguments.as_object() else {
+        return Err("screen: refused: the arguments must be one JSON object".to_owned());
+    };
+    // `op` is validated later; an unknown or absent op keeps the envelope-only
+    // check so the caller gets the op refusal they need first.
+    let accepted = object
+        .get("op")
+        .and_then(Value::as_str)
+        .and_then(arguments_for_op);
+    let Some(accepted) = accepted else {
+        let strays: Vec<&String> = object
+            .keys()
+            .filter(|key| !SCREEN_ARGUMENTS.contains(&key.as_str()))
+            .collect();
+        if strays.is_empty() {
+            return Ok(());
+        }
+        return Err(format!(
+            "screen: refused: {} is not a screen argument",
+            strays.iter().map(|key| format!("`{key}`")).collect::<Vec<_>>().join(", ")
+        ));
+    };
+    let unknown: Vec<&String> = object
+        .keys()
+        .filter(|key| !accepted.contains(&key.as_str()))
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    let op = object.get("op").and_then(Value::as_str).unwrap_or("op");
+    let hints: Vec<String> = unknown
+        .iter()
+        .map(|key| match key.as_str() {
+            "hwnd" | "handle" if op == "observe" => format!(
+                "`{key}` is not an observe argument; name the window with `a11y: <hwnd>` for an \
+                 accessibility scan, or `window: \"<title>\"` for a capture"
+            ),
+            "hwnd" | "handle" => format!("`{key}` is not an `{op}` argument"),
+            "title" => String::from("`title` is not a screen argument; use `window: \"<title>\"`"),
+            _ => format!("`{key}` is not an `{op}` argument"),
+        })
+        .collect();
+    Err(format!(
+        "screen: refused: {}; `{op}` accepts: {}",
+        hints.join("; "),
+        accepted.join(", ")
+    ))
+}
+
 pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
+    refuse_unknown_arguments(arguments)?;
     let abi_major = match arguments.get("abi_major") {
         None => CU_ABI_MAJOR,
         Some(value) => value.as_u64().map(|v| v as u32).ok_or_else(|| {
@@ -3161,8 +3426,41 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                             )
                         }
                     };
+                    // 0.0.21: exactly one mode is in force per call. With no
+                    // mode flag at all the operation is the semantic invoke on
+                    // the a11y arm - the background-first rank-1 path - and
+                    // the pointer modes (`press`, `hover`) are explicit-only,
+                    // so no call shape moves the pointer by omission.
+                    let control_name = arguments
+                        .get("control")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| {
+                            "screen: refused: action \"control\" needs a `control` name \
+                             from the last observe"
+                                .to_owned()
+                        })?
+                        .to_owned();
+                    let press = match arguments.get("press") {
+                        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+                        Some(Value::Bool(true)) => true,
+                        Some(_) => {
+                            return Err(
+                                "screen: refused: `press` must be a boolean".to_owned(),
+                            )
+                        }
+                    };
+                    let hover = match arguments.get("hover") {
+                        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+                        Some(Value::Bool(true)) => true,
+                        Some(_) => {
+                            return Err(
+                                "screen: refused: `hover` must be a boolean".to_owned(),
+                            )
+                        }
+                    };
                     let invoke = match arguments.get("invoke") {
-                        None | Some(Value::Bool(false)) => false,
+                        None | Some(Value::Bool(false)) | Some(Value::Null) => false,
                         Some(Value::Bool(true)) => true,
                         Some(_) => {
                             return Err(
@@ -3170,60 +3468,77 @@ pub fn parse_request(arguments: &Value) -> Result<CuRequest, String> {
                             )
                         }
                     };
+                    let mut modes: Vec<&str> = Vec::new();
+                    if press {
+                        modes.push("press");
+                    }
+                    if hover {
+                        modes.push("hover");
+                    }
                     if invoke {
-                        if source != ControlSource::A11y {
-                            return Err(
-                                "screen: refused: `invoke` applies only to source=\"a11y\"; \
-                                 the operation was not performed"
-                                    .to_owned(),
-                            );
-                        }
-                        if arguments.get("press").and_then(Value::as_bool) == Some(true) {
-                            return Err(
-                                "screen: refused: `invoke` and `press` are mutually \
-                                 exclusive; the operation was not performed"
-                                    .to_owned(),
-                            );
-                        }
+                        modes.push("invoke");
                     }
                     if set_value.is_some() {
-                        if source != ControlSource::A11y {
-                            return Err(
-                                "screen: refused: `set_value` applies only to source=\"a11y\"; \
-                                 the operation was not performed"
-                                    .to_owned(),
-                            );
-                        }
-                        let press_on =
-                            arguments.get("press").and_then(Value::as_bool) == Some(true);
-                        if press_on || invoke {
-                            return Err(
-                                "screen: refused: `set_value` is mutually exclusive with \
-                                 `press` and `invoke`; the operation was not performed"
-                                    .to_owned(),
-                            );
-                        }
+                        modes.push("set_value");
                     }
+                    let mode = match modes.as_slice() {
+                        // The 0.0.21 default: semantic invoke. The Win32
+                        // inventory has no semantic invoke backend, so the
+                        // default there is a named refusal with the two real
+                        // alternatives - never a silent pointer fallback.
+                        [] => {
+                            if source != ControlSource::A11y {
+                                return Err(
+                                    "screen: refused: the default act:control is the semantic \
+                                     a11y invoke, and `source` defaults to \"controls\"; observe \
+                                     with `a11y` and resolve a named node, or pass an explicit \
+                                     `press: true` / `hover: true` for the pointer modes; the \
+                                     operation was not performed"
+                                        .to_owned(),
+                                );
+                            }
+                            ControlMode::Invoke { defaulted: true }
+                        }
+                        ["press"] => ControlMode::Press,
+                        ["hover"] => ControlMode::Hover,
+                        ["invoke"] => {
+                            if source != ControlSource::A11y {
+                                return Err(
+                                    "screen: refused: `invoke` applies only to source=\"a11y\"; \
+                                     the operation was not performed"
+                                        .to_owned(),
+                                );
+                            }
+                            ControlMode::Invoke { defaulted: false }
+                        }
+                        ["set_value"] => {
+                            if source != ControlSource::A11y {
+                                return Err(
+                                    "screen: refused: `set_value` applies only to source=\"a11y\"; \
+                                     the operation was not performed"
+                                        .to_owned(),
+                                );
+                            }
+                            ControlMode::SetValue {
+                                text: set_value.expect("checked above"),
+                            }
+                        }
+                        _ => {
+                            return Err(format!(
+                                "screen: refused: {} are mutually exclusive; name exactly one \
+                                 of `press`, `hover`, `invoke`, `set_value` (or none for the \
+                                 default semantic invoke), the operation was not performed",
+                                modes
+                                    .iter()
+                                    .map(|name| format!("`{name}`"))
+                                    .collect::<Vec<_>>()
+                                    .join(" and ")
+                            ))
+                        }
+                    };
                     CuAction::Control {
-                        invoke,
-                        set_value,
-                        control: arguments
-                            .get("control")
-                            .and_then(Value::as_str)
-                            .filter(|value| !value.trim().is_empty())
-                            .ok_or_else(|| {
-                                "screen: refused: action \"control\" needs a `control` name \
-                                 from the last observe"
-                                    .to_owned()
-                            })?
-                            .to_owned(),
-                        // Hover is the default: resolving a named target must
-                        // not be able to click a button just because a caller
-                        // omitted a flag.
-                        press: arguments
-                            .get("press")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false),
+                        mode,
+                        control: control_name,
                         button: button(),
                         double: arguments
                             .get("double")
@@ -3396,6 +3711,9 @@ mod tests {
     }
 
     /// 0.0.15: a frame carrying a normalised a11y tree instead of Win32 rows.
+    /// The a11y invoke backend is pinned to a deterministic stub so no test
+    /// on any cell touches a desktop; tests that exercise the fallback
+    /// override the stub afterwards.
     fn host_with_a11y_frame(
         a11y_controls: Vec<crate::screen::A11yControl>,
         frame_generation: u64,
@@ -3428,6 +3746,40 @@ mod tests {
         });
         drop(state);
         host
+    }
+
+    /// Pin the a11y invoke backend to a stub that records the identity it was
+    /// called with and always answers `path` with an empty detail. Pure: no
+    /// desktop is touched.
+    #[cfg(test)]
+    fn pin_invoke_backend(
+        host: &mut CuHost,
+        seen: std::sync::Arc<std::sync::Mutex<Option<crate::screen::A11yIdentity>>>,
+        outcome: Result<Result<crate::screen::A11yInvokeOutcome, String>, String>,
+    ) {
+        host.a11y_invoke = std::sync::Arc::new(move |handle, identity| {
+            *seen.lock().unwrap_or_else(|p| p.into_inner()) = Some(identity.clone());
+            let _ = handle;
+            outcome.clone()
+        });
+    }
+
+    fn ui_performed() -> Result<Result<crate::screen::A11yInvokeOutcome, String>, String> {
+        Ok(Ok(crate::screen::A11yInvokeOutcome {
+            path: crate::screen::A11yInvokePath::UiaInvokePattern,
+            detail: String::new(),
+        }))
+    }
+
+    fn msaa_performed(detail: &str) -> Result<Result<crate::screen::A11yInvokeOutcome, String>, String> {
+        Ok(Ok(crate::screen::A11yInvokeOutcome {
+            path: crate::screen::A11yInvokePath::MsaaDefaultAction,
+            detail: detail.to_owned(),
+        }))
+    }
+
+    fn seen_slot() -> std::sync::Arc<std::sync::Mutex<Option<crate::screen::A11yIdentity>>> {
+        std::sync::Arc::new(std::sync::Mutex::new(None))
     }
 
     fn synthetic_a11y_node(
@@ -3562,18 +3914,42 @@ mod tests {
     }
 
     #[test]
-    fn a_named_target_is_hover_by_default_and_needs_a_name() {
+    fn a_named_target_defaults_to_invoke_and_modes_are_explicit() {
+        // 0.0.21: with no mode flag at all the operation is the semantic
+        // invoke - no call shape reaches the pointer by omission.
         let parsed = parse_request(&json!({
-            "op": "act", "why": "find the button", "action": "control", "control": "OK"
+            "op": "act", "why": "find the button", "action": "control", "control": "OK",
+            "source": "a11y"
         }))
         .unwrap();
         assert!(matches!(
             parsed.call,
             CuCall::Act {
-                action: CuAction::Control { ref control, press: false, .. },
+                action: CuAction::Control {
+                    ref control,
+                    mode: ControlMode::Invoke { defaulted: true },
+                    ..
+                },
                 ..
             } if control == "OK"
         ));
+        // `invoke: true` is the same backend, explicitly requested.
+        let explicit = parse_request(&json!({
+            "op": "act", "why": "invoke it", "action": "control", "control": "OK",
+            "source": "a11y", "invoke": true
+        }))
+        .unwrap();
+        assert!(matches!(
+            explicit.call,
+            CuCall::Act {
+                action: CuAction::Control {
+                    mode: ControlMode::Invoke { defaulted: false },
+                    ..
+                },
+                ..
+            }
+        ));
+        // The pointer modes are explicit flags.
         let clicked = parse_request(&json!({
             "op": "act", "why": "press it", "action": "control",
             "control": "OK", "press": true, "button": "right"
@@ -3583,23 +3959,52 @@ mod tests {
             clicked.call,
             CuCall::Act {
                 action: CuAction::Control {
-                    press: true, button: ClickButton::Right, ..
+                    mode: ControlMode::Press, button: ClickButton::Right, ..
                 },
                 ..
             }
         ));
+        let hovered = parse_request(&json!({
+            "op": "act", "why": "point at it", "action": "control",
+            "control": "OK", "hover": true
+        }))
+        .unwrap();
+        assert!(matches!(
+            hovered.call,
+            CuCall::Act {
+                action: CuAction::Control { mode: ControlMode::Hover, .. },
+                ..
+            }
+        ));
+        // Two modes at once is a named refusal.
+        let both = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control",
+            "control": "OK", "hover": true, "press": true
+        }))
+        .unwrap_err();
+        assert!(both.contains("mutually exclusive"), "{both}");
+        assert!(both.contains("`press`") && both.contains("`hover`"), "{both}");
         let missing = parse_request(&json!({
             "op": "act", "why": "x", "action": "control"
         }))
         .unwrap_err();
         assert!(missing.contains("needs a `control` name"), "{missing}");
+        // The default on the Win32 arm is a named refusal with the two real
+        // alternatives, never a pointer move and never a guessed backend.
+        let controls_default = parse_request(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "OK"
+        }))
+        .unwrap_err();
+        assert!(controls_default.contains("default act:control is the semantic"), "{controls_default}");
+        assert!(controls_default.contains("press: true"), "{controls_default}");
     }
 
     #[test]
     fn a_named_target_refuses_without_an_observation() {
         let host = host(true);
         let result = host.invoke_json(&json!({
-            "op": "act", "why": "x", "action": "control", "control": "OK"
+            "op": "act", "why": "x", "action": "control", "control": "OK",
+            "source": "a11y"
         }));
         // A cell without an `act:control` backend admits nothing. A cell that
         // implements other verbs answers `unsupported`; a cell with no effect
@@ -3639,8 +4044,18 @@ mod tests {
             return;
         }
         let empty = host_with_frame(Vec::new(), 1, 1, (0, 0, 800, 600));
-        let no_controls = empty.invoke_json(&json!({
+        // 0.0.21: with no mode flag the Win32 arm refuses at admission - the
+        // default semantic invoke has no Win32 backend, and a pointer mode is
+        // never chosen silently.
+        let controls_default = empty.invoke_json(&json!({
             "op": "act", "why": "x", "action": "control", "control": "OK"
+        }));
+        assert_eq!(controls_default.verdict, CuVerdict::Refused, "{}", controls_default.text);
+        assert!(controls_default.text.contains("default act:control is the semantic"), "{}", controls_default.text);
+        assert!(controls_default.text.contains("press: true"), "{}", controls_default.text);
+
+        let no_controls = empty.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "OK", "hover": true
         }));
         assert_eq!(no_controls.verdict, CuVerdict::Refused);
         assert!(no_controls.text.contains("no controls"), "{}", no_controls.text);
@@ -3652,7 +4067,7 @@ mod tests {
             (0, 0, 800, 600),
         );
         let stale_result = stale.invoke_json(&json!({
-            "op": "act", "why": "x", "action": "control", "control": "button:OK"
+            "op": "act", "why": "x", "action": "control", "control": "button:OK", "hover": true
         }));
         assert_eq!(stale_result.verdict, CuVerdict::Stale, "{}", stale_result.text);
 
@@ -3666,7 +4081,7 @@ mod tests {
             (0, 0, 800, 600),
         );
         let ambiguous_result = ambiguous.invoke_json(&json!({
-            "op": "act", "why": "x", "action": "control", "control": "OK"
+            "op": "act", "why": "x", "action": "control", "control": "OK", "hover": true
         }));
         assert_eq!(ambiguous_result.verdict, CuVerdict::Refused);
         assert!(ambiguous_result.text.contains("matches 2 controls"), "{}", ambiguous_result.text);
@@ -3675,7 +4090,7 @@ mod tests {
         hidden.visible = false;
         let hidden_host = host_with_frame(vec![hidden], 1, 1, (0, 0, 800, 600));
         let hidden_result = hidden_host.invoke_json(&json!({
-            "op": "act", "why": "x", "action": "control", "control": "button:OK"
+            "op": "act", "why": "x", "action": "control", "control": "button:OK", "hover": true
         }));
         assert_eq!(hidden_result.verdict, CuVerdict::Refused);
         assert!(hidden_result.text.contains("hidden"), "{}", hidden_result.text);
@@ -3689,7 +4104,7 @@ mod tests {
             (0, 0, 800, 600),
         );
         let offscreen_result = offscreen.invoke_json(&json!({
-            "op": "act", "why": "x", "action": "control", "control": "button:OK"
+            "op": "act", "why": "x", "action": "control", "control": "button:OK", "hover": true
         }));
         assert_eq!(offscreen_result.verdict, CuVerdict::Refused);
         assert!(offscreen_result.text.contains("outside the virtual desktop"), "{}", offscreen_result.text);
@@ -3990,8 +4405,61 @@ mod tests {
     }
 
     #[test]
-    fn verdict_classification_never_calls_an_ambiguous_failure_a_success() {
-        assert_eq!(
+    fn an_unknown_argument_is_refused_by_name_never_silently_ignored() {
+        // Measured on a live desktop 2026-11-12 (`plan/cu-on-desktop-log.md`,
+        // F1): `observe {a11y: true, hwnd: 19798326}` returned a *successful*
+        // observation of the foreground window. The caller asked for one window
+        // and got another, with verdict=performed and no warning. `hwnd` is the
+        // name every `act` verb uses, so this is the mistake a real client
+        // author makes first.
+        let cases: &[(&str, Value, &str)] = &[
+            (
+                "observe with hwnd",
+                json!({ "op": "observe", "a11y": true, "hwnd": 19798326 }),
+                "`hwnd` is not an observe argument; name the window with `a11y: <hwnd>`",
+            ),
+            (
+                "a plain typo",
+                json!({ "op": "observe", "windwo": "Notepad" }),
+                "`windwo` is not an `observe` argument",
+            ),
+            (
+                "title instead of window",
+                json!({ "op": "observe", "title": "Notepad" }),
+                "`title` is not a screen argument; use `window: \"<title>\"`",
+            ),
+        ];
+        for (label, arguments, expected) in cases {
+            let refusal = refuse_unknown_arguments(arguments)
+                .expect_err(&format!("{label} must be refused"));
+            assert!(refusal.contains(expected), "{label}: {refusal}");
+            assert!(refusal.contains("accepts:"), "{label}: {refusal}");
+            // A refusal names the call that would have worked.
+            assert!(
+                refusal.contains("a11y") || refusal.contains("window:"),
+                "{label}: {refusal}"
+            );
+        }
+        // The known-good shapes still pass: this check must not become a
+        // second policy engine.
+        for arguments in [
+            json!({ "op": "observe" }),
+            json!({ "op": "observe", "a11y": 19798326 }),
+            json!({ "op": "observe", "window": "Notepad" }),
+            json!({ "op": "act", "why": "x", "action": "focus", "hwnd": 1 }),
+            json!({ "op": "act", "why": "x", "action": "drag", "x": 1, "y": 2, "to_x": 3, "to_y": 4 }),
+            json!({ "op": "act", "why": "x", "action": "drag", "path": [{ "x": 1, "y": 2 }] }),
+            json!({ "op": "act", "why": "x", "action": "scroll", "x": 1, "y": 1, "delta_y": -3 }),
+        ] {
+            assert!(
+                refuse_unknown_arguments(&arguments).is_ok(),
+                "a valid shape was refused: {arguments}"
+            );
+        }
+    }
+
+    #[test]
+    fn verdict_classification_never_calls_an_ambiguous_failure_a_success() {        assert_eq!(
             classify("screen: failed: asked for rect=...".into()).0,
             CuVerdict::NotPerformed
         );
@@ -5480,8 +5948,10 @@ mod tests {
 
     #[test]
     fn control_source_is_admitted_before_any_pointer_exists() {
+        // The default arm is the a11y invoke (0.0.21); `controls` stays
+        // admitted for the explicit pointer modes.
         let plain = parse_request(&json!({
-            "op": "act", "why": "x", "action": "control", "control": "OK"
+            "op": "act", "why": "x", "action": "control", "control": "OK", "hover": true
         }))
         .unwrap();
         assert!(matches!(
@@ -5489,6 +5959,7 @@ mod tests {
             CuCall::Act {
                 action: CuAction::Control {
                     source: ControlSource::Controls,
+                    mode: ControlMode::Hover,
                     role: None,
                     ..
                 },
@@ -5630,15 +6101,49 @@ mod tests {
             1,
             (0, 0, 800, 600),
         );
+        // The pointer mode is refused before the OS can clamp the pointer.
         let out = outside.invoke_json(&json!({
-            "op": "act", "why": "x", "action": "control", "control": "最大化", "source": "a11y"
+            "op": "act", "why": "x", "action": "control", "control": "最大化",
+            "source": "a11y", "hover": true
         }));
         assert_ne!(out.verdict, CuVerdict::Performed);
         assert!(out.text.contains("outside the virtual desktop"), "{}", out.text);
+
+        // The semantic invoke does not gate on coordinates: an
+        // offscreen/minimized rect is not a reason to refuse an
+        // identity-addressed operation (background-first, 0.0.21).
+        let mut host = host_with_a11y_frame(
+            vec![synthetic_a11y_node("最大化", 43, 0x100000, -32000, -32000, 40, 20)],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        let seen = seen_slot();
+        pin_invoke_backend(
+            &mut host,
+            seen.clone(),
+            ui_performed(),
+        );
+        let semantic = host.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "最大化",
+            "source": "a11y"
+        }));
+        assert_eq!(semantic.verdict, CuVerdict::Performed, "{}", semantic.text);
+        assert_eq!(semantic.evidence["mode"], "invoke-default");
+        assert_eq!(semantic.evidence["invoke_defaulted"], true);
+        assert_eq!(semantic.evidence["invoke_path"], "uia-invoke-pattern");
+        let identity = seen.lock().unwrap().clone().expect("backend called");
+        assert_eq!(identity.name, "最大化");
+        assert_eq!(identity.role_name, "button");
+        assert_eq!(identity.depth, 6);
     }
 
     #[test]
     fn a_resolved_a11y_target_publishes_recomputable_evidence() {
+        // The pointer arm: an explicit hover publishes the recomputable node
+        // rows. On a real Windows desktop this performs the hover; on a cell
+        // without act:control it is a named platform refusal. Neither may
+        // invent rows.
         let host = host_with_a11y_frame(
             vec![synthetic_a11y_node("新建任务", 43, 0x4 | 0x100000, 500, 16, 32, 32)],
             1,
@@ -5647,12 +6152,14 @@ mod tests {
         );
         let result = host.invoke_json(&json!({
             "op": "act", "why": "CU journey: semantic target",
-            "action": "control", "control": "新建任务", "source": "a11y", "role": "button"
+            "action": "control", "control": "新建任务", "source": "a11y",
+            "role": "button", "hover": true
         }));
         // On a real Windows desktop this performs a hover; on a cell without
         // act:control it is a named platform refusal. Neither may invent rows.
         if result.verdict == CuVerdict::Performed {
             assert_eq!(result.evidence["source"], "a11y");
+            assert_eq!(result.evidence["mode"], "hover");
             assert_eq!(result.evidence["a11y_node_schema"], "role-name-state-value-bounds-depth");
             let node = &result.evidence["a11y_node"];
             assert_eq!(node["name"], "新建任务");
@@ -5663,6 +6170,20 @@ mod tests {
             assert_eq!(result.evidence["rect"], json!([500, 16, 32, 32]));
             assert_eq!(result.evidence["center"], json!([516, 32]));
             assert_eq!(result.evidence["press"], false);
+            // Rank-3 disclosure: the pointer path names the foreground.
+            assert!(
+                result.evidence["foreground_before"].is_null()
+                    || result.evidence["foreground_before"].is_string(),
+                "{}",
+                result.evidence
+            );
+            assert!(
+                result.evidence["foreground_after"].is_null()
+                    || result.evidence["foreground_after"].is_string(),
+                "{}",
+                result.evidence
+            );
+            assert!(result.text.contains("foreground: before="), "{}", result.text);
         } else {
             assert!(
                 matches!(result.verdict, CuVerdict::Refused | CuVerdict::Unsupported),
@@ -5670,6 +6191,124 @@ mod tests {
                 result.text
             );
         }
+    }
+
+    #[test]
+    fn the_default_invoke_publishes_path_and_defaulted_evidence() {
+        // The 0.0.21 default: no mode flag, semantic invoke, stub backend.
+        // The receipt names the path (UIA first, MSAA fallback) and whether
+        // the mode came from the default or an explicit flag.
+        let mut host = host_with_a11y_frame(
+            vec![synthetic_a11y_node("分享", 43, 0x100000, 10, 10, 40, 20)],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        let seen = seen_slot();
+        pin_invoke_backend(&mut host, seen.clone(), ui_performed());
+        let performed = host.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "分享", "source": "a11y"
+        }));
+        assert_eq!(performed.verdict, CuVerdict::Performed, "{}", performed.text);
+        assert_eq!(performed.evidence["mode"], "invoke-default");
+        assert_eq!(performed.evidence["invoke_defaulted"], true);
+        assert_eq!(performed.evidence["invoke_path"], "uia-invoke-pattern");
+        assert_eq!(performed.evidence["hresult"], "0x00000000");
+        assert_eq!(performed.evidence["actuation"], Value::Null, "no pointer moved");
+        assert!(performed.text.contains("mode=invoke-default"), "{}", performed.text);
+        // Rank-1 disclosure: the foreground readings travel with the invoke,
+        // and a focus change is flagged for the reader (the stub cannot move
+        // the foreground, so on a headless cell both readings are null).
+        assert!(
+            performed.evidence["foreground_before"].is_null()
+                || performed.evidence["foreground_before"].is_string(),
+            "{}",
+            performed.evidence
+        );
+        assert!(
+            performed.evidence["foreground_after"].is_null()
+                || performed.evidence["foreground_after"].is_string(),
+            "{}",
+            performed.evidence
+        );
+        assert!(performed.evidence["focus_changed"].is_boolean());
+        assert!(
+            !performed.evidence["focus_changed"].as_bool().unwrap(),
+            "a stub invoke must not change the foreground"
+        );
+
+        // The MSAA fallback is disclosed as a different path.
+        let mut fallback = host_with_a11y_frame(
+            vec![synthetic_a11y_node("分享", 43, 0x100000, 10, 10, 40, 20)],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        pin_invoke_backend(
+            &mut fallback,
+            seen.clone(),
+            msaa_performed("uia did not run: no UIA element matches"),
+        );
+        let fell_back = fallback.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "分享",
+            "source": "a11y", "invoke": true
+        }));
+        assert_eq!(fell_back.verdict, CuVerdict::Performed, "{}", fell_back.text);
+        assert_eq!(fell_back.evidence["mode"], "invoke");
+        assert_eq!(fell_back.evidence["invoke_defaulted"], false);
+        assert_eq!(fell_back.evidence["invoke_path"], "msaa-default-action");
+        // The UIA skip reason rides in the readback: an MSAA-only invoke is
+        // disclosed, never passed off as a UIA-verified one.
+        assert!(
+            fell_back.text.contains("uia did not run: no UIA element matches"),
+            "{}",
+            fell_back.text
+        );
+
+        // Both paths failed -> not_performed with the composite reason.
+        let mut failing = host_with_a11y_frame(
+            vec![synthetic_a11y_node("分享", 43, 0x100000, 10, 10, 40, 20)],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        pin_invoke_backend(
+            &mut failing,
+            seen,
+            Ok(Err("uia: no UIA element matches; msaa: no accessible object matches"
+                .to_owned())),
+        );
+        let failed = failing.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "分享", "source": "a11y"
+        }));
+        assert_eq!(failed.verdict, CuVerdict::NotPerformed, "{}", failed.text);
+        assert!(failed.evidence["invoke_path"].is_null());
+        assert!(
+            failed.evidence["hresult"]
+                .as_str()
+                .unwrap()
+                .contains("msaa: no accessible object matches"),
+            "{}",
+            failed.evidence
+        );
+
+        // A dispatch failure (COM could not start) is `unknown`, never a
+        // guessed failure mode.
+        let mut dispatch = host_with_a11y_frame(
+            vec![synthetic_a11y_node("分享", 43, 0x100000, 10, 10, 40, 20)],
+            1,
+            1,
+            (0, 0, 800, 600),
+        );
+        pin_invoke_backend(
+            &mut dispatch,
+            seen_slot(),
+            Err("screen: unknown: COM could not be initialised".to_owned()),
+        );
+        let unknown = dispatch.invoke_json(&json!({
+            "op": "act", "why": "x", "action": "control", "control": "分享", "source": "a11y"
+        }));
+        assert_eq!(unknown.verdict, CuVerdict::Unknown, "{}", unknown.text);
     }
 
     // ---- 0.0.16: a11y effect readback (expect-vs-observed) ----
@@ -5894,7 +6533,10 @@ mod tests {
         assert!(matches!(
             ok.call,
             CuCall::Act {
-                action: CuAction::Control { invoke: true, .. },
+                action: CuAction::Control {
+                    mode: ControlMode::Invoke { defaulted: false },
+                    ..
+                },
                 ..
             }
         ));
@@ -5955,7 +6597,7 @@ mod tests {
             ok.call,
             CuCall::Act {
                 action: CuAction::Control {
-                    set_value: Some(ref text),
+                    mode: ControlMode::SetValue { ref text },
                     ..
                 },
                 ..

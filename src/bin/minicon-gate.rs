@@ -29,7 +29,7 @@ fn main() {
         }
     }
     let Some(path) = config else {
-        fail("--config PATH is required in 0.0.20")
+        fail("--config PATH is required in 0.0.21")
     };
     if let Err(error) = minicon_harness::gate::run(std::path::Path::new(&path), allow_non_loopback) {
         fail(&error);

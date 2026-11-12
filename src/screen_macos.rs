@@ -773,7 +773,7 @@ pub fn handle_is_live(handle: u64, title: &str) -> Result<(), String> {
 
 pub fn a11y_controls(
     _handle: u64,
-) -> Result<(Vec<crate::screen::A11yControl>, bool), String> {
+) -> Result<(Vec<crate::screen::A11yControl>, bool, Option<String>), String> {
     Err(
         "cu: unsupported: the structured a11y arm needs the platform's \
          accessibility API (AT-SPI on linux, AX on macos); no tree was \

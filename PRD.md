@@ -205,6 +205,47 @@ rest is `[no]`. The domain model, the resource-boundary table and the CU
 document branch are owned by `prd/PRD_01_08_computer_use_scope.md`; the tree
 below remains the single index of feature status.
 
+### Background-first operation (hard requirement, owner mandate 2026-11-10)
+
+Computer use here must operate windows **without requiring them to be in the
+foreground**. A minimized or background window is a first-class target:
+observe, act and readback must work on it smoothly, and stealing focus is a
+**defect**, not a convenience. The owner requirement, verbatim in spirit:
+"minicon-harness 的 computer-use 必须追求不用要求窗口前景——最小化或后台都能丝滑操作".
+
+Mechanism ranking (preferred first, a later rank is a declared fallback, never
+a silent substitute):
+
+1. **Semantic a11y operation on a pinned HWND** -- observe the normalised a11y
+   tree, then `act:control` invoke / `set_value` / a11y-addressed scroll.
+   Works on background and minimized windows because it never routes through
+   the pointer or the keyboard queue.
+2. **Background-safe window messages** -- messages that a target genuinely
+   handles while occluded (e.g. `WM_MOUSEWHEEL`-style scroll where the app
+   supports it), always with an effect readback.
+3. **Foreground pointer/keyboard** -- the classical path. Requires the window
+   in the foreground; every use must be disclosed in the receipt (foreground
+   before/after), and an implementation must first try to reach the same
+   effect through rank 1/2.
+
+Hard acceptance bar:
+
+- A full loop (observe -> act -> readback) on a **minimized** Chromium-class
+  window performs with **zero focus change**: `foreground_before ==
+  foreground_after` in the receipt.
+- Minimized-window geometry (`-32000` rects) must never poison coordinates:
+  semantic addressing and DIP/a11y-based coordinates are used instead of raw
+  screen rects, or the window's placement is captured (not changed) to remap.
+- Observe never restores, raises or activates the target window.
+- `act:focus` remains the only capability allowed to change the foreground,
+  and it must say so in `why` and in the receipt.
+
+Known gaps against this bar (as of 0.0.20+working tree): keyboard typing and
+raw click remain foreground-only; a11y invoke/`set_value` on Chromium
+`VT_DISPATCH` nodes works but is verified on-demand; minimized-window a11y
+rects are `-32000` and not yet remapped. Closing these is the current CU work
+stream (see plan/v0.0.21).
+
 How to read the tree: **A and B are the domain axes** (what the desktop can
 observe and what it can do); **C, D, E and F are cross-cutting layers** (how a
 call is admitted, looped, compiled and evidenced); **G is the boundary** (what

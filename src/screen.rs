@@ -247,7 +247,7 @@ pub enum FocusTarget {
 /// Bounds for one accessibility scan. Both are published with the frame so a
 /// reader can tell a bounded inventory from a complete one.
 pub const SCREEN_TOOL_MAX_A11Y_CONTROLS: usize = 400;
-pub const SCREEN_TOOL_MAX_A11Y_DEPTH: usize = 12;
+pub const SCREEN_TOOL_MAX_A11Y_DEPTH: usize = 24;
 
 /// One node of a read-only MSAA/IAccessible tree. Coordinates are virtual
 /// desktop pixels, the same basis as `windows[]` and the PNG capture arm.
@@ -268,6 +268,38 @@ pub struct A11yControl {
     pub height: i32,
     pub depth: u32,
     pub child_id: i32,
+}
+
+/// Web trees carry paragraph-sized names; the observe text is read by a
+/// model, so one node is one line and a name/value is clipped to a bound.
+/// Line breaks, quotes and backslashes inside a name would corrupt the
+/// one-line-per-node contract *and* the JSON frame that carries it (a Rust
+/// `{:?}` escape is not a JSON escape), so they never reach the wire.
+fn a11y_clip(text: &str) -> String {
+    let flat: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .filter(|c| *c != '"' && *c != '\\')
+        .collect();
+    flat.trim().chars().take(120).collect()
+}
+
+impl A11yControl {
+    pub fn to_line(&self, index: usize) -> String {
+        format!(
+            "node={index} name={} role={} state={} rect={},{} {}x{} depth={} child_id={} value={}",
+            a11y_clip(&self.name),
+            self.role_name,
+            self.state,
+            self.x,
+            self.y,
+            self.width,
+            self.height,
+            self.depth,
+            self.child_id,
+            a11y_clip(&self.value),
+        )
+    }
 }
 
 /// MSAA `ROLE_SYSTEM_*` values -> the same coarse vocabulary as Win32 classes.
@@ -425,6 +457,47 @@ pub const A11Y_STATE_OFFSCREEN: i32 = 0x10000;
 /// independent reader can recompute the same predicate from `state`.
 pub fn a11y_node_operable(state: i32) -> bool {
     state & (A11Y_STATE_UNAVAILABLE | A11Y_STATE_INVISIBLE | A11Y_STATE_OFFSCREEN) == 0
+}
+
+/// Pure: a minimized top-level window's live origin is the -32000 tombstone
+/// (`(-32000, -32000)` with a fixed 160x28 frame on every Windows release).
+/// Anything at or below this bound is that tombstone, never a real position:
+/// the virtual desktop never extends this far into the negative.
+pub const MINIMIZED_TOMBSTONE_ORIGIN: i32 = -20000;
+
+pub fn is_minimized_tombstone_origin(x: i32) -> bool {
+    x <= MINIMIZED_TOMBSTONE_ORIGIN
+}
+
+/// Pure: one published node coordinate translated onto a minimized window's
+/// normal-placement basis (screen coordinates). Providers disagree about the
+/// basis while the window sits at the -32000 tombstone: Chromium-family
+/// providers subtract the live window origin themselves and publish
+/// normal-basis *client* coordinates (small values), while classic Win32
+/// providers publish live *screen* coordinates translated by the tombstone
+/// (values in the `-32000` cluster). The two are told apart per node:
+/// - a raw origin inside the tombstone cluster moves by
+///   `normal_origin - live_origin` (undo the tombstone translation);
+/// - anything else is already normal-basis client space and moves by
+///   `normal_origin` only.
+/// `normal_origin` is the placement origin on the screen basis
+/// (`rcNormalPosition` + work-area origin). The placement is *described*,
+/// never applied: nothing restores, raises or activates the window (PRD
+/// hard bar), and Chromium may keep its own (staler) bounds, so this is an
+/// approximation disclosed by the scan note.
+pub(crate) fn minimized_node_screen_pos(
+    raw: [i32; 2],
+    live_origin: [i32; 2],
+    normal_origin: [i32; 2],
+) -> [i32; 2] {
+    if is_minimized_tombstone_origin(raw[0]) {
+        [
+            raw[0] + normal_origin[0] - live_origin[0],
+            raw[1] + normal_origin[1] - live_origin[1],
+        ]
+    } else {
+        [raw[0] + normal_origin[0], raw[1] + normal_origin[1]]
+    }
 }
 
 /// The coarse role vocabulary, as a fixed table so an unknown `role` filter
@@ -616,6 +689,37 @@ impl ScreenSnapshot {
                 outcome.scale,
                 outcome.source
             ));
+        }
+        if let Some(source) = &self.a11y_source {
+            text.push_str(&format!(
+                "\na11y: source={} nodes={}{}",
+                source,
+                self.a11y_controls.len(),
+                if self.a11y_truncated {
+                    format!(" truncated=true bound={SCREEN_TOOL_MAX_A11Y_CONTROLS}")
+                } else {
+                    String::new()
+                }
+            ));
+            if let Some(reason) = &self.a11y_reason {
+                text.push_str(&format!("\na11y: {reason}"));
+            }
+            if self.a11y_controls.is_empty() {
+                text.push_str(
+                    "\na11y: this window published no accessibility nodes; a Chromium \
+                     renderer keeps its tree off until a UIA client connects, and a \
+                     self-drawn native UI may have none",
+                );
+            }
+            for (index, node) in self
+                .a11y_controls
+                .iter()
+                .take(SCREEN_TOOL_MAX_A11Y_CONTROLS)
+                .enumerate()
+            {
+                text.push('\n');
+                text.push_str(&node.to_line(index));
+            }
         }
         text
     }
@@ -927,9 +1031,13 @@ impl ScreenTool {
                 Some((handle, title)) => {
                     a11y_source = Some(format!("handle:{handle} window:{title:?}"));
                     match native::a11y_controls(handle) {
-                        Ok((rows, truncated)) => {
+                        Ok((rows, truncated, note)) => {
                             a11y_controls = rows;
                             a11y_truncated = truncated;
+                            // A minimized window's remap is a basis change, not
+                            // an error: it travels as a disclosure next to the
+                            // rows it applies to.
+                            a11y_reason = note;
                         }
                         Err(reason) => a11y_reason = Some(reason),
                     }
@@ -2218,6 +2326,61 @@ pub fn a11y_invoke_default_action(
     }
 }
 
+/// Which native path performed an a11y invoke. Evidence, never a guess: the
+/// receipt names the path so a reader can tell a UIA `InvokePattern` (the
+/// path that reaches Chromium's DOM) from the MSAA fallback.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum A11yInvokePath {
+    /// `IUIAutomationInvokePattern::Invoke` on the element matched by name
+    /// (and ControlType, when the published role has a fixed counterpart).
+    UiaInvokePattern,
+    /// `IAccessible::accDoDefaultAction` - the declared fallback for cells
+    /// whose provider has no UIA InvokePattern.
+    MsaaDefaultAction,
+}
+
+impl A11yInvokePath {
+    pub fn tag(&self) -> &'static str {
+        match self {
+            Self::UiaInvokePattern => "uia-invoke-pattern",
+            Self::MsaaDefaultAction => "msaa-default-action",
+        }
+    }
+}
+
+/// One performed a11y invoke: which native path ran and, when the preferred
+/// path was skipped, why. The detail is disclosure, not an error — an MSAA
+/// fallback is a success whose receipt must still say why UIA did not run.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct A11yInvokeOutcome {
+    pub path: A11yInvokePath,
+    /// Empty when the UIA path ran. Otherwise the named UIA miss/failure.
+    pub detail: String,
+}
+
+/// 0.0.21: semantic invoke of one resolved a11y node, working on background
+/// and minimized windows because it never routes through the pointer or the
+/// keyboard queue. UIA `InvokePattern` is tried first: Chromium's MSAA
+/// `accDoDefaultAction` returns S_OK without a DOM effect on self-drawn
+/// buttons, so an S_OK alone is not evidence. The MSAA default action is the
+/// declared fallback and is disclosed via the returned path. `Err` is a
+/// dispatch failure (named), `Ok(Err(..))` is both paths failed, `Ok(Ok(..))`
+/// is performed via the named path.
+pub fn a11y_invoke(
+    handle: u64,
+    identity: A11yIdentity,
+) -> Result<Result<A11yInvokeOutcome, String>, String> {
+    #[cfg(windows)]
+    {
+        native::a11y_invoke_inner(handle, identity)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (handle, identity);
+        Err("screen: unknown: a11y invoke is not implemented on this cell".to_owned())
+    }
+}
+
 /// 0.0.18: write text into one resolved a11y node by identity via
 /// `IAccessible::put_accValue` (vtable slot 27). Same dispatch shape as the
 /// 0.0.17 invoke. The W1 probe showed Chromium applies the write
@@ -2253,6 +2416,21 @@ mod native {
 
     pub const CAPABILITIES: PlatformCapabilities = PlatformCapabilities::ALL;
     pub const PLATFORM: &str = "windows";
+
+    /// Test-only pins for the hand-written UIA constants. The `msaa` module
+    /// is private, so these accessors are the surface the unit tests assert
+    /// against (all four configurations compile the tests; only Windows has
+    /// the real values).
+    #[cfg(test)]
+    pub(crate) mod test_pins {
+        pub fn uia_guid_bytes() -> ([u8; 16], [u8; 16]) {
+            super::msaa::guid_pins()
+        }
+
+        pub fn uia_control_type(role: &str) -> Option<i32> {
+            super::msaa::uia_control_type_for(role)
+        }
+    }
 
     type Hwnd = *mut c_void;
     type Bool = i32;
@@ -2296,6 +2474,19 @@ mod native {
     struct Point {
         x: Int,
         y: Int,
+    }
+
+    /// `WINDOWPLACEMENT`: the saved geometry a minimized window's remap reads.
+    /// `normal_position` is in workspace coordinates (work-area origin on
+    /// top of screen coordinates); `showCmd`/`flags` stay unread here.
+    #[repr(C)]
+    struct WindowPlacement {
+        length: u32,
+        flags: u32,
+        show_cmd: u32,
+        min_position: Point,
+        max_position: Point,
+        normal_position: Rect,
     }
 
     #[repr(C)]
@@ -2357,6 +2548,10 @@ mod native {
     const MOUSEEVENTF_MIDDLEUP: Dword = 0x0040;
     const WM_GETTEXT: Dword = 0x000D;
     const SMTO_ABORTIFHUNG: Dword = 0x0002;
+    /// `SPI_GETWORKAREA`: the primary monitor's work area, the origin that
+    /// converts `WINDOWPLACEMENT.rcNormalPosition` workspace coordinates into
+    /// screen coordinates for the minimized-rect remap.
+    const SPI_GETWORKAREA: Uint = 0x0030;
 
     #[link(name = "user32")]
     extern "system" {
@@ -2382,6 +2577,13 @@ mod native {
         fn GetWindowTextW(window: Hwnd, buffer: *mut u16, size: Int) -> Int;
         fn GetClassNameW(window: Hwnd, buffer: *mut u16, size: Int) -> Int;
         fn GetWindowRect(window: Hwnd, rect: *mut Rect) -> Bool;
+        fn GetWindowPlacement(window: Hwnd, placement: *mut WindowPlacement) -> Bool;
+        fn SystemParametersInfoW(
+            action: Uint,
+            param: Uint,
+            value: *mut c_void,
+            initializer: Uint,
+        ) -> Bool;
         fn GetWindowThreadProcessId(window: Hwnd, pid: *mut Dword) -> Dword;
         fn GetForegroundWindow() -> Hwnd;
         fn ShowWindow(window: Hwnd, command: Int) -> Bool;
@@ -2486,16 +2688,29 @@ mod native {
         if focused {
             collector.foreground = collector.windows.len();
         }
+        let iconic = unsafe { IsIconic(window) } != 0;
+        // A minimized window's live rect is the -32000 tombstone. Publish the
+        // saved normal placement instead so observe rows carry usable
+        // geometry; the `minimized` flag stays the single source of truth for
+        // the state, and the placement is captured, never applied.
+        let (x, y, width, height) = if iconic {
+            match normal_placement_rect(window) {
+                Some([nx, ny, nw, nh]) => (nx, ny, nw, nh),
+                None => (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top),
+            }
+        } else {
+            (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
+        };
         collector.windows.push(WindowInfo {
             handle: window as usize as u64,
             title: wide(&title[..length as usize + 1]),
             class_name: wide(&class_name),
             pid,
-            x: rect.left,
-            y: rect.top,
-            width: rect.right - rect.left,
-            height: rect.bottom - rect.top,
-            minimized: unsafe { IsIconic(window) } != 0,
+            x,
+            y,
+            width,
+            height,
+            minimized: iconic,
             maximized: unsafe { IsZoomed(window) } != 0,
             focused,
         });
@@ -2598,6 +2813,48 @@ mod native {
         let mut title = [0u16; 512];
         let length = unsafe { GetWindowTextW(window, title.as_mut_ptr(), title.len() as Int) };
         (length > 0).then(|| wide(&title[..length as usize + 1]))
+    }
+
+    /// The primary work-area origin, the workspace-to-screen correction the
+    /// minimized-placement remap applies. `(0, 0)` on the default
+    /// taskbar-bottom layout; a taskbar docked left/top shifts it.
+    fn work_area_origin() -> [i32; 2] {
+        let mut work = Rect { left: 0, top: 0, right: 0, bottom: 0 };
+        if unsafe {
+            SystemParametersInfoW(
+                SPI_GETWORKAREA,
+                0,
+                &mut work as *mut Rect as *mut c_void,
+                0,
+            )
+        } != 0
+        {
+            [work.left, work.top]
+        } else {
+            [0, 0]
+        }
+    }
+
+    /// A window's saved normal placement, converted to screen coordinates.
+    /// Read-only: the placement is *captured*, never applied, so a minimized
+    /// window is described where it would sit without being restored, raised
+    /// or activated (PRD hard bar). `None` when the read fails; callers keep
+    /// the live rect and disclose.
+    fn normal_placement_rect(window: Hwnd) -> Option<[i32; 4]> {
+        let mut placement = WindowPlacement {
+            length: size_of::<WindowPlacement>() as u32,
+            flags: 0,
+            show_cmd: 0,
+            min_position: Point { x: 0, y: 0 },
+            max_position: Point { x: 0, y: 0 },
+            normal_position: Rect { left: 0, top: 0, right: 0, bottom: 0 },
+        };
+        if unsafe { GetWindowPlacement(window, &mut placement) } == 0 {
+            return None;
+        }
+        let [wx, wy] = work_area_origin();
+        let rect = placement.normal_position;
+        Some([rect.left + wx, rect.top + wy, rect.right - rect.left, rect.bottom - rect.top])
     }
 
     /// Whether any window owns the foreground right now. The title is never
@@ -2921,7 +3178,7 @@ mod native {
     /// windows, where `EnumChildWindows` reports only the render widget.
     /// Hand-written COM bindings, no new crate, no OS grant request, no
     /// elevation, no writes to the target process.
-    pub fn a11y_controls(handle: u64) -> Result<(Vec<super::A11yControl>, bool), String> {
+    pub fn a11y_controls(handle: u64) -> Result<(Vec<super::A11yControl>, bool, Option<String>), String> {
         msaa::scan(handle)
     }
 
@@ -2930,6 +3187,13 @@ mod native {
         identity: crate::screen::A11yIdentity,
     ) -> Result<Result<(), String>, String> {
         msaa::invoke_default_action(handle, identity)
+    }
+
+    pub(super) fn a11y_invoke_inner(
+        handle: u64,
+        identity: crate::screen::A11yIdentity,
+    ) -> Result<Result<crate::screen::A11yInvokeOutcome, String>, String> {
+        msaa::invoke_semantic(handle, identity)
     }
 
     pub(super) fn a11y_put_acc_value_inner(
@@ -2943,8 +3207,8 @@ mod native {
 
     mod msaa {
         use super::super::{
-            a11y_role_name, A11yControl, SCREEN_TOOL_MAX_A11Y_CONTROLS,
-            SCREEN_TOOL_MAX_A11Y_DEPTH,
+            a11y_role_name, is_minimized_tombstone_origin, minimized_node_screen_pos,
+            A11yControl, SCREEN_TOOL_MAX_A11Y_CONTROLS, SCREEN_TOOL_MAX_A11Y_DEPTH,
         };
         use crate::screen::A11yIdentity;
         use std::ffi::c_void;
@@ -3200,6 +3464,351 @@ mod native {
                 }
             }
             1
+        }
+
+        /// `{ff48dba4-60ef-4201-aa87-54103eef594e}` (CUIAutomation).
+        const CLSID_UIAUTOMATION: Guid = Guid {
+            a: 0xff48dba4,
+            b: 0x60ef,
+            c: 0x4201,
+            d: [0xaa, 0x87, 0x54, 0x10, 0x3e, 0xef, 0x59, 0x4e],
+        };
+        /// `{30cbe57d-d9d0-452a-ab13-7ac5ac4825ee}` (IUIAutomation), exactly
+        /// as `UIAutomationClient.h` declares it. A lookalike GUID from a
+        /// secondary source silently fails `CoCreateInstance` and the whole
+        /// UIA arm degrades into a no-op, so this constant is pinned by a
+        /// unit test (`uia_guids_match_the_sdk_header`).
+        const IID_IUIAUTOMATION: Guid = Guid {
+            a: 0x30cbe57d,
+            b: 0xd9d0,
+            c: 0x452a,
+            d: [0xab, 0x13, 0x7a, 0xc5, 0xac, 0x48, 0x25, 0xee],
+        };
+
+        /// UIA fixed property/pattern ids (`UIAutomationClient.h`).
+        const UIA_CONTROLTYPE_PROPERTY_ID: i32 = 30003;
+        const UIA_NAME_PROPERTY_ID: i32 = 30005;
+        const UIA_INVOKE_PATTERN_ID: i32 = 10000;
+        /// `TreeScope_Element | TreeScope_Children | TreeScope_Descendants`.
+        const UIA_TREE_SCOPE_SUBTREE: i32 = 7;
+        const VT_BSTR: u16 = 8;
+
+        /// Test pin: the two UIA GUIDs as 16 little-endian bytes each, so the
+        /// unit tests can assert them against the SDK header values
+        /// byte-for-byte.
+        #[cfg(test)]
+        pub(super) fn guid_pins() -> ([u8; 16], [u8; 16]) {
+            fn to_bytes(guid: &Guid) -> [u8; 16] {
+                let mut bytes = [0u8; 16];
+                bytes[..4].copy_from_slice(&guid.a.to_le_bytes());
+                bytes[4..6].copy_from_slice(&guid.b.to_le_bytes());
+                bytes[6..8].copy_from_slice(&guid.c.to_le_bytes());
+                bytes[8..].copy_from_slice(&guid.d);
+                bytes
+            }
+            (to_bytes(&CLSID_UIAUTOMATION), to_bytes(&IID_IUIAUTOMATION))
+        }
+
+        /// The MSAA coarse role -> the UIA ControlType whose meaning is fixed
+        /// by the UIA spec. Roles without a single stable counterpart are
+        /// absent: their identity narrows by name only, never by a guessed
+        /// ControlType.
+        pub(super) fn uia_control_type_for(role_name: &str) -> Option<i32> {
+            let mapped = match role_name {
+                "button" => 50000,      // UIA_ButtonControlTypeId
+                "checkbox" => 50002,    // UIA_CheckBoxControlTypeId
+                "combobox" => 50003,    // UIA_ComboBoxControlTypeId
+                "textbox" => 50004,     // UIA_EditControlTypeId
+                "graphic" => 50006,     // UIA_ImageControlTypeId
+                "listitem" => 50007,    // UIA_ListItemControlTypeId
+                "list" => 50008,        // UIA_ListControlTypeId
+                "menubar" => 50010,     // UIA_MenuBarControlTypeId
+                "menuitem" => 50011,    // UIA_MenuItemControlTypeId
+                "slider" => 50015,      // UIA_SliderControlTypeId
+                "tab" => 50018,         // UIA_TabControlTypeId
+                "tabitem" => 50019,     // UIA_TabItemControlTypeId
+                "label" => 50020,       // UIA_TextControlTypeId
+                "toolbar" => 50021,     // UIA_ToolBarControlTypeId
+                "document" => 50030,    // UIA_DocumentControlTypeId
+                "group" => 50026,       // UIA_GroupControlTypeId
+                "window" | "dialog" => 50032, // UIA_WindowControlTypeId
+                _ => return None,
+            };
+            Some(mapped)
+        }
+
+        /// Open one UIA client connection and resolve the top-level window's
+        /// provider element (`IUIAutomation::ElementFromHandle`, vtable slot
+        /// 6 - slot 3 is `CompareElements`; the caller releases both objects).
+        /// Returns `(automation, element)`.
+        unsafe fn uia_connect(
+            window: *mut c_void,
+        ) -> Result<(*mut c_void, *mut c_void), String> {
+            #[link(name = "ole32")]
+            extern "system" {
+                fn CoCreateInstance(
+                    clsid: *const Guid,
+                    outer: *mut c_void,
+                    context: u32,
+                    iid: *const Guid,
+                    out: *mut *mut c_void,
+                ) -> i32;
+            }
+            let mut automation: *mut c_void = std::ptr::null_mut();
+            // CLSCTX_INPROC_SERVER.
+            let hr = CoCreateInstance(
+                &CLSID_UIAUTOMATION,
+                std::ptr::null_mut(),
+                1,
+                &IID_IUIAUTOMATION,
+                &mut automation,
+            );
+            if hr != 0 || automation.is_null() {
+                return Err(format!(
+                    "CoCreateInstance(CUIAutomation) failed HRESULT {hr:#010x}"
+                ));
+            }
+            let mut element: *mut c_void = std::ptr::null_mut();
+            type F =
+                unsafe extern "system" fn(*mut c_void, *mut c_void, *mut *mut c_void) -> i32;
+            let element_from_handle: F = std::mem::transmute(slot(automation, 6));
+            let hr = element_from_handle(automation, window, &mut element);
+            if hr != 0 || element.is_null() {
+                release(automation);
+                return Err(format!(
+                    "ElementFromHandle failed HRESULT {hr:#010x}; the window exposes \
+                     no UIA provider"
+                ));
+            }
+            Ok((automation, element))
+        }
+
+        /// Wake Chromium-family trees: the bare UIA connection flips the
+        /// renderer's accessibility on for this process (WM_GETOBJECT /
+        /// UiaRootObjectId), and the mode persists, so the plain MSAA walk
+        /// below sees the full web tree on the same and later calls.
+        /// Refused-or-failed is not an error: cells without a UIA provider
+        /// (native Win32 dialogs) simply keep their MSAA-only tree.
+        fn uia_kick(window: *mut c_void) {
+            unsafe {
+                if let Ok((automation, element)) = uia_connect(window) {
+                    release(element);
+                    release(automation);
+                }
+            }
+        }
+
+        // `SysAllocStringLen`/`SysFreeString` for the BSTR a property
+        // condition carries.
+        #[link(name = "oleaut32")]
+        extern "system" {
+            fn SysAllocStringLen(text: *const u16, length: u32) -> *mut u16;
+            fn SysFreeString(text: *mut u16);
+        }
+
+        impl Variant {
+            fn bstr(pointer: *mut u16) -> Self {
+                let mut v = Self { vt: VT_BSTR, r1: 0, r2: 0, r3: 0, data: [0; 16] };
+                v.data[..8].copy_from_slice(&(pointer as usize).to_ne_bytes());
+                v
+            }
+        }
+
+        /// A UIA attempt that stays below the declared fallback. `Unavailable`
+        /// means the UIA arm could not even address the tree (no provider, no
+        /// match); `Failed` means UIA answered and refused. Both disclose.
+        enum UiAttempt {
+            Invoked,
+            Unavailable(String),
+            Failed(String),
+        }
+
+        /// Rank 1 of the semantic invoke: find the element whose published
+        /// identity matches the resolved MSAA node and fire its
+        /// `InvokePattern`. Chromium exposes the same DOM name on its UIA and
+        /// MSAA trees, so identity carries over. Unavailable/Failed always
+        /// fall back to the MSAA default action with the reason disclosed.
+        unsafe fn uia_invoke_by_identity(
+            window: *mut c_void,
+            identity: &A11yIdentity,
+        ) -> UiAttempt {
+            let (automation, root) = match uia_connect(window) {
+                Ok(pair) => pair,
+                Err(reason) => return UiAttempt::Unavailable(reason),
+            };
+            let name = identity.name.trim().to_owned();
+            if name.is_empty() {
+                release(root);
+                release(automation);
+                return UiAttempt::Unavailable(
+                    "the resolved node has no name; a UIA identity is never guessed".to_owned(),
+                );
+            }
+            // CreatePropertyCondition (slot 23): Name == the published name.
+            let name_ptr: Vec<u16> = name.encode_utf16().collect();
+            let bstr = SysAllocStringLen(name_ptr.as_ptr(), name_ptr.len() as u32);
+            if bstr.is_null() {
+                release(root);
+                release(automation);
+                return UiAttempt::Unavailable("SysAllocStringLen failed".to_owned());
+            }
+            let condition_value = Variant::bstr(bstr);
+            type CreatePropertyConditionF =
+                unsafe extern "system" fn(*mut c_void, i32, Variant, *mut *mut c_void) -> i32;
+            let create_property_condition: CreatePropertyConditionF =
+                std::mem::transmute(slot(automation, 23));
+            let mut condition: *mut c_void = std::ptr::null_mut();
+            let hr =
+                create_property_condition(automation, UIA_NAME_PROPERTY_ID, condition_value, &mut condition);
+            SysFreeString(bstr);
+            if hr != 0 || condition.is_null() {
+                release(root);
+                release(automation);
+                return UiAttempt::Unavailable(format!(
+                    "CreatePropertyCondition(Name) failed HRESULT {hr:#010x}"
+                ));
+            }
+            // FindAll (slot 6) across the subtree, then narrow by ControlType
+            // in Rust when the published role maps to one.
+            type FindAllF =
+                unsafe extern "system" fn(*mut c_void, i32, *mut c_void, *mut *mut c_void) -> i32;
+            let find_all: FindAllF = std::mem::transmute(slot(root, 6));
+            let mut matches: *mut c_void = std::ptr::null_mut();
+            let hr = find_all(root, UIA_TREE_SCOPE_SUBTREE, condition, &mut matches);
+            release(condition);
+            if hr != 0 || matches.is_null() {
+                release(root);
+                release(automation);
+                return UiAttempt::Unavailable(format!(
+                    "FindAll(Name) failed HRESULT {hr:#010x}"
+                ));
+            }
+            // IUIAutomationElementArray: get_Length (slot 3), GetElement (slot 4).
+            type GetLengthF = unsafe extern "system" fn(*mut c_void, *mut i32) -> i32;
+            type GetElementF =
+                unsafe extern "system" fn(*mut c_void, i32, *mut *mut c_void) -> i32;
+            let get_length: GetLengthF = std::mem::transmute(slot(matches, 3));
+            let get_element: GetElementF = std::mem::transmute(slot(matches, 4));
+            let mut count = 0i32;
+            get_length(matches, &mut count);
+            let control_type_wanted = uia_control_type_for(&identity.role_name);
+            // GetCurrentPropertyValue (slot 10) reads the candidate's
+            // ControlType; a failed read is not a match, never a guess.
+            type GetPropertyF =
+                unsafe extern "system" fn(*mut c_void, i32, *mut Variant) -> i32;
+            let get_property: GetPropertyF = std::mem::transmute(slot(root, 10));
+            let mut chosen: *mut c_void = std::ptr::null_mut();
+            for index in 0..count.max(0) {
+                let mut element: *mut c_void = std::ptr::null_mut();
+                if get_element(matches, index, &mut element) != 0 || element.is_null() {
+                    continue;
+                }
+                let mut value = Variant::empty();
+                let role_matches = if control_type_wanted.is_none() {
+                    true
+                } else if get_property(element, UIA_CONTROLTYPE_PROPERTY_ID, &mut value) != 0
+                    || value.vt != VT_I4
+                {
+                    false
+                } else {
+                    Some(value.i4_value()) == control_type_wanted
+                };
+                if role_matches {
+                    if chosen.is_null() {
+                        chosen = element;
+                        continue;
+                    }
+                    // A second match means the identity is not unique in the
+                    // live tree; refuse rather than pick one.
+                    release(element);
+                    release(chosen);
+                    chosen = std::ptr::null_mut();
+                    break;
+                }
+                release(element);
+            }
+            release(matches);
+            release(root);
+            release(automation);
+            if chosen.is_null() {
+                return UiAttempt::Unavailable(format!(
+                    "no UIA element matches name={name:?}{}; the tree may lag the frame",
+                    match control_type_wanted {
+                        Some(id) => format!(" control_type={id}"),
+                        None => String::new(),
+                    }
+                ));
+            }
+            // GetCurrentPattern (slot 16) -> IUIAutomationInvokePattern; its
+            // Invoke is the first method after IUnknown (slot 3). An element
+            // without the pattern is Unavailable, not failed: the provider
+            // simply does not implement it.
+            type GetCurrentPatternF =
+                unsafe extern "system" fn(*mut c_void, i32, *mut *mut c_void) -> i32;
+            let get_current_pattern: GetCurrentPatternF =
+                std::mem::transmute(slot(chosen, 16));
+            let mut pattern: *mut c_void = std::ptr::null_mut();
+            let hr = get_current_pattern(chosen, UIA_INVOKE_PATTERN_ID, &mut pattern);
+            release(chosen);
+            if hr != 0 || pattern.is_null() {
+                return UiAttempt::Unavailable(format!(
+                    "the matched element exposes no UIA InvokePattern (HRESULT {hr:#010x})"
+                ));
+            }
+            type InvokeF = unsafe extern "system" fn(*mut c_void) -> i32;
+            let invoke: InvokeF = std::mem::transmute(slot(pattern, 3));
+            let hr = invoke(pattern);
+            release(pattern);
+            if hr == 0 {
+                UiAttempt::Invoked
+            } else {
+                UiAttempt::Failed(format!(
+                    "InvokePattern.Invoke returned HRESULT {hr:#010x}"
+                ))
+            }
+        }
+
+        /// 0.0.21: the semantic invoke. UIA `InvokePattern` first - the only
+        /// path proven to reach Chromium's DOM on self-drawn buttons - then
+        /// the declared MSAA fallback, with whichever path ran disclosed.
+        pub(super) fn invoke_semantic(
+            handle: u64,
+            identity: A11yIdentity,
+        ) -> Result<Result<crate::screen::A11yInvokeOutcome, String>, String> {
+            let window = handle as usize as *mut c_void;
+            unsafe {
+                let initialized = CoInitializeEx(std::ptr::null_mut(), 2);
+                if initialized < 0 {
+                    return Err(format!(
+                        "screen: unknown: COM could not be initialised for an invoke \
+                         (HRESULT {initialized:#010x})"
+                    ));
+                }
+                let outcome = match uia_invoke_by_identity(window, &identity) {
+                    UiAttempt::Invoked => Ok(Ok(crate::screen::A11yInvokeOutcome {
+                        path: crate::screen::A11yInvokePath::UiaInvokePattern,
+                        detail: String::new(),
+                    })),
+                    UiAttempt::Unavailable(reason) | UiAttempt::Failed(reason) => {
+                        // The declared fallback, never a silent substitute:
+                        // the MSAA path is disclosed, and so is why the UIA
+                        // arm did not run — a reader must be able to tell a
+                        // UIA-verified invoke from an MSAA-only one.
+                        match invoke_by_identity(window, &identity) {
+                            Ok(Ok(())) => Ok(Ok(crate::screen::A11yInvokeOutcome {
+                                path: crate::screen::A11yInvokePath::MsaaDefaultAction,
+                                detail: format!("uia did not run: {reason}"),
+                            })),
+                            Ok(Err(msaa_reason)) => Ok(Err(format!(
+                                "uia: {reason}; msaa: {msaa_reason}"
+                            ))),
+                            Err(dispatch) => Err(dispatch),
+                        }
+                    }
+                };
+                CoUninitialize();
+                outcome
+            }
         }
 
         /// 0.0.17: invoke by identity. Walks the same tree `scan` publishes,
@@ -3467,7 +4076,7 @@ mod native {
             function(object, child)
         }
 
-        pub(super) fn scan(handle: u64) -> Result<(Vec<A11yControl>, bool), String> {
+        pub(super) fn scan(handle: u64) -> Result<(Vec<A11yControl>, bool, Option<String>), String> {
             let window = handle as usize as *mut c_void;
             unsafe {
                 let initialized = CoInitializeEx(std::ptr::null_mut(), 2);
@@ -3477,35 +4086,106 @@ mod native {
                          (HRESULT {initialized:#010x})"
                     ));
                 }
-                let mut children: Vec<*mut c_void> = Vec::new();
-                super::EnumChildWindows(
-                    window,
-                    collect_child,
-                    &mut children as *mut _ as isize,
-                );
-                // The render widget is the usual host; when it is absent still
-                // try the top-level window itself.
-                if children.is_empty() {
-                    children.push(window);
+                // Wake Chromium-family trees first: the bare UIA connection
+                // flips the renderer's accessibility on for this process.
+                uia_kick(window);
+                let mut out = scan_locked(window);
+                // First contact wakes the renderer asynchronously; one bounded
+                // retry covers the gap. A genuinely treeless window keeps its
+                // empty first scan without paying the sleep twice.
+                if out.rows.is_empty() {
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                    uia_kick(window);
+                    out = scan_locked(window);
                 }
-                let mut out = Walk { rows: Vec::new(), truncated: false };
-                for child in children {
-                    let mut object: *mut c_void = std::ptr::null_mut();
-                    let hr = AccessibleObjectFromWindow(
-                        child,
-                        OBJID_CLIENT,
-                        &IID_IACCESSIBLE,
-                        &mut object,
-                    );
-                    if hr == 0 && !object.is_null() {
-                        walk(object, Variant::i4(0), 0, true, &mut out);
-                        release(object);
+                // A minimized window publishes poisoned geometry for every
+                // node it walks; translate the rows onto the window's saved
+                // normal placement instead. The placement is captured, never
+                // changed: nothing here restores, raises or activates the
+                // target (PRD hard bar). Chromium-family providers publish
+                // normal-basis client coordinates while classic Win32
+                // providers publish tombstone-translated screen ones, so the
+                // basis is detected per node (see
+                // `minimized_node_screen_pos`).
+                let mut note: Option<String> = None;
+                if super::IsIconic(window) != 0 {
+                    match minimized_remap_basis(window) {
+                        Some((live_origin, normal_origin))
+                            if is_minimized_tombstone_origin(live_origin[0]) =>
+                        {
+                            for row in &mut out.rows {
+                                let [x, y] = minimized_node_screen_pos(
+                                    [row.x, row.y],
+                                    live_origin,
+                                    normal_origin,
+                                );
+                                row.x = x;
+                                row.y = y;
+                            }
+                            note = Some(format!(
+                                "window is minimized: raw rects are tombstone- or \
+                                 client-basis and have been translated onto the saved \
+                                 normal placement (live origin={},{} placement origin={},{} \
+                                 screen basis; the placement was captured, never changed, \
+                                 and a Chromium window may keep staler bounds than the \
+                                 placement)",
+                                live_origin[0],
+                                live_origin[1],
+                                normal_origin[0],
+                                normal_origin[1]
+                            ));
+                        }
+                        _ => {}
                     }
                 }
                 CoUninitialize();
                 out.rows.sort_by_key(|row| (row.depth, row.y, row.x));
-                Ok((out.rows, out.truncated))
+                Ok((out.rows, out.truncated, note))
             }
+        }
+
+        /// The live origin (the tombstone) and the normal-placement origin on
+        /// the screen basis, for the per-node remap. `None` when a read
+        /// fails; the caller keeps raw rows then, disclosed.
+        unsafe fn minimized_remap_basis(window: *mut c_void) -> Option<([i32; 2], [i32; 2])> {
+            let mut live = super::Rect { left: 0, top: 0, right: 0, bottom: 0 };
+            if super::GetWindowRect(window, &mut live) == 0 {
+                return None;
+            }
+            let normal = super::normal_placement_rect(window)?;
+            let live_origin = [live.left, live.top];
+            Some((live_origin, [normal[0], normal[1]]))
+        }
+
+        /// The plain MSAA walk: render-widget hosts first, then the
+        /// top-level window itself when no render widget exists.
+        unsafe fn scan_locked(window: *mut c_void) -> Walk {
+            let mut children: Vec<*mut c_void> = Vec::new();
+            super::EnumChildWindows(
+                window,
+                collect_child,
+                &mut children as *mut _ as isize,
+            );
+            // The render widget is the usual host; when it is absent still
+            // try the top-level window itself.
+            if children.is_empty() {
+                children.push(window);
+            }
+            let mut out = Walk { rows: Vec::new(), truncated: false };
+            for child in children {
+                let mut object: *mut c_void = std::ptr::null_mut();
+                let hr = AccessibleObjectFromWindow(
+                    child,
+                    OBJID_CLIENT,
+                    &IID_IACCESSIBLE,
+                    &mut object,
+                );
+                if hr == 0 && !object.is_null() {
+                    walk(object, Variant::i4(0), 0, true, &mut out);
+                    release(object);
+                }
+            }
+            out
         }
     }
 
@@ -4103,7 +4783,7 @@ macro_rules! refusing_backend {
         }
         pub fn a11y_controls(
             _handle: u64,
-        ) -> Result<(Vec<super::A11yControl>, bool), String> {
+        ) -> Result<(Vec<super::A11yControl>, bool, Option<String>), String> {
             Err(unsupported("observe a11y"))
         }
         pub fn handle_is_live(_handle: u64, _title: &str) -> Result<(), String> {
@@ -4673,5 +5353,128 @@ mod tests {
                 assert!(error.contains("720x520"), "{error}");
             }
         }
+    }
+
+    // ---- 0.0.21: background-first (working-tree review additions) ----
+
+    #[test]
+    fn a11y_clip_keeps_one_line_per_node_and_the_json_frame_intact() {
+        // Control characters would break the one-line-per-node contract.
+        assert_eq!(a11y_clip("line1\nline2\r\nline3"), "line1 line2  line3");
+        assert_eq!(a11y_clip("tab\tsep"), "tab sep");
+        // Quotes and backslashes would corrupt the JSON frame that carries
+        // the line (a Rust {:?} escape is not a JSON escape).
+        assert_eq!(a11y_clip("say \"hi\" \\ ok"), "say hi  ok");
+        // Trimmed and bounded to 120 chars.
+        assert_eq!(a11y_clip("  padded  "), "padded");
+        let long: String = "x".repeat(300);
+        assert_eq!(a11y_clip(&long).chars().count(), 120);
+        // Astral characters survive, counted as chars, not bytes.
+        let emoji = "🦀".repeat(80);
+        assert_eq!(a11y_clip(&emoji).chars().count(), 80);
+    }
+
+    #[test]
+    fn to_line_is_one_line_with_a_bounded_name() {
+        let control = A11yControl {
+            name: "multi\nline \"quoted\"".to_owned(),
+            value: String::new(),
+            role: 43,
+            role_name: "button",
+            state: 0x100000,
+            x: -31960,
+            y: -31984,
+            width: 40,
+            height: 20,
+            depth: 6,
+            child_id: 0,
+        };
+        let line = control.to_line(3);
+        assert!(!line.contains('\n'), "{line}");
+        assert!(line.starts_with("node=3 "), "{line}");
+        assert!(line.contains("role=button"), "{line}");
+        assert!(!line.contains('"'), "{line}");
+        // The serialized line is embeddable in a JSON string as-is.
+        let wrapped = serde_json::json!({ "line": line }).to_string();
+        serde_json::from_str::<serde_json::Value>(&wrapped).expect("valid json");
+    }
+
+    #[test]
+    fn minimized_node_screen_pos_detects_the_provider_basis_per_node() {
+        // Tombstone cluster (classic Win32 provider: live screen coords
+        // translated by the -32000 window origin): undo the translation and
+        // land on the placement origin.
+        let pos = minimized_node_screen_pos([-31298, -32000], [-32000, -32000], [200, 150]);
+        assert_eq!(pos, [902, 150]);
+        // Chromium-family provider: normal-basis client coords (small values)
+        // move by the placement origin only.
+        let pos = minimized_node_screen_pos([66, 0], [-32000, -32000], [200, 150]);
+        assert_eq!(pos, [266, 150]);
+        // A client-space zero-size node lands on the placement origin, not
+        // on a phantom offscreen point.
+        let pos = minimized_node_screen_pos([0, 0], [-32000, -32000], [0, 0]);
+        assert_eq!(pos, [0, 0]);
+        // The guard between the bases: a real negative-screen node far above
+        // the tombstone cluster is client-basis, not tombstone-basis.
+        assert!(!is_minimized_tombstone_origin(-16001));
+        assert!(is_minimized_tombstone_origin(-16000 - 15999));
+    }
+
+    #[test]
+    fn the_tombstone_test_never_matches_a_real_monitor_position() {
+        assert!(is_minimized_tombstone_origin(-32000));
+        assert!(is_minimized_tombstone_origin(-31960));
+        // The most negative x a real virtual desktop reaches is far above.
+        assert!(!is_minimized_tombstone_origin(-19999));
+        assert!(!is_minimized_tombstone_origin(0));
+        assert!(!is_minimized_tombstone_origin(-1920));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn uia_guids_match_the_sdk_header_byte_for_byte() {
+        // A lookalike GUID silently fails CoCreateInstance and the whole UIA
+        // arm degrades into a no-op (this exact bug shipped in the working
+        // tree once); these constants are pinned to UIAutomationClient.h.
+        // CLSID_CUIAutomation {ff48dba4-60ef-4201-aa87-54103eef594e}
+        let mut expected_clsid = [0u8; 16];
+        expected_clsid[..4].copy_from_slice(&0xff48dba4u32.to_le_bytes());
+        expected_clsid[4..6].copy_from_slice(&0x60efu16.to_le_bytes());
+        expected_clsid[6..8].copy_from_slice(&0x4201u16.to_le_bytes());
+        expected_clsid[8..].copy_from_slice(&[0xaa, 0x87, 0x54, 0x10, 0x3e, 0xef, 0x59, 0x4e]);
+        // IID_IUIAutomation {30cbe57d-d9d0-452a-ab13-7ac5ac4825ee}
+        let mut expected_iid = [0u8; 16];
+        expected_iid[..4].copy_from_slice(&0x30cbe57du32.to_le_bytes());
+        expected_iid[4..6].copy_from_slice(&0xd9d0u16.to_le_bytes());
+        expected_iid[6..8].copy_from_slice(&0x452au16.to_le_bytes());
+        expected_iid[8..].copy_from_slice(&[0xab, 0x13, 0x7a, 0xc5, 0xac, 0x48, 0x25, 0xee]);
+        let (clsid, iid) = native::test_pins::uia_guid_bytes();
+        assert_eq!(clsid, expected_clsid, "CLSID_CUIAutomation");
+        assert_eq!(iid, expected_iid, "IID_IUIAutomation");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn uia_control_type_mapping_covers_the_fixed_pairs_only() {
+        // The pairs the UIA spec fixes; roles without a single counterpart
+        // map to None and narrow by name only, never by a guessed type.
+        assert_eq!(native::test_pins::uia_control_type("button"), Some(50000));
+        assert_eq!(native::test_pins::uia_control_type("textbox"), Some(50004));
+        assert_eq!(native::test_pins::uia_control_type("checkbox"), Some(50002));
+        assert_eq!(native::test_pins::uia_control_type("combobox"), Some(50003));
+        assert_eq!(native::test_pins::uia_control_type("menuitem"), Some(50011));
+        assert_eq!(native::test_pins::uia_control_type("tabitem"), Some(50019));
+        assert_eq!(native::test_pins::uia_control_type("listitem"), Some(50007));
+        assert_eq!(native::test_pins::uia_control_type("label"), Some(50020));
+        assert_eq!(native::test_pins::uia_control_type("dialog"), Some(50032));
+        assert_eq!(native::test_pins::uia_control_type("unknown"), None);
+        assert_eq!(native::test_pins::uia_control_type("client"), None);
+        assert_eq!(native::test_pins::uia_control_type(""), None);
+    }
+
+    #[test]
+    fn a11y_invoke_path_tags_are_stable_evidence_vocabulary() {
+        assert_eq!(A11yInvokePath::UiaInvokePattern.tag(), "uia-invoke-pattern");
+        assert_eq!(A11yInvokePath::MsaaDefaultAction.tag(), "msaa-default-action");
     }
 }
