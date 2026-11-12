@@ -195,6 +195,65 @@ Every one of these ran against a **minimized** ZCode window: the window row was
 four `focus changed` (Chromium focusing its render widget on a default action);
 the disclosure is what made that visible.
 
+### F4 — an explorer window blocks the whole process, and one attempt to fix it made things worse
+
+`observe {a11y: 40307282}` (`explorer.exe`, `CabinetWClass`, pid 162264) produced
+**no reply at all** in 60 s. Reproduced three times.
+
+Narrowed by measuring three windows in **one** stdio session with a 15 s
+per-call deadline:
+
+| target | result |
+|---|---|
+| ZCode `19798326` | 2.2 s, 66 nodes |
+| workbuddy `40307282` | no reply in 15 s |
+| minicon-harness folder `53088076` | no reply in 15 s |
+
+Both non-answering windows belong to `explorer.exe`, and once the first one
+blocked, the third call -- a healthy window -- also blocked. The blocking is at
+the **cross-process MSAA call**, before any row is collected, so the row and
+depth bounds never get a chance to apply.
+
+**An attempt to bound it failed, and is recorded as a failure.** Running the
+whole `msaa::scan` on a worker thread with a 5 s (later 13 s)
+`recv_timeout` did turn the hang into a disclosed `unknown`:
+
+```text
+a11y: screen: unknown: the accessibility walk did not answer within 5000 ms;
+this provider's cross-process MSAA calls are blocking, so the tree is unknown
+rather than empty
+```
+
+but it made **healthy windows fail too**: in a fresh process, with no previous
+call, ZCode went from 2.2 s / 66 nodes to a 13 s timeout and **0 nodes**. Every
+scan thereafter failed the same way. The `CoInitializeEx(.., 2)` inside `scan`
+runs on the worker, but the MSAA provider evidently still needs the caller's
+thread context; moving the walk to another thread broke working windows to
+bound a broken one.
+
+That change was **reverted** (`git checkout src/screen.rs`), and ZCode was
+re-verified at 2.2 s / 66 nodes afterwards. The deadline constant and the
+worker-thread forwarder are gone; `src/screen.rs` is byte-identical to the
+commit before the attempt.
+
+**What is left.** The honest options are:
+
+1. Move the whole *screen tool call* onto a worker thread per request, with the
+   COM initialisation done there from the start, so the main thread never
+   enters a blocking MSAA call. That is a change to the host, not to `scan`, and
+   it needs its own measurements.
+2. Refuse `a11y` on top-level windows whose class is known to block
+   (`CabinetWClass` under `explorer.exe`), naming the class and suggesting
+   `window: "<title>"` for a capture. Cheap, honest, and narrow — but it
+   generalises badly.
+3. Reduce the per-node cost so the walk finishes inside any client's patience.
+
+None of the three was implemented: (1) is a design change I would be guessing
+at, and I already have one wrong guess in this entry; (2) needs a measured list
+of blocking classes, which is one data point; (3) is unmeasured. Later calls in
+the same process are still affected, so the practical advice today is **one
+process per observation**, which the session-scoped host already enforces.
+
 ## Not yet exercised
 `act:control` invoke, `set_value`, `click`, `drag`, `scroll`, screenshots and
 the effect readback. They are next, in that order, against a window that can
