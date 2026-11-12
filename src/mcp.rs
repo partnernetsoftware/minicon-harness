@@ -394,6 +394,9 @@ mod tests {
             .is_none());
     }
 
+    /// Windows-only: the act arm under test resolves a Win32 control row; the
+    /// other cells answer `act:control` with `unsupported`.
+    #[cfg(windows)]
     #[test]
     fn the_screen_host_is_resident_across_stdio_calls() {
         // observe -> act composes only because one CuHost survives the whole

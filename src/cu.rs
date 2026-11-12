@@ -3849,6 +3849,10 @@ mod tests {
     /// provider returned S_OK". Measured on a minimized Chromium window
     /// (2026-11-12) a real invoke changes the tree; a provider S_OK that leaves
     /// the tree identical must not be reported as a performed act.
+    ///
+    /// Windows-only: the semantic invoke is the Windows backend, and the other
+    /// cells answer `act:control` with `unsupported` by contract.
+    #[cfg(windows)]
     #[test]
     fn an_invoke_that_leaves_the_window_unchanged_is_not_performed() {
         // A frame to compare against: the host's last observation published
@@ -4157,6 +4161,11 @@ mod tests {
         assert_eq!(result.evidence["reason"], "no_frame");
     }
 
+    /// Windows-only: the semantic invoke is the Windows backend. The other
+    /// cells answer `act:control` with `unsupported`, which the body below
+    /// partly models, but the Win32 admission arm it then exercises does not
+    /// exist there.
+    #[cfg(windows)]
     #[test]
     fn a_named_target_never_guesses_ambiguous_stale_or_unusable_controls() {
         let caps = crate::screen::platform_capabilities();
@@ -6323,6 +6332,9 @@ mod tests {
         }
     }
 
+    /// Windows-only: the semantic invoke is the Windows backend, and the other
+    /// cells answer `act:control` with `unsupported` by contract.
+    #[cfg(windows)]
     #[test]
     fn the_default_invoke_publishes_path_and_defaulted_evidence() {
         // The 0.0.21 default: no mode flag, semantic invoke, stub backend.
